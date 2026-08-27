@@ -1,0 +1,183 @@
+# ติดตั้งระบบ
+
+สิ่งที่ deploy ไว้ให้แล้ว และสิ่งที่คุณต้องทำเอง แยกไว้ชัดเจนด้านล่าง
+
+## สถานะปัจจุบัน
+
+| ส่วน | สถานะ |
+|---|---|
+| Supabase project `atas-signal` | ✅ สร้างแล้ว |
+| Migrations 0001–0007 | ✅ apply แล้ว |
+| Edge Functions `ingest`, `outcome-notify` | ✅ deploy แล้ว (ACTIVE) |
+| pg_cron ให้คะแนนผลลัพธ์ทุกนาที | ✅ ทำงานอยู่ |
+| กฎเริ่มต้น 4 ข้อ | ✅ seed แล้ว |
+| Secrets (token ต่าง ๆ) | ⬜ **คุณต้องตั้งเอง** — ขั้นตอนที่ 1 |
+| ATAS indicator (.dll) | ⬜ **คุณต้อง build เอง** — ขั้นตอนที่ 3 |
+
+Project URL: `https://sckdriuwfyittcybnbhz.supabase.co`
+
+---
+
+## 1. ตั้ง secrets บน Supabase
+
+ไปที่ **Project Settings → Edge Functions → Secrets** แล้วเพิ่ม:
+
+| ชื่อ | ค่า |
+|---|---|
+| `INGEST_TOKEN` | สุ่มขึ้นมาเอง เช่นด้วย `openssl rand -hex 32` — ค่านี้ต้องใส่ใน indicator ด้วย |
+| `TELEGRAM_BOT_TOKEN` | ได้จาก [@BotFather](https://t.me/BotFather) |
+| `TELEGRAM_CHAT_ID` | id ของแชตหรือกลุ่มที่จะให้ยิงเข้า |
+| `DASHBOARD_URL` | URL ของ dashboard บน Vercel (ใส่ทีหลังได้) |
+
+**ถ้ายังไม่ตั้ง `TELEGRAM_*`** ระบบยังทำงานปกติ เก็บสัญญาณครบทุกอย่าง เพียงแต่ไม่ส่งแจ้งเตือน
+**ถ้ายังไม่ตั้ง `INGEST_TOKEN`** endpoint จะปฏิเสธทุก request (ตั้งใจให้เป็นแบบนั้น)
+
+### หา chat id ยังไง
+
+ส่งข้อความอะไรก็ได้หาบอทของคุณ แล้วเปิด:
+
+```
+https://api.telegram.org/bot<TOKEN>/getUpdates
+```
+
+ดูที่ `result[0].message.chat.id` (กลุ่มจะเป็นเลขติดลบ)
+
+### ทดสอบว่า endpoint ใช้ได้
+
+```bash
+curl -i -X POST "https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest" \
+  -H "Authorization: Bearer $INGEST_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "symbol": "TEST", "tickSize": 0.25, "timeframe": "5m",
+    "bars": [{
+      "openedAt": "2026-08-27T10:00:00.000Z",
+      "open": 100, "high": 101, "low": 100, "close": 100.75,
+      "volume": 126, "askVolume": 110, "bidVolume": 16,
+      "delta": 94, "minDelta": -5, "maxDelta": 100,
+      "ticks": 40, "trades": 30, "isClosed": true,
+      "levels": [
+        {"price":100.00,"ask":2, "bid":5,"between":0,"volume":7, "ticks":2},
+        {"price":100.25,"ask":30,"bid":4,"between":0,"volume":34,"ticks":9},
+        {"price":100.50,"ask":40,"bid":3,"between":0,"volume":43,"ticks":11},
+        {"price":100.75,"ask":35,"bid":2,"between":0,"volume":37,"ticks":10}
+      ]
+    }]
+  }'
+```
+
+ควรได้ `{"ok":true,"barsWritten":1,"levelsWritten":4,"signalsCreated":1,...}`
+และมีข้อความ Long / Stacked Imbalance เข้า Telegram
+
+ลบข้อมูลทดสอบทิ้งด้วย SQL: `delete from public.instruments where symbol = 'TEST';`
+
+---
+
+## 2. Dashboard (Vercel)
+
+Environment variables ที่ต้องมี:
+
+```
+NEXT_PUBLIC_SUPABASE_URL=https://sckdriuwfyittcybnbhz.supabase.co
+NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable key จาก Supabase>
+```
+
+**Root Directory ต้องตั้งเป็น `web`**
+
+### สร้างบัญชีเข้าใช้งาน
+
+Dashboard ล็อกด้วย Supabase Auth (ส่งลิงก์เข้าอีเมล) — สัญญาณของคุณไม่เปิดสาธารณะ
+
+1. เปิด `/login` แล้วใส่อีเมลของคุณ กดรับลิงก์
+2. เปิดอีเมล กดลิงก์ → เข้าใช้งานได้
+
+เมื่อสร้างบัญชีตัวเองเสร็จแล้ว ให้ไปปิดการสมัครใหม่ที่
+**Authentication → Sign In / Providers → ปิด "Allow new users to sign up"**
+เพื่อไม่ให้คนอื่นสมัครเข้ามาได้
+
+---
+
+## 3. Build ATAS indicator
+
+> โปรเจกต์ C# **build ได้บนเครื่อง Windows ที่ลง ATAS เท่านั้น** เพราะ ATAS SDK
+> ไม่ได้เผยแพร่บน NuGet — csproj อ้าง DLL ตรงจากโฟลเดอร์ที่ติดตั้ง ATAS ไว้
+
+### เช็คเวอร์ชัน .NET ก่อน
+
+ดูในโฟลเดอร์ `C:\Program Files (x86)\ATAS Platform\` หาไฟล์ `*.runtimeconfig.json`
+แล้วดูค่า `version` — ตัวเลขนั้นคือ runtime ที่ ATAS ใช้
+
+ค่า default ของโปรเจกต์คือ `net8.0-windows` ถ้าไม่ตรงให้สั่ง build แบบระบุเอง:
+
+```powershell
+cd atas-indicator
+dotnet build -c Release -p:AtasTargetFramework=net7.0-windows
+```
+
+ถ้าลง ATAS ไว้คนละที่:
+
+```powershell
+dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
+```
+
+### ติดตั้ง
+
+1. copy `AtasSignalBridge.dll` ที่ได้ ไปวางที่
+   `%USERPROFILE%\Documents\ATAS\Indicators\`
+2. เปิด ATAS ใหม่
+3. บนชาร์ต → Indicators → หมวด **Order Flow** → **Signal Bridge**
+
+### ตั้งค่าใน indicator
+
+| ช่อง | ใส่อะไร |
+|---|---|
+| Endpoint URL | `https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest` |
+| Ingest token | ค่าเดียวกับ `INGEST_TOKEN` |
+| Timeframe label | ป้ายกำกับชาร์ตนี้ เช่น `5m`, `1h`, `2000t` — **ใช้คนละค่าต่อหนึ่งชาร์ต** |
+| Backfill bars on start | 100 (ส่งแท่งเก่าครั้งเดียวตอนโหลด เพื่อให้กฎมีประวัติใช้ทันที) |
+| Send live bar updates | ปิดไว้ก่อนก็ได้ — กฎไม่เคยตัดสินแท่งที่ยังไม่ปิดอยู่แล้ว |
+
+ถ้ายังไม่ใส่ URL หรือ token indicator จะไม่ทำอะไรและขึ้นข้อความเตือนใน log ของ ATAS
+
+---
+
+## 4. จูนกฎ
+
+หน้า `/rules` บน dashboard แก้ค่าได้ทุกตัวแล้วกดบันทึก **มีผลกับแท่งถัดไปทันที
+ไม่ต้อง deploy ใหม่ ไม่ต้อง build indicator ใหม่**
+
+| กฎ | ค่าที่ปรับได้ |
+|---|---|
+| `stacked_imbalance` | `ratio` (เท่าตัวที่ถือว่า imbalance), `minVolume`, `stack` (กี่ระดับติดกัน) |
+| `delta_divergence` | `lookback` (เทียบย้อนกี่แท่ง), `minDeltaMagnitude` |
+| `absorption` | `volumeMultiple`, `edgeTicks`, `rejectionTicks` |
+| `poc_shift` | `minTicks`, `consecutive`, `hvnShare` |
+
+`horizon_bars` คือจำนวนแท่งหลังสัญญาณที่ใช้วัดผล — เปลี่ยนแล้วมีผลกับสัญญาณใหม่เท่านั้น
+
+---
+
+## 5. สถิติเริ่มมาเมื่อไหร่
+
+ทุกสัญญาณจะถูกตั้งเป็น `pending` ทันทีที่เกิด แล้ว `pg_cron` จะเช็คทุกนาทีว่ามีแท่ง
+ครบตาม `horizon_bars` หรือยัง ถ้าครบก็คำนวณ MFE / MAE / กำไรขาดทุนเป็น tick แล้วเปลี่ยนเป็น `resolved`
+
+- ตัวเลขทั้งหมดมาจากแท่งที่ ATAS ส่งเข้ามาเอง **ไม่ต้องพึ่งข้อมูลราคาจากที่อื่น**
+- ถ้าปิดชาร์ตไปนานจนไม่มีแท่งเข้ามาเกิน 24 ชม. สัญญาณนั้นจะกลายเป็น `expired`
+  และไม่ถูกนับรวมในสถิติ (กันไม่ให้ win rate เพี้ยน)
+- ผลลัพธ์จะถูก reply กลับไปที่ข้อความ Telegram เดิมของสัญญาณนั้นด้วย
+
+---
+
+## แก้ปัญหา
+
+| อาการ | สาเหตุที่พบบ่อย |
+|---|---|
+| `401 unauthorized` | `INGEST_TOKEN` ใน Supabase ไม่ตรงกับใน indicator |
+| `400 tickSize must be a positive number` | indicator อ่าน `InstrumentInfo` ไม่ได้ — รอให้ชาร์ตโหลดข้อมูลเสร็จก่อน |
+| ไม่มีสัญญาณเลย | ปกติในช่วงแรก — กฎอย่าง `delta_divergence` ต้องมีประวัติ 5 แท่งก่อน ลองลด `stack` หรือ `ratio` ที่หน้า `/rules` |
+| ไม่มีข้อความเข้า Telegram | ยังไม่ตั้ง `TELEGRAM_BOT_TOKEN` / `TELEGRAM_CHAT_ID` หรือยังไม่ได้กด Start คุยกับบอท |
+| ชาร์ตหน่วง | ปิด "Send live bar updates" — การส่งทุกแท่งที่ปิดแล้วก็เพียงพอ |
+| Dashboard ว่างเปล่าทั้งที่มีข้อมูล | ยังไม่ได้ล็อกอิน — RLS ให้เห็นข้อมูลเฉพาะผู้ที่ล็อกอินแล้ว |
+
+ดู log ของ ingest ได้ที่ตาราง `public.ingest_log` (เก็บจำนวนแท่ง/level/signal และ error ของทุก request)
