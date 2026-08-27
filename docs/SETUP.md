@@ -12,6 +12,7 @@
 | pg_cron ให้คะแนนผลลัพธ์ทุกนาที | ✅ ทำงานอยู่ |
 | กฎเริ่มต้น 4 ข้อ | ✅ seed แล้ว |
 | Secrets (token ต่าง ๆ) | ⬜ **คุณต้องตั้งเอง** — ขั้นตอนที่ 1 |
+| Dashboard บน Vercel | ⬜ **ต้อง import เอง** — ขั้นตอนที่ 2 (API ตอบ 404) |
 | ATAS indicator (.dll) | ⬜ **คุณต้อง build เอง** — ขั้นตอนที่ 3 |
 
 Project URL: `https://sckdriuwfyittcybnbhz.supabase.co`
@@ -75,14 +76,34 @@ curl -i -X POST "https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest" \
 
 ## 2. Dashboard (Vercel)
 
-Environment variables ที่ต้องมี:
+> **สถานะ:** ส่วนนี้ผมทำให้ไม่สำเร็จ — Vercel API ตอบ 404 กลับมาทุกครั้งหลังสร้าง project
+> และเครื่องมือที่มีอยู่ก็ตั้ง environment variable ไม่ได้ ซึ่งจำเป็นต่อการรัน
+> ระหว่างที่ลองมี project ถูกสร้างค้างไว้ **2 ตัว** ชื่อ `atas-signal-board`
+> และ `atas-signal-dashboard` — ลบทิ้งได้ทั้งคู่ แล้วทำตามขั้นตอนข้างล่างแทน
+> (import เองใช้เวลาไม่ถึงนาที)
+
+### เชื่อม repo
+
+1. เปิด [vercel.com/new](https://vercel.com/new) → เลือก repo
+   `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL`
+2. **Root Directory → `web`** (สำคัญ ถ้าไม่ตั้ง build จะพัง)
+3. Framework จะถูกตรวจเป็น Next.js เอง
+
+### Environment variables
+
+ใส่ทั้งสองตัวก่อนกด Deploy:
 
 ```
 NEXT_PUBLIC_SUPABASE_URL=https://sckdriuwfyittcybnbhz.supabase.co
-NEXT_PUBLIC_SUPABASE_ANON_KEY=<publishable key จาก Supabase>
+NEXT_PUBLIC_SUPABASE_ANON_KEY=sb_publishable_WgRuqIaGzhXVWtk-ZGdCuQ_BVQhFktL
 ```
 
-**Root Directory ต้องตั้งเป็น `web`**
+ทั้งคู่เป็นคีย์ฝั่ง client ที่ตั้งใจให้เปิดเผยได้อยู่แล้ว ข้อมูลถูกกันด้วย RLS ไม่ใช่ด้วยการซ่อนคีย์
+
+### หลัง deploy เสร็จ
+
+เอา URL ที่ได้ไปใส่เป็น `DASHBOARD_URL` ใน Supabase secrets
+เพื่อให้ปุ่ม "ดูรายละเอียด" ในข้อความ Telegram ลิงก์กลับมาถูกที่
 
 ### สร้างบัญชีเข้าใช้งาน
 
