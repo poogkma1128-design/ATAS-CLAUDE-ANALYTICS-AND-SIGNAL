@@ -178,9 +178,16 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 ### ติดตั้ง
 
-1. copy `AtasSignalBridge.dll` ที่ได้ ไปวางที่
-   `%USERPROFILE%\Documents\ATAS\Indicators\`
-2. เปิด ATAS ใหม่
+โฟลเดอร์ปลายทางอาจยังไม่มี ให้สร้างก่อน (ไม่งั้น `copy` จะขึ้น
+DirectoryNotFoundException):
+
+```powershell
+mkdir "$env:USERPROFILE\Documents\ATAS\Indicators" -Force
+copy .\AtasSignalBridge\bin\Release\AtasSignalBridge.dll "$env:USERPROFILE\Documents\ATAS\Indicators\"
+dir  "$env:USERPROFILE\Documents\ATAS\Indicators\AtasSignalBridge.dll"
+```
+
+จากนั้น **ปิด ATAS ให้สนิท** (ออกจาก system tray ด้วย) แล้วเปิดใหม่
 3. บนชาร์ต → Indicators → หมวด **Order Flow** → **Signal Bridge**
 
 ### ตั้งค่าใน indicator
