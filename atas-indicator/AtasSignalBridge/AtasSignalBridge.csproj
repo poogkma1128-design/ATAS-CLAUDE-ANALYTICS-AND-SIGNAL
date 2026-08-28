@@ -2,13 +2,15 @@
 
   <PropertyGroup>
     <!--
-      Must match the .NET runtime your ATAS build runs on. A library targeting a
-      NEWER runtime than the host will not load, so when in doubt go lower.
-      Check ATAS Platform\*.runtimeconfig.json for the host version, then
-      override without editing this file:
-          dotnet build -p:AtasTargetFramework=net7.0-windows
+      Must match the .NET runtime the ATAS install runs on: a library targeting a
+      NEWER runtime than its host will not load.
+
+      net10.0 is what ATAS ships on (Microsoft.WindowsDesktop.App 10.0.0, read
+      from ATAS Platform\*.runtimeconfig.json). Confirm against your own install
+      and override without editing this file if it differs:
+          dotnet build -p:AtasTargetFramework=net8.0-windows
     -->
-    <AtasTargetFramework Condition="'$(AtasTargetFramework)' == ''">net8.0-windows</AtasTargetFramework>
+    <AtasTargetFramework Condition="'$(AtasTargetFramework)' == ''">net10.0-windows</AtasTargetFramework>
     <TargetFramework>$(AtasTargetFramework)</TargetFramework>
 
     <!-- Default install location. Override with -p:AtasPath=... if yours differs. -->

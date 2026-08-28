@@ -149,16 +149,25 @@ Dashboard ล็อกด้วย Supabase Auth (ส่งลิงก์เข
 > โปรเจกต์ C# **build ได้บนเครื่อง Windows ที่ลง ATAS เท่านั้น** เพราะ ATAS SDK
 > ไม่ได้เผยแพร่บน NuGet — csproj อ้าง DLL ตรงจากโฟลเดอร์ที่ติดตั้ง ATAS ไว้
 
-### เช็คเวอร์ชัน .NET ก่อน
+### เวอร์ชัน .NET
 
-ดูในโฟลเดอร์ `C:\Program Files (x86)\ATAS Platform\` หาไฟล์ `*.runtimeconfig.json`
-แล้วดูค่า `version` — ตัวเลขนั้นคือ runtime ที่ ATAS ใช้
+ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ่งเป็นค่า default
+ของโปรเจกต์อยู่แล้ว ปกติจึงสั่ง build เฉยๆ ได้เลย
 
-ค่า default ของโปรเจกต์คือ `net8.0-windows` ถ้าไม่ตรงให้สั่ง build แบบระบุเอง:
+ถ้าอยากยืนยันกับเครื่องตัวเอง: เปิด `C:\Program Files (x86)\ATAS Platform\`
+หาไฟล์ `*.runtimeconfig.json` แล้วดูค่า `version`
+
+ต้องลง **.NET 10 SDK** ก่อน → https://dotnet.microsoft.com/download/dotnet/10.0
 
 ```powershell
 cd atas-indicator
-dotnet build -c Release -p:AtasTargetFramework=net7.0-windows
+dotnet build -c Release
+```
+
+ถ้าเครื่องคุณใช้เวอร์ชันอื่น สั่งทับได้โดยไม่ต้องแก้ไฟล์:
+
+```powershell
+dotnet build -c Release -p:AtasTargetFramework=net8.0-windows
 ```
 
 ถ้าลง ATAS ไว้คนละที่:
