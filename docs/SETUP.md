@@ -91,27 +91,29 @@ curl -i -X POST "https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest" \
 
 **เลือกเก็บไว้ตัวเดียว แล้วลบอีกตัวทิ้ง** ไม่งั้นจะ build ซ้ำซ้อนทุก push
 
-### ทำไม build ไม่ผ่าน
+### build ไม่ผ่าน — ยังหาสาเหตุไม่เจอ
 
-แอปอยู่ในโฟลเดอร์ `web/` แต่ **root ของ repo ไม่มี `package.json`**
-ถ้าไม่ตั้ง Root Directory Vercel จะ build จาก root แล้วหา Next.js ไม่เจอ → พังทันที
+> **แก้ที่ผมวินิจฉัยผิด:** ตอนแรกผมบอกว่าสาเหตุคือไม่ได้ตั้ง Root Directory
+> **ผิดครับ** — metadata ที่ Vercel bot ส่งมาใน PR ระบุว่า `"rootDirectory":"web"`
+> ตั้งไว้ถูกต้องแล้วทั้งสอง project
 
-ยืนยันแล้วว่าไม่ใช่ปัญหาที่โค้ดหรือ env var — build ในเครื่องโดย**ไม่มี env var เลย**ก็ผ่าน:
+สิ่งที่**ตัดออกไปได้แล้ว**:
 
-```
-$ cd web && rm -rf .next && npm run build
-✓ Compiled successfully
-✓ Generating static pages (5/5)
-```
+| สมมติฐาน | ผลตรวจ |
+|---|---|
+| Root Directory ไม่ได้ตั้ง | ❌ ไม่ใช่ — ตั้งเป็น `web` แล้วทั้งคู่ |
+| ไม่มี env var | ❌ ไม่ใช่ — build โดยไม่มี env var เลยก็ผ่าน (Supabase ถูกเรียกตอน request ไม่ใช่ตอน build) |
+| lockfile ไม่ตรงกับ package.json | ❌ ไม่ใช่ — `npm ci` สะอาด |
 
-(Supabase ถูกเรียกตอน request เท่านั้น ไม่ได้เรียกตอน build)
+ผมดึง build log มาดูไม่ได้ เพราะเครื่องมือที่ใช้อ่าน Vercel ตอบ 404 ทุกครั้ง
+(ลองแล้วทั้ง deployment ID, hostname, team ID และ team slug)
 
-### วิธีแก้
+**ถ้า build ยังไม่ผ่าน** เปิด log จากลิงก์ในหน้า project แล้วดูบรรทัด error
+โดยตรง — สาเหตุน่าจะอยู่บรรทัดท้ายๆ ของ build log
 
-Project → Settings → Build & Deployment → **Root Directory = `web`** → redeploy
-
-> ผมแก้เองไม่ได้ เพราะไม่มีเครื่องมือที่อ่านหรือแก้ project setting ของ Vercel ได้
-> (อ่านทีไรได้ 404 ทุกครั้ง จึงดึง build log มาดูก็ไม่ได้ด้วย)
+หมายเหตุ: `next` ถูกอัปจาก 15.1.6 เป็น 15.5.24 แล้ว เพราะ 15.1.6 ถูก deprecate
+บน npm จากช่องโหว่ security ถ้าสาเหตุที่ build ไม่ผ่านคือ Vercel บล็อกเวอร์ชัน
+ที่มี CVE การอัปรอบนี้ก็จะแก้ไปด้วยในตัว
 
 ### Environment variables
 
