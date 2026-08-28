@@ -188,7 +188,8 @@ dir  "$env:USERPROFILE\Documents\ATAS\Indicators\AtasSignalBridge.dll"
 ```
 
 จากนั้น **ปิด ATAS ให้สนิท** (ออกจาก system tray ด้วย) แล้วเปิดใหม่
-3. บนชาร์ต → Indicators → หมวด **Order Flow** → **Signal Bridge**
+
+บนชาร์ต → Indicators → หมวด **Order Flow** → **Signal Bridge**
 
 ### ตั้งค่าใน indicator
 
