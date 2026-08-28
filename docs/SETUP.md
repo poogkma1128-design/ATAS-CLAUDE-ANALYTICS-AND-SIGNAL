@@ -12,7 +12,7 @@
 | pg_cron ให้คะแนนผลลัพธ์ทุกนาที | ✅ ทำงานอยู่ |
 | กฎเริ่มต้น 4 ข้อ | ✅ seed แล้ว |
 | Secrets (token ต่าง ๆ) | ⬜ **คุณต้องตั้งเอง** — ขั้นตอนที่ 1 |
-| Dashboard บน Vercel | ⬜ **ต้อง import เอง** — ขั้นตอนที่ 2 (API ตอบ 404) |
+| Dashboard บน Vercel | ⚠️ project ผูกกับ repo แล้ว แต่ build ไม่ผ่าน — ขั้นตอนที่ 2 |
 | ATAS indicator (.dll) | ⬜ **คุณต้อง build เอง** — ขั้นตอนที่ 3 |
 
 Project URL: `https://sckdriuwfyittcybnbhz.supabase.co`
@@ -76,18 +76,42 @@ curl -i -X POST "https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest" \
 
 ## 2. Dashboard (Vercel)
 
-> **สถานะ:** ส่วนนี้ผมทำให้ไม่สำเร็จ — Vercel API ตอบ 404 กลับมาทุกครั้งหลังสร้าง project
-> และเครื่องมือที่มีอยู่ก็ตั้ง environment variable ไม่ได้ ซึ่งจำเป็นต่อการรัน
-> ระหว่างที่ลองมี project ถูกสร้างค้างไว้ **2 ตัว** ชื่อ `atas-signal-board`
-> และ `atas-signal-dashboard` — ลบทิ้งได้ทั้งคู่ แล้วทำตามขั้นตอนข้างล่างแทน
-> (import เองใช้เวลาไม่ถึงนาที)
+> **แก้ข้อมูลเดิม:** ตอนแรกผมเข้าใจผิดว่าสร้าง project ไม่สำเร็จ เพราะ Vercel API
+> ตอบ 404 ทุกครั้งที่อ่านกลับ **ความจริงคือสร้างสำเร็จและผูกกับ repo นี้เรียบร้อยแล้ว**
+> ตอนเปิด PR ทั้งสอง project เริ่ม build ทันที — ขออภัยที่บอกให้ลบทิ้งทั้งคู่
 
-### เชื่อม repo
+### สถานะจริงตอนนี้
 
-1. เปิด [vercel.com/new](https://vercel.com/new) → เลือก repo
-   `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL`
-2. **Root Directory → `web`** (สำคัญ ถ้าไม่ตั้ง build จะพัง)
-3. Framework จะถูกตรวจเป็น Next.js เอง
+มี project ผูกกับ repo นี้อยู่ **2 ตัว** ซึ่งจะ build ทุกครั้งที่ push:
+
+| Project | สถานะ |
+|---|---|
+| `atas-signal-board` | กำลัง build |
+| `atas-signal-dashboard` | ❌ build ไม่ผ่าน |
+
+**เลือกเก็บไว้ตัวเดียว แล้วลบอีกตัวทิ้ง** ไม่งั้นจะ build ซ้ำซ้อนทุก push
+
+### ทำไม build ไม่ผ่าน
+
+แอปอยู่ในโฟลเดอร์ `web/` แต่ **root ของ repo ไม่มี `package.json`**
+ถ้าไม่ตั้ง Root Directory Vercel จะ build จาก root แล้วหา Next.js ไม่เจอ → พังทันที
+
+ยืนยันแล้วว่าไม่ใช่ปัญหาที่โค้ดหรือ env var — build ในเครื่องโดย**ไม่มี env var เลย**ก็ผ่าน:
+
+```
+$ cd web && rm -rf .next && npm run build
+✓ Compiled successfully
+✓ Generating static pages (5/5)
+```
+
+(Supabase ถูกเรียกตอน request เท่านั้น ไม่ได้เรียกตอน build)
+
+### วิธีแก้
+
+Project → Settings → Build & Deployment → **Root Directory = `web`** → redeploy
+
+> ผมแก้เองไม่ได้ เพราะไม่มีเครื่องมือที่อ่านหรือแก้ project setting ของ Vercel ได้
+> (อ่านทีไรได้ 404 ทุกครั้ง จึงดึง build log มาดูก็ไม่ได้ด้วย)
 
 ### Environment variables
 
