@@ -21,7 +21,11 @@ export async function middleware(request: NextRequest) {
     return new NextResponse(
       "Supabase is not configured for this deployment.\n\n" +
         "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in the\n" +
-        "hosting project's environment variables, then redeploy.\n",
+        "hosting project's environment variables, then redeploy.\n\n" +
+        "Already set them and still seeing this? NEXT_PUBLIC_ variables are\n" +
+        "baked in when the app is built, not read at request time, so a\n" +
+        "redeploy that reuses the build cache keeps the old empty values.\n" +
+        "Redeploy with the build cache disabled, or push a commit.\n",
       { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } },
     );
   }
