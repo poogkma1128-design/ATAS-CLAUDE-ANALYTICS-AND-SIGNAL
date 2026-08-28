@@ -90,24 +90,31 @@ namespace AtasSignalBridge
             {
                 if (!IsConfigured()) return;
 
+                // ATAS indexes bars 0..CurrentBar-1, so CurrentBar is a count and
+                // the bar still forming is CurrentBar - 1. Comparing against
+                // CurrentBar itself never matches and silently sends nothing.
+                var liveBar = CurrentBar - 1;
+                if (liveBar < 0) return;
+
                 // OnCalculate walks every historical bar on load. Only the live
-                // edge is of interest; the backfill below handles history.
-                if (bar != CurrentBar) return;
+                // edge drives sending; the backfill below handles history.
+                if (bar != liveBar) return;
 
                 if (!_seeded)
                 {
                     _seeded = true;
                     SendBackfill();
-                    _lastBar = CurrentBar;
+                    _lastBar = liveBar;
+                    return;
                 }
 
-                if (_lastBar != CurrentBar)
+                if (_lastBar != liveBar)
                 {
                     // The bar index moved on, so the previous one is final.
-                    if (_lastBar >= 0 && _lastBar < CurrentBar)
+                    if (_lastBar >= 0 && _lastBar < liveBar)
                         Send(new[] { _lastBar }, isClosed: true);
 
-                    _lastBar = CurrentBar;
+                    _lastBar = liveBar;
                 }
 
                 if (!SendIntrabar) return;
@@ -116,7 +123,7 @@ namespace AtasSignalBridge
                 if ((now - _lastIntrabarSend).TotalMilliseconds < IntrabarThrottleMs) return;
 
                 _lastIntrabarSend = now;
-                Send(new[] { CurrentBar }, isClosed: false);
+                Send(new[] { liveBar }, isClosed: false);
             }
             catch (Exception ex)
             {
@@ -157,11 +164,14 @@ namespace AtasSignalBridge
         /// </summary>
         private void SendBackfill()
         {
-            if (BackfillBars <= 0 || CurrentBar <= 0) return;
+            if (BackfillBars <= 0) return;
 
-            var first = Math.Max(0, CurrentBar - BackfillBars);
-            var last = CurrentBar - 1;
-            if (last < first) return;
+            // CurrentBar - 1 is still forming, so the newest finished bar is the
+            // one before it.
+            var last = CurrentBar - 2;
+            if (last < 0) return;
+
+            var first = Math.Max(0, last - BackfillBars + 1);
 
             var bars = new List<int>(last - first + 1);
             for (var i = first; i <= last; i++) bars.Add(i);
@@ -196,7 +206,7 @@ namespace AtasSignalBridge
 
         private BarSnapshot BuildSnapshot(int bar, decimal tickSize, bool isClosed)
         {
-            if (bar < 0 || bar > CurrentBar) return null;
+            if (bar < 0 || bar >= CurrentBar) return null;
 
             var candle = GetCandle(bar);
             if (candle == null) return null;
