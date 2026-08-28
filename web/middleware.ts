@@ -11,11 +11,26 @@ const PUBLIC_PATHS = ["/login", "/auth/callback"];
  * just avoids serving an empty shell to anonymous visitors.
  */
 export async function middleware(request: NextRequest) {
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+
+  if (!supabaseUrl || !supabaseKey) {
+    // Fail closed, and say why. Letting requests through would remove the only
+    // gate on the dashboard, and throwing here gives an opaque 500
+    // (MIDDLEWARE_INVOCATION_FAILED) that says nothing about the real cause.
+    return new NextResponse(
+      "Supabase is not configured for this deployment.\n\n" +
+        "Set NEXT_PUBLIC_SUPABASE_URL and NEXT_PUBLIC_SUPABASE_ANON_KEY in the\n" +
+        "hosting project's environment variables, then redeploy.\n",
+      { status: 503, headers: { "content-type": "text/plain; charset=utf-8" } },
+    );
+  }
+
   let response = NextResponse.next({ request });
 
   const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
+    supabaseUrl,
+    supabaseKey,
     {
       cookies: {
         getAll() {
