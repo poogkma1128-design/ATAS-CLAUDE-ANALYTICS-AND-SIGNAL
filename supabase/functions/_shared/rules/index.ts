@@ -1,5 +1,6 @@
 import type { RuleContext, RuleEvaluator, RuleRow, RuleSignal } from "../types.ts";
 import { sortLevels } from "../util.ts";
+import { hasEnoughLiquidity } from "../liquidity.ts";
 import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 import { evaluate as deltaDivergence } from "./delta_divergence.ts";
 import { evaluate as absorption } from "./absorption.ts";
@@ -42,8 +43,14 @@ export function runRules(
     const evaluator = evaluators[rule.key];
     if (!evaluator) continue;
 
+    const ruleCtx = { ...ctx, levels, params: rule.params ?? {} };
+
+    // Gated here rather than inside each rule: it is a property of the bar, not
+    // of the setup, and every rule was calibrated against bars that had volume.
+    if (!hasEnoughLiquidity(ruleCtx)) continue;
+
     try {
-      const signals = evaluator({ ...ctx, levels, params: rule.params ?? {} });
+      const signals = evaluator(ruleCtx);
       for (const signal of signals) {
         out.push({ ...signal, ruleKey: rule.key });
       }
