@@ -36,7 +36,7 @@ ATAS (Windows)
 |---|---|
 | Supabase project ref | `sckdriuwfyittcybnbhz` |
 | Ingest endpoint | `https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest` |
-| Edge function `ingest` | **version 9, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
+| Edge function `ingest` | **version 10, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
 | Dashboard | `https://atas-signal-board.vercel.app` |
 | Vercel production branch | **`claude/form-signal-telegram-rz8am1`** (ไม่ใช่ `main` — ตั้งไว้แบบนี้) |
 | Repo | `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL` |
@@ -99,6 +99,15 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 - `trailing` เป็น reserved word ของ Postgres ใช้เป็นชื่อตัวแปรใน plpgsql ไม่ได้
 - supabase-js อนุมาน type จาก select string ที่เป็น **literal เดียว** — ถ้าต่อ string จะกลายเป็น error type
 
+### 3.7 ข้อความ Telegram — สองอย่างที่เสียเวลาไปแล้วอย่าเสียซ้ำ
+
+**Telegram ไม่ทำ hashtag ที่เป็นตัวเลขล้วนให้กดได้** `#218` เป็นข้อความเฉย ๆ แต่ `#S218` กดได้
+และการกดคือการค้นหาในแชต → เจอทั้งสัญญาณและผลของไม้นั้นพร้อมกัน นี่คือเหตุผลที่ตั้งรูปแบบเป็น `#S<seq>`
+
+**แปลงเวลาไทยด้วย offset คงที่ +7 ไม่ใช่ `Intl`** ไทยไม่มี DST ตั้งแต่ปี 2484 ค่า UTC+7 จึงจริงทุกวันที่
+ส่วน edge runtime ไม่รับประกันว่ามี timezone database ครบ ถ้าขาด `Intl` จะคืนค่าเป็น UTC **เงียบ ๆ**
+ทั้งที่ข้อความติดป้ายว่าเป็นเวลาไทย ซึ่งแย่กว่าการไม่แปลงเลย
+
 ---
 
 ## 4. สิ่งที่สร้างไปแล้ว (ตามลำดับ พร้อมเหตุผล)
@@ -116,6 +125,7 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 | 9 | **Liquidity gate** | ตัดแท่ง volume บาง |
 | 10 | **Price action context** | เก็บไว้รอวัด ยังไม่กรอง |
 | 11 | **พื้นความเสี่ยงตามความผันผวนของ instrument** | `minRiskTicks` นับ "แถว footprint" ซึ่งคนละขนาดกันในแต่ละ instrument — ดูข้อ 5.4 |
+| 12 | **เลขลำดับไม้ `#S<seq>` + เวลาไทย + ผลรายงานเป็นราคา/R** | ผลมาเป็น reply แต่ preview ถูกตัดบนมือถือ ผลของไม้ 12:15 จึงไปแสดงใต้ไม้ 12:25 ที่ยังไม่จบ · และผลเคยรายงานเป็น ticks ทั้งที่สัญญาณรายงานเป็นราคา |
 
 ---
 
@@ -347,7 +357,7 @@ select * from public.setup_stats order by total_r desc nulls last;
 #   curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh -s -- -y
 export PATH=/opt/deno/bin:$PATH
 deno task check
-deno task test          # ปัจจุบัน 68 tests ผ่านหมด
+deno task test          # ปัจจุบัน 76 tests ผ่านหมด
 
 # เว็บ
 cd web && npm run build
@@ -374,7 +384,7 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0010
+supabase/migrations/                0001–0011
 supabase/functions/_shared/
   ingest.ts        pipeline หลัก (batch write)
   plan.ts          trade plan
@@ -402,3 +412,4 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 7. อย่าสร้างสัญญาณจากแท่งที่ยังไม่ปิด
 8. อย่าตั้งเกณฑ์ที่นับเป็น "แถว footprint" แล้วคาดว่าจะใช้ได้ทุก instrument — 1 แถวคนละขนาดกัน (ข้อ 5.4)
 9. อย่าเลือกค่าจากแถวที่ดีที่สุดแถวเดียว ถ้าเพื่อนบ้านไม่เห็นด้วย นั่นคือ fit ข้อมูล
+10. อย่ารายงานผลเป็น ticks ในเมื่อข้อความสัญญาณรายงานเป็นราคา — ไม้เดียวกันต้องใช้หน่วยเดียวกัน ไม่งั้นอ่านแล้วนึกว่าคนละไม้

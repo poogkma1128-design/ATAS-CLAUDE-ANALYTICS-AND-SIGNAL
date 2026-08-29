@@ -8,7 +8,13 @@ interface PendingRow {
   mae_ticks: number | null;
   bars_used: number | null;
   exit_reason: string | null;
-  signals: { telegram_message_id: number | null } | null;
+  signals: {
+    seq: number | null;
+    telegram_message_id: number | null;
+    entry_price: number | null;
+    stop_price: number | null;
+    risk_ticks: number | null;
+  } | null;
 }
 
 /**
@@ -31,7 +37,7 @@ export async function flushOutcomeNotifications(
   const { data, error } = await supabase
     .from("signal_outcomes")
     .select(
-      "signal_id, pnl_ticks, mfe_ticks, mae_ticks, bars_used, exit_reason, signals!inner(telegram_message_id)",
+      "signal_id, pnl_ticks, mfe_ticks, mae_ticks, bars_used, exit_reason, signals!inner(seq, telegram_message_id, entry_price, stop_price, risk_ticks)",
     )
     .eq("status", "resolved")
     .is("notified_at", null)
@@ -51,12 +57,20 @@ export async function flushOutcomeNotifications(
     if (!messageId) continue;
 
     const ok = await sendOutcome(cfg, {
+      seq: row.signals?.seq === null || row.signals?.seq === undefined
+        ? null
+        : Number(row.signals.seq),
       replyToMessageId: messageId,
       pnlTicks: Number(row.pnl_ticks ?? 0),
       mfeTicks: Number(row.mfe_ticks ?? 0),
       maeTicks: Number(row.mae_ticks ?? 0),
       barsUsed: row.bars_used ?? 0,
       exitReason: row.exit_reason,
+      priceStep: priceStepOf(row),
+      riskTicks: row.signals?.risk_ticks === null ||
+          row.signals?.risk_ticks === undefined
+        ? null
+        : Number(row.signals.risk_ticks),
     });
     if (ok !== null) sent++;
   }
@@ -73,4 +87,25 @@ export async function flushOutcomeNotifications(
   }
 
   return sent;
+}
+
+/**
+ * Price covered by one tick of the plan, recovered from the plan itself.
+ *
+ * The stop sits exactly `risk_ticks` away from the entry, so their ratio is the
+ * step the plan was built with — no need to carry the instrument's tick size
+ * into the reply, and it stays correct for a signal whose chart was later
+ * re-grouped. The same trick states the trail in `formatSignal`.
+ */
+function priceStepOf(row: PendingRow): number | null {
+  const risk = Number(row.signals?.risk_ticks ?? 0);
+  const entry = Number(row.signals?.entry_price ?? 0);
+  const stop = Number(row.signals?.stop_price ?? 0);
+
+  if (!(risk > 0) || !Number.isFinite(entry) || !Number.isFinite(stop)) {
+    return null;
+  }
+
+  const step = Math.abs(stop - entry) / risk;
+  return step > 0 ? step : null;
 }

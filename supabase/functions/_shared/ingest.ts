@@ -432,7 +432,7 @@ async function persistSignals(
       onConflict: "bar_id,rule_key,direction",
       ignoreDuplicates: true,
     })
-    .select("id, rule_key, direction, price, confidence, payload, fired_at, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
+    .select("id, seq, rule_key, direction, price, confidence, payload, fired_at, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
 
   if (error) throw new Error(`signal insert failed: ${error.message}`);
 
@@ -465,6 +465,9 @@ async function announce(
 
     const messageId = await sendSignal(cfg, {
       signalId: signal.id as string,
+      seq: signal.seq === null || signal.seq === undefined
+        ? null
+        : Number(signal.seq),
       ruleName: rule.name,
       ruleKey: rule.key,
       direction: signal.direction as "long" | "short",
