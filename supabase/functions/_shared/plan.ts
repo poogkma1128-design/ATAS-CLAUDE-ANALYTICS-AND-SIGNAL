@@ -1,4 +1,4 @@
-import type { BarInput, RuleSignal } from "./types.ts";
+import type { BarInput, HistoryBar, RuleSignal } from "./types.ts";
 import { num } from "./util.ts";
 
 /**
@@ -35,6 +35,8 @@ export function buildPlan(
   tickSize: number,
   params: Record<string, unknown>,
   holdBars: number,
+  /** Preceding closed bars, oldest first. Sets the volatility floor below. */
+  history: HistoryBar[] = [],
 ): TradePlan {
   const bufferTicks = Math.max(0, num(params, "bufferTicks", 2));
   const minRiskTicks = Math.max(1, num(params, "minRiskTicks", 4));
@@ -52,7 +54,11 @@ export function buildPlan(
 
   // A bar that closes on its own extreme would otherwise leave no risk at all,
   // which would make the reward distance zero too.
-  const riskTicks = Math.max(anchorTicks + bufferTicks, minRiskTicks);
+  const riskTicks = Math.max(
+    anchorTicks + bufferTicks,
+    minRiskTicks,
+    volatilityFloorTicks(history, tickSize, params),
+  );
   const rewardTicks = riskTicks * rewardRatio;
 
   const sign = long ? 1 : -1;
@@ -86,4 +92,78 @@ function decimalsOf(tickSize: number): number {
 
 function round2(value: number): number {
   return Math.round(value * 100) / 100;
+}
+
+/**
+ * The smallest risk that still means anything on this instrument, expressed as
+ * a share of what a bar here normally covers.
+ *
+ * `minRiskTicks` alone cannot do this job. It counts footprint rows, and a row
+ * is not a fixed amount of market: one MNQ row is 0.75, one BTCUSDT row is
+ * 0.30, and the same floor of 4 rows is 20% of a typical MNQ bar but 5% of a
+ * typical BTCUSDT one. That produced real signals like
+ * `entry 77576.40 · stop 77575.20 · target 77578.80` — a trade risking 0.0015%
+ * of price, which ends on the spread rather than on the setup being wrong.
+ *
+ * A stop inside the noise is not a tighter trade, it is a coin flip, and the
+ * recorded outcomes say so. Grouping every resolved signal by the risk its plan
+ * took against the median range of the 20 bars before it:
+ *
+ *                    MNQU6                    BTCUSDT
+ *     < 0.30x    12 trades  17% win  -6.00R   17 trades  29% win  -2.00R
+ *     0.30-0.60x 30 trades  37% win  -3.08R   15 trades  53% win  +4.75R
+ *     0.60-1.00x 28 trades  46% win  -0.02R   20 trades  45% win  -0.67R
+ *     >= 1.00x   58 trades  55% win +10.86R   36 trades  61% win +13.15R
+ *
+ * The worst bucket on both instruments is the same one, and it is the bucket
+ * this floor removes — by widening those trades, not by dropping them: the
+ * setup was found, only the room it was given was wrong.
+ *
+ * Re-walking all 216 resolved signals bar by bar under a floored plan, the
+ * settings either side of 0.30 agree, which is what says the number is a real
+ * effect and not a fit:
+ *
+ *     share   lifted   total R   MNQU6    BTCUSDT
+ *     0.00     0       +13.17    +1.77    +11.41   (today)
+ *     0.20    18       +19.24    +4.82    +14.41
+ *     0.25    24       +19.22    +4.88    +14.34
+ *     0.30    29       +19.27    +4.81    +14.46
+ *     0.40    47       +16.56    +3.68    +12.88
+ *     0.60    74       +24.28   +13.57    +10.71
+ *
+ * 0.30 sits mid-plateau, improves both instruments, and touches 29 of 216
+ * trades — it is a floor for the degenerate cases, not a new sizing rule.
+ * The 0.55-0.65 region scores higher but does so almost entirely on MNQU6
+ * while resizing a third of all trades, on one session of it. That is worth
+ * re-measuring on more data, not adopting from this much.
+ */
+function volatilityFloorTicks(
+  history: HistoryBar[],
+  tickSize: number,
+  params: Record<string, unknown>,
+): number {
+  const share = num(params, "minRiskRangeShare", 0);
+  if (share <= 0 || tickSize <= 0) return 0;
+
+  const window = Math.max(1, Math.round(num(params, "minRiskRangeBars", 20)));
+  const ranges = history
+    .slice(-window)
+    .map((bar) => bar.high - bar.low)
+    .filter((range) => range > 0);
+
+  // A median of three bars does not describe what normal looks like here, so
+  // the plan falls back to `minRiskTicks` rather than floor against a guess.
+  // The signal bar itself is never in `history`, and should not be: it is
+  // often an outsized bar, and it would raise the floor on its own account.
+  if (ranges.length < window) return 0;
+
+  return (medianOf(ranges) * share) / tickSize;
+}
+
+function medianOf(values: number[]): number {
+  const sorted = [...values].sort((a, b) => a - b);
+  const mid = sorted.length >> 1;
+  return sorted.length % 2 === 0
+    ? (sorted[mid - 1] + sorted[mid]) / 2
+    : sorted[mid];
 }
