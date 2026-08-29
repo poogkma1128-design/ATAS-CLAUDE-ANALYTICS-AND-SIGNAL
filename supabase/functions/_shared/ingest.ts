@@ -12,6 +12,7 @@ import { runRules } from "./rules/index.ts";
 import { describeEvidence } from "./evidence.ts";
 import { buildPlan } from "./plan.ts";
 import { sendSignal, telegramConfig } from "./telegram.ts";
+import { Overrides, type OverrideRow } from "./overrides.ts";
 
 /** Enough history for every rule's lookback, with room to spare. */
 const HISTORY_BARS = 50;
@@ -86,6 +87,7 @@ export async function ingest(
 ): Promise<IngestResult> {
   const instrumentId = await upsertInstrument(supabase, payload);
   const rules = await loadRules(supabase);
+  const overrides = await loadOverrides(supabase, instrumentId, payload.timeframe);
   const tickSize = payload.tickSize;
 
   // Oldest first, so a request carrying several bars builds history in order.
@@ -113,6 +115,7 @@ export async function ingest(
     supabase,
     { instrumentId, timeframe: payload.timeframe },
     rules,
+    overrides,
     prepared,
     barIds,
     tickSize,
@@ -282,6 +285,7 @@ interface SignalRow {
   trail_trigger_ticks: number;
   trail_offset_ticks: number;
   hold_bars: number;
+  muted: boolean;
 }
 
 /**
@@ -293,6 +297,7 @@ async function evaluateBars(
   supabase: SupabaseClient,
   scope: { instrumentId: string; timeframe: string },
   rules: RuleRow[],
+  overrides: Overrides,
   prepared: PreparedBar[],
   barIds: number[],
   tickSize: number,
@@ -309,8 +314,12 @@ async function evaluateBars(
     prepared[firstClosed].bar.openedAt,
   );
 
+  // Resolved once for the batch: every bar in a request belongs to the same
+  // instrument, so the effective rules are the same for all of them.
+  const effective = rules.map((rule) => overrides.applyTo(rule));
+
   const rows: SignalRow[] = [];
-  const byKey = new Map(rules.map((rule) => [rule.key, rule]));
+  const byKey = new Map(effective.map((rule) => [rule.key, rule]));
 
   for (const [index, entry] of prepared.entries()) {
     if (!entry.bar.isClosed) continue;
@@ -319,7 +328,7 @@ async function evaluateBars(
     // because the bar is appended to `history` after it has been evaluated.
     const recent = history.slice(-HISTORY_BARS);
 
-    const evaluated = runRules(rules, {
+    const evaluated = runRules(effective, {
       bar: entry.bar,
       levels: entry.levels,
       history: recent,
@@ -354,6 +363,9 @@ async function evaluateBars(
         trail_trigger_ticks: plan.trailTriggerTicks,
         trail_offset_ticks: plan.trailOffsetTicks,
         hold_bars: plan.holdBars,
+        // Recorded on the row rather than looked up when announcing, so the
+        // history says what was actually taken even after the setting changes.
+        muted: overrides.isMuted(signal.ruleKey, signal.direction),
       });
     }
 
@@ -432,7 +444,7 @@ async function persistSignals(
       onConflict: "bar_id,rule_key,direction",
       ignoreDuplicates: true,
     })
-    .select("id, rule_key, direction, price, confidence, payload, fired_at, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
+    .select("id, seq, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
 
   if (error) throw new Error(`signal insert failed: ${error.message}`);
 
@@ -461,10 +473,17 @@ async function announce(
     const rule = byKey.get(signal.rule_key as string);
     if (!rule?.telegram_enabled) continue;
 
+    // Muted for this instrument. The row is already stored and will be scored
+    // like any other, which is what lets a muted setup earn its way back.
+    if (signal.muted === true) continue;
+
     const payload = (signal.payload ?? {}) as Record<string, unknown>;
 
     const messageId = await sendSignal(cfg, {
       signalId: signal.id as string,
+      seq: signal.seq === null || signal.seq === undefined
+        ? null
+        : Number(signal.seq),
       ruleName: rule.name,
       ruleKey: rule.key,
       direction: signal.direction as "long" | "short",
@@ -495,4 +514,30 @@ async function announce(
 
     if (error) console.error("could not store telegram message id:", error.message);
   }
+}
+
+/**
+ * Per-instrument overrides for the charts in this request.
+ *
+ * Absent rows are the normal case, so a missing table or a failed read is
+ * treated as "no overrides" rather than as a reason to reject an ingest: the
+ * bars are worth storing even when the tuning layer is unavailable.
+ */
+async function loadOverrides(
+  supabase: SupabaseClient,
+  instrumentId: string,
+  timeframe: string,
+): Promise<Overrides> {
+  const { data, error } = await supabase
+    .from("rule_overrides")
+    .select("rule_key, timeframe, direction, muted, params")
+    .eq("instrument_id", instrumentId)
+    .eq("timeframe", timeframe);
+
+  if (error) {
+    console.error("rule override load failed:", error.message);
+    return Overrides.empty();
+  }
+
+  return new Overrides((data ?? []) as unknown as OverrideRow[]);
 }

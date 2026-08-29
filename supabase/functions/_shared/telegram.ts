@@ -61,6 +61,8 @@ async function callTelegram(
 
 export interface SignalMessage {
   signalId: string;
+  /** public.signals.seq — the number shown as #S<seq>. */
+  seq: number | null;
   ruleName: string;
   ruleKey: string;
   direction: "long" | "short";
@@ -91,12 +93,47 @@ function fmt(value: number): string {
   return String(Number(value.toFixed(4)));
 }
 
+/** Same, with the sign kept on gains so a result reads at a glance. */
+function signed(value: number): string {
+  const trimmed = Number(value.toFixed(2));
+  return (trimmed > 0 ? "+" : "") + String(trimmed);
+}
+
+/**
+ * Bangkok time, which is where these are read.
+ *
+ * Applied as a fixed offset rather than through Intl: Thailand has not observed
+ * daylight saving since 1941, so UTC+7 holds on every date, and an edge runtime
+ * is not guaranteed to ship a full timezone database — a missing one would
+ * silently print UTC while claiming to be local, which is worse than not
+ * converting at all.
+ */
+const BANGKOK_OFFSET_MS = 7 * 60 * 60 * 1000;
+
+function bangkokTime(iso: string): string {
+  const shifted = new Date(new Date(iso).getTime() + BANGKOK_OFFSET_MS);
+  return shifted.toISOString().replace("T", " ").slice(0, 19);
+}
+
+/**
+ * The number that ties an alert to its result.
+ *
+ * `#S` and not a bare `#123`: Telegram only linkifies a hashtag that contains a
+ * non-digit, and a tappable tag turns "which trade was that?" into a search
+ * that finds both messages.
+ */
+function tag(seq: number | null): string | null {
+  return seq === null ? null : `#S${seq}`;
+}
+
 export function formatSignal(msg: SignalMessage): string {
   const arrow = msg.direction === "long" ? "🟢 LONG" : "🔴 SHORT";
   const confidence = Math.round(msg.confidence * 100);
 
+  const label = tag(msg.seq);
+
   const lines = [
-    `<b>${arrow}</b> · ${escapeHtml(msg.ruleName)}`,
+    `${label ? `<b>${label}</b> · ` : ""}<b>${arrow}</b> · ${escapeHtml(msg.ruleName)}`,
     `<code>${escapeHtml(msg.symbol)}</code> · ${escapeHtml(msg.timeframe)} · ความมั่นใจ ${confidence}%`,
   ];
 
@@ -131,9 +168,7 @@ export function formatSignal(msg: SignalMessage): string {
 
   if (msg.evidence) lines.push(escapeHtml(msg.evidence));
 
-  lines.push(
-    `<i>${escapeHtml(new Date(msg.firedAt).toISOString().replace("T", " ").slice(0, 19))} UTC</i>`,
-  );
+  lines.push(`<i>${escapeHtml(bangkokTime(msg.firedAt))} น. (ไทย)</i>`);
 
   return lines.join("\n");
 }
@@ -161,12 +196,20 @@ export function sendSignal(
 }
 
 export interface OutcomeMessage {
+  /** Same number as the alert this replies to, so the two can be matched even
+   *  when Telegram truncates the quoted message. */
+  seq: number | null;
   replyToMessageId: number;
   pnlTicks: number;
   mfeTicks: number;
   maeTicks: number;
   barsUsed: number;
   exitReason: string | null;
+  /** Price per plan tick, so the result can be stated in the same unit the
+   *  alert used. Null when the plan carried no risk to divide by. */
+  priceStep: number | null;
+  /** The plan's own risk, which is what turns a distance into an R. */
+  riskTicks: number | null;
 }
 
 const EXIT_LABEL: Record<string, string> = {
@@ -177,16 +220,37 @@ const EXIT_LABEL: Record<string, string> = {
 };
 
 export function formatOutcome(msg: OutcomeMessage): string {
-  const won = msg.pnlTicks > 0;
-  const mark = won ? "✅" : msg.pnlTicks < 0 ? "❌" : "➖";
-  const sign = msg.pnlTicks > 0 ? "+" : "";
-
+  const mark = msg.pnlTicks > 0 ? "✅" : msg.pnlTicks < 0 ? "❌" : "➖";
   const how = msg.exitReason ? EXIT_LABEL[msg.exitReason] ?? msg.exitReason : null;
+  const label = tag(msg.seq);
+
+  // Stated in price, matching the alert. The alert deliberately avoids tick
+  // counts because ATAS reports a footprint row as its TickSize, so "+200
+  // ticks" against an alert promising "ได้ 60.00" describes the same trade in
+  // two units and reads like a different one.
+  const step = msg.priceStep;
+  const amount = step !== null
+    ? signed(msg.pnlTicks * step)
+    : `${signed(msg.pnlTicks)} ticks`;
+
+  // R is the unit every statistic in this system is kept in, and the only one
+  // that compares a BTCUSDT result against an MNQU6 one.
+  const r = msg.riskTicks && msg.riskTicks > 0
+    ? ` (${signed(msg.pnlTicks / msg.riskTicks)}R)`
+    : "";
+
+  const far = step !== null ? fmt(msg.mfeTicks * step) : `${msg.mfeTicks} ticks`;
+  const against = step !== null ? fmt(msg.maeTicks * step) : `${msg.maeTicks} ticks`;
 
   return [
-    `${mark} <b>${sign}${msg.pnlTicks} ticks</b> หลังจบ ${msg.barsUsed} แท่ง`,
+    [
+      mark,
+      label ? `<b>${label}</b> ·` : null,
+      `<b>${amount}${r}</b>`,
+      `หลังจบ ${msg.barsUsed} แท่ง`,
+    ].filter((part): part is string => part !== null).join(" "),
     how ? `จบเพราะ: ${escapeHtml(how)}` : null,
-    `ไปได้ไกลสุด +${msg.mfeTicks} · สวนไปสุด -${msg.maeTicks}`,
+    `ไปได้ไกลสุด +${far} · สวนไปสุด -${against}`,
   ].filter((line): line is string => line !== null).join("\n");
 }
 
