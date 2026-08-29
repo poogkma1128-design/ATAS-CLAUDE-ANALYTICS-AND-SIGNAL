@@ -9,7 +9,7 @@ import { DirectionTag } from "./DirectionTag";
 import { OutcomeTag } from "./OutcomeTag";
 
 const SELECT =
-  "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks)";
+  "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, exit_reason, bars_used)";
 
 interface Props {
   initial: SignalRow[];
@@ -117,7 +117,17 @@ export function SignalFeed({ initial, ruleNames }: Props) {
                 </span>
                 <span style={{ color: "var(--text-muted)" }}>{signal.timeframe}</span>
 
-                <span className="tabular">{num(signal.price)}</span>
+                <span className="tabular">{num(signal.entry_price ?? signal.price)}</span>
+
+                {/* The levels matter more than the rule's name when scanning the
+                    feed: they are what says whether the trade is still live. */}
+                {signal.stop_price !== null && signal.target_price !== null && (
+                  <span className="tabular text-xs whitespace-nowrap">
+                    <span style={{ color: "var(--short)" }}>SL {num(signal.stop_price)}</span>
+                    <span style={{ color: "var(--text-muted)" }}> · </span>
+                    <span style={{ color: "var(--long)" }}>TP {num(signal.target_price)}</span>
+                  </span>
+                )}
 
                 <span className="truncate" style={{ color: "var(--text-secondary)" }}>
                   {signal.rules?.name ?? signal.rule_key}

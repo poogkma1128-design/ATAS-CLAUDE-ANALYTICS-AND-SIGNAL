@@ -7,6 +7,7 @@ interface PendingRow {
   mfe_ticks: number | null;
   mae_ticks: number | null;
   bars_used: number | null;
+  exit_reason: string | null;
   signals: { telegram_message_id: number | null } | null;
 }
 
@@ -30,7 +31,7 @@ export async function flushOutcomeNotifications(
   const { data, error } = await supabase
     .from("signal_outcomes")
     .select(
-      "signal_id, pnl_ticks, mfe_ticks, mae_ticks, bars_used, signals!inner(telegram_message_id)",
+      "signal_id, pnl_ticks, mfe_ticks, mae_ticks, bars_used, exit_reason, signals!inner(telegram_message_id)",
     )
     .eq("status", "resolved")
     .is("notified_at", null)
@@ -55,6 +56,7 @@ export async function flushOutcomeNotifications(
       mfeTicks: Number(row.mfe_ticks ?? 0),
       maeTicks: Number(row.mae_ticks ?? 0),
       barsUsed: row.bars_used ?? 0,
+      exitReason: row.exit_reason,
     });
     if (ok !== null) sent++;
   }

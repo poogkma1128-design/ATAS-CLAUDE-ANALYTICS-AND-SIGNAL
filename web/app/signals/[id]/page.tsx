@@ -42,7 +42,7 @@ export default async function SignalDetailPage(
   const { data: signal } = await supabase
     .from("signals")
     .select(
-      "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, bar_id, instruments(symbol, tick_size), rules(name, description), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, bars_used, horizon_bars)",
+      "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, bar_id, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol, tick_size), rules(name, description), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, bars_used, horizon_bars, exit_reason)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -64,7 +64,15 @@ export default async function SignalDetailPage(
   const instrument = signal.instruments as unknown as { symbol: string; tick_size: number } | null;
   const rule = signal.rules as unknown as { name: string; description: string | null } | null;
   const outcome = signal.signal_outcomes as unknown as
-    | { status: string; pnl_ticks: number | null; mfe_ticks: number | null; mae_ticks: number | null; bars_used: number | null; horizon_bars: number }
+    | {
+      status: string;
+      pnl_ticks: number | null;
+      mfe_ticks: number | null;
+      mae_ticks: number | null;
+      bars_used: number | null;
+      horizon_bars: number;
+      exit_reason: string | null;
+    }
     | null;
   const payload = (signal.payload ?? {}) as Record<string, unknown>;
 
@@ -81,7 +89,7 @@ export default async function SignalDetailPage(
           <h1 className="text-lg font-semibold">
             {instrument?.symbol ?? "?"} · {signal.timeframe}
           </h1>
-          <span className="tabular text-lg">{num(signal.price)}</span>
+          <span className="tabular text-lg">{num(signal.entry_price ?? signal.price)}</span>
           <span className="ml-auto text-sm tabular" style={{ color: "var(--text-muted)" }}>
             {shortTime(signal.fired_at)}
           </span>
@@ -102,6 +110,38 @@ export default async function SignalDetailPage(
           <Tile label="ไปได้ไกลสุด" value={`${signedTicks(num(outcome?.mfe_ticks))} ticks`} />
           <Tile label="สวนไปสุด" value={`-${num(outcome?.mae_ticks)} ticks`} />
         </div>
+
+        {signal.stop_price !== null && (
+          <div className="card mt-5 p-4">
+            <h2 className="mb-1 text-sm font-semibold">แผนเทรด</h2>
+            <p className="mb-3 text-xs" style={{ color: "var(--text-muted)" }}>
+              ระยะบอกเป็นราคา ไม่ใช่จำนวน tick เพราะ ATAS รายงาน tick size
+              เป็นความห่างของแถว footprint บนชาร์ต ซึ่งเป็นหลายเท่าของ tick จริง
+            </p>
+
+            <dl className="grid grid-cols-2 gap-x-6 gap-y-1.5 text-sm sm:grid-cols-3">
+              <Field label="จุดเข้า" value={num(signal.entry_price ?? signal.price)} />
+              <Field
+                label="SL"
+                value={`${num(signal.stop_price)}  (−${fmtDistance(
+                  Math.abs(num(signal.stop_price) - num(signal.entry_price ?? signal.price)),
+                )})`}
+              />
+              <Field
+                label="TP"
+                value={`${num(signal.target_price)}  (+${fmtDistance(
+                  Math.abs(num(signal.target_price) - num(signal.entry_price ?? signal.price)),
+                )})`}
+              />
+              <Field label="RR" value={rewardRatio(signal)} />
+              <Field label="เลื่อน SL เมื่อถึง" value={trailStart(signal)} />
+              <Field label="ตามห่าง" value={fmtDistance(trailDistance(signal))} />
+              <Field label="ถือไม่เกิน" value={`${signal.hold_bars ?? "-"} แท่ง`} />
+              <Field label="จบเพราะ" value={EXIT_LABEL[outcome?.exit_reason ?? ""] ?? "ยังไม่จบ"} />
+              <Field label="ถือจริง" value={outcome?.bars_used != null ? `${outcome.bars_used} แท่ง` : "-"} />
+            </dl>
+          </div>
+        )}
 
         {bar && (
           <div className="card mt-5 p-4">
@@ -144,6 +184,63 @@ export default async function SignalDetailPage(
       </main>
     </>
   );
+}
+
+const EXIT_LABEL: Record<string, string> = {
+  target: "ถึง TP",
+  stop: "โดน SL",
+  trail: "SL ที่เลื่อนตามมา",
+  timeout: "ครบจำนวนแท่ง",
+};
+
+/** Price arithmetic leaves float noise; trim it without inventing precision. */
+function fmtDistance(value: number): string {
+  return String(Number(value.toFixed(4)));
+}
+
+function rewardRatio(signal: { risk_ticks: number | null; reward_ticks: number | null }): string {
+  const risk = num(signal.risk_ticks);
+  if (risk <= 0) return "-";
+  return `1 : ${(num(signal.reward_ticks) / risk).toFixed(1)}`;
+}
+
+/**
+ * The plan stores its trail in the same unit as its risk, so the price step it
+ * was built from is recoverable from the two together without carrying the
+ * instrument's tick size into the view.
+ */
+function priceStep(signal: {
+  risk_ticks: number | null;
+  stop_price: number | null;
+  entry_price: number | null;
+  price: number;
+}): number {
+  const risk = num(signal.risk_ticks);
+  if (risk <= 0) return 0;
+  return Math.abs(num(signal.stop_price) - num(signal.entry_price ?? signal.price)) / risk;
+}
+
+function trailStart(signal: {
+  direction: string;
+  risk_ticks: number | null;
+  trail_trigger_ticks: number | null;
+  stop_price: number | null;
+  entry_price: number | null;
+  price: number;
+}): string {
+  const entry = num(signal.entry_price ?? signal.price);
+  const away = signal.direction === "long" ? 1 : -1;
+  return fmtDistance(entry + away * num(signal.trail_trigger_ticks) * priceStep(signal));
+}
+
+function trailDistance(signal: {
+  risk_ticks: number | null;
+  trail_offset_ticks: number | null;
+  stop_price: number | null;
+  entry_price: number | null;
+  price: number;
+}): number {
+  return num(signal.trail_offset_ticks) * priceStep(signal);
 }
 
 function Tile({ label, value }: { label: string; value: React.ReactNode }) {
