@@ -99,7 +99,28 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 - `trailing` เป็น reserved word ของ Postgres ใช้เป็นชื่อตัวแปรใน plpgsql ไม่ได้
 - supabase-js อนุมาน type จาก select string ที่เป็น **literal เดียว** — ถ้าต่อ string จะกลายเป็น error type
 
-### 3.7 REV ของ indicator ไม่ใช่ commit ของ repo
+### 3.7 ตลาดปิด กับ bridge พัง หน้าตาเหมือนกันในหน้า feed
+
+วันเสาร์ที่ 2026-08-29: BTCUSDT ส่งสดอยู่ ส่วน NQ/MNQ/GC เงียบสนิท **เพราะ CME/COMEX ปิดวันหยุด**
+แต่ในหน้าสัญญาณมันดูเหมือนชาร์ต futures พัง 3 ตัว ข้าง ๆ คริปโตที่ยังทำงาน
+
+วิธีแยกอยู่ในข้อมูลอยู่แล้ว ไม่ต้องเพิ่มอะไรใหม่ — indicator ส่ง **1 แท่ง** ตอนแท่งปิด และส่ง
+**ทั้งประวัติเป็น batch เดียว** ตอนโหลดชาร์ต ดังนั้น:
+
+| ที่เห็นใน `ingest_log` | แปลว่า |
+|---|---|
+| `bars_count = 1` เข้ามาเรื่อย ๆ | ชาร์ตสด |
+| `bars_count > 1` แล้วเงียบ | เปิดชาร์ต ส่งประวัติ แล้วไม่มีแท่งใหม่ (ตลาดปิด) |
+| ไม่มีแถวเลย | ยังไม่เคยส่ง — ยังไม่ได้ Add indicator หรือไม่ได้กรอก endpoint/token |
+
+`instrument_status` (migration 0013) สรุปให้เป็น `live` / `history-only` / `silent` และหน้าเว็บแสดงไว้
+บนสุดของหน้าสัญญาณ **รวมถึงบอกด้วยว่าชาร์ตที่ไม่ปรากฏชื่อ แปลว่าอะไร** — การหายไปคือคำตอบ ไม่ใช่ช่องว่าง
+
+**กับดักที่เจอจริง:** MNQ ส่ง backfill 200 แท่งแล้วได้ 0 สัญญาณใหม่ ไม่ใช่บั๊ก —
+`unique(bar_id, rule_key, direction)` ตัดซ้ำทิ้ง เพราะแท่งชุดนั้นเก็บไปแล้วเมื่อวาน
+ส่วน GC/NQ เป็น instrument ใหม่ จึงได้ 18 และ 12 สัญญาณ
+
+### 3.8 REV ของ indicator ไม่ใช่ commit ของ repo
 
 `atas-indicator/` แทบไม่เคยถูกแตะ งานเกือบทั้งหมดอยู่ฝั่ง server ดังนั้น **HEAD ของ repo ขยับตลอด
 ทั้งที่ DLL ไม่ต้อง build ใหม่** ของเดิม stamp `git rev-parse HEAD` ลงไป พอเทียบกับ repo แล้วเลขไม่ตรง
@@ -115,7 +136,7 @@ git log -1 --abbrev=7 --format=%h -- atas-indicator
 ```
 ตรงกับที่แท็บ About ขึ้น = ไม่ต้องทำอะไร
 
-### 3.8 ข้อความ Telegram — สองอย่างที่เสียเวลาไปแล้วอย่าเสียซ้ำ
+### 3.9 ข้อความ Telegram — สองอย่างที่เสียเวลาไปแล้วอย่าเสียซ้ำ
 
 **Telegram ไม่ทำ hashtag ที่เป็นตัวเลขล้วนให้กดได้** `#218` เป็นข้อความเฉย ๆ แต่ `#S218` กดได้
 และการกดคือการค้นหาในแชต → เจอทั้งสัญญาณและผลของไม้นั้นพร้อมกัน นี่คือเหตุผลที่ตั้งรูปแบบเป็น `#S<seq>`
@@ -434,7 +455,7 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0012
+supabase/migrations/                0001–0013
 supabase/functions/_shared/
   ingest.ts        pipeline หลัก (batch write)
   plan.ts          trade plan
