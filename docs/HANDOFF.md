@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-08-29
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-08-29 (อัปเดตหลังทำข้อ 7.2 A)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -15,7 +15,7 @@ ATAS (Windows)
                                     ├─ เก็บ bars + cluster_levels
                                     ├─ liquidity gate
                                     ├─ rule engine (4 กฎ)
-                                    ├─ trade plan (เข้า/SL/TP/trail/ถือกี่แท่ง)
+                                    ├─ trade plan (เข้า/SL/TP/trail/ถือกี่แท่ง + พื้นความเสี่ยงตาม range)
                                     ├─ price action context (เก็บอย่างเดียว)
                                     └─ Telegram
                                           │
@@ -36,12 +36,12 @@ ATAS (Windows)
 |---|---|
 | Supabase project ref | `sckdriuwfyittcybnbhz` |
 | Ingest endpoint | `https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest` |
-| Edge function `ingest` | **version 8, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
+| Edge function `ingest` | **version 9, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
 | Dashboard | `https://atas-signal-board.vercel.app` |
 | Vercel production branch | **`claude/form-signal-telegram-rz8am1`** (ไม่ใช่ `main` — ตั้งไว้แบบนี้) |
 | Repo | `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL` |
 | branch ที่ใช้พัฒนา | `claude/form-signal-telegram-rz8am1` |
-| Instruments ที่มีข้อมูล | `MNQU6` (5m), `BTCUSDT` (1m) |
+| Instruments ที่มีข้อมูล | `MNQU6` (5m), `BTCUSDT` (5m — เดิมเขียนว่า 1m ตอนนี้ยิง 5m อยู่) |
 
 Secrets ที่ตั้งบน Supabase แล้ว: `INGEST_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DASHBOARD_URL`
 
@@ -115,13 +115,15 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 | 8 | **Trade plan** ทุกสัญญาณ + ให้คะแนนตามแผนจริง | สัญญาณที่บอกแค่ทิศทาง วัดผลไม่ได้ |
 | 9 | **Liquidity gate** | ตัดแท่ง volume บาง |
 | 10 | **Price action context** | เก็บไว้รอวัด ยังไม่กรอง |
+| 11 | **พื้นความเสี่ยงตามความผันผวนของ instrument** | `minRiskTicks` นับ "แถว footprint" ซึ่งคนละขนาดกันในแต่ละ instrument — ดูข้อ 5.4 |
 
 ---
 
 ## 5. ตัวเลขที่วัดจริง — ฐานของทุกการตัดสินใจ
 
-> ⚠️ **ทั้งหมดมาจากข้อมูลเซสชันเดียว (2026-08-28, MNQ 5m, 157 สัญญาณ)**
+> ⚠️ **ข้อ 5.1–5.3 มาจากข้อมูลเซสชันเดียว (2026-08-28, MNQ 5m, 157 สัญญาณ)**
 > เป็นจุดตั้งต้น **ไม่ใช่ข้อสรุป** ต้องวัดซ้ำเมื่อมีข้อมูลมากขึ้น
+> ข้อ 5.4 ใหม่กว่า — วัดจาก 2 instrument / 216 ไม้ที่ resolved แล้ว (MNQ 2026-08-28 + BTCUSDT 2026-08-29)
 
 ### 5.1 ผลต่อ setup (หลังให้คะแนนตาม TP/SL จริง)
 
@@ -168,6 +170,47 @@ POC ขยับระหว่างแท่งข้างเคียง **�
 | `consecutive: 3` | 23 |
 | `consecutive: 3` + เพิ่มเกณฑ์ระยะทาง | 22 |
 
+### 5.4 ทำไมพื้นความเสี่ยงต้องผูกกับ range ไม่ใช่จำนวนแถว
+
+`minRiskTicks: 4` นับเป็น "แถว footprint" และ 1 แถวของแต่ละ instrument ไม่ใช่ปริมาณตลาดเท่ากัน:
+
+| symbol | 1 แถว | median range ของแท่ง | 4 แถวคิดเป็น |
+|---|---|---|---|
+| MNQU6 5m | 0.75 | 15.00 | 20% ของแท่ง |
+| BTCUSDT 5m | 0.30 | 22.20 | **5.4% ของแท่ง** |
+
+ค่าเดียวจึงเหมาะกับทั้งคู่ไม่ได้ ของจริงที่เคยออกมาคือ `เข้า 77576.40 · SL 77575.20 · TP 77578.80`
+— เสี่ยง 0.0015% ของราคา ไม้แบบนี้จบที่ spread ไม่ได้จบที่ setup ผิด
+
+**ผลจริงยืนยันว่าปลายแคบคือฝั่งที่ขาดทุน** (จัดกลุ่มทุกไม้ตามความเสี่ยงเทียบ median range 20 แท่ง):
+
+| ความเสี่ยง / range | MNQU6 | BTCUSDT |
+|---|---|---|
+| < 0.30× | 12 ไม้ · 17% · **−6.00R** | 17 ไม้ · 29% · **−2.00R** |
+| 0.30–0.60× | 30 ไม้ · 37% · −3.08R | 15 ไม้ · 53% · +4.75R |
+| 0.60–1.00× | 28 ไม้ · 46% · −0.02R | 20 ไม้ · 45% · −0.67R |
+| ≥ 1.00× | 58 ไม้ · 55% · **+10.86R** | 36 ไม้ · 61% · **+13.15R** |
+
+ต่างจาก volume gate ตรงที่ **ไม่ตัดไม้ทิ้ง** — setup เจอถูกแล้ว ผิดแค่ที่ให้ที่ยืนน้อยไป จึงขยายแทนที่จะปิด
+
+เลือกค่า 0.30 จากการ **จำลองเดินแท่งใหม่ทั้ง 216 ไม้** (ตัวจำลองให้ผลตรงกับที่ระบบบันทึกไว้ 213/216
+จึงเชื่อได้ว่าให้คะแนนไม้ชุดเดียวกัน):
+
+| share | ไม้ที่ถูกขยาย | รวม R | MNQU6 | BTCUSDT |
+|---|---|---|---|---|
+| 0.00 (เดิม) | 0 | +13.17 | +1.77 | +11.41 |
+| 0.20 | 18 | +19.24 | +4.82 | +14.41 |
+| 0.25 | 24 | +19.22 | +4.88 | +14.34 |
+| **0.30** | **29** | **+19.27** | **+4.81** | **+14.46** |
+| 0.40 | 47 | +16.56 | +3.68 | +12.88 |
+| 0.60 | 74 | +24.28 | +13.57 | +10.71 |
+
+เหตุผลที่เอา 0.30 ไม่ใช่ 0.60: **ค่าข้างเคียงต้องเห็นด้วยกัน** 0.20/0.25/0.30 ต่างกันไม่ถึง 0.05R
+= เป็นผลจริง ส่วน 0.60 ดีขึ้นเพราะ MNQU6 ล้วน ๆ (BTCUSDT แย่ลง) และไปขยายไม้ 1 ใน 3 ของทั้งหมด
+จากข้อมูลเซสชันเดียว = fit ข้อมูล 0.30 ยังเป็น *พื้น* ของเคสที่เพี้ยน ไม่ได้กลายเป็นตัวกำหนดขนาดไม้
+
+**ช่วง 0.55–0.65 ให้ R สูงกว่าจริง — ควรวัดซ้ำเมื่อมีข้อมูล MNQ มากกว่า 1 เซสชัน**
+
 ---
 
 ## 6. ค่า params ปัจจุบัน (แก้ได้ที่ `/rules` ไม่ต้อง deploy)
@@ -178,9 +221,13 @@ POC ขยับระหว่างแท่งข้างเคียง **�
 {
   "bufferTicks": 2, "minRiskTicks": 4, "rewardRatio": 2,
   "trailAfterR": 1, "trailOffsetR": 0.5,
-  "minVolumeRatio": 1.2, "minVolumeHistory": 10
+  "minVolumeRatio": 1.2, "minVolumeHistory": 10,
+  "minRiskRangeShare": 0.3, "minRiskRangeBars": 20
 }
 ```
+
+`minRiskRangeShare` คือพื้นความเสี่ยงขั้นต่ำ คิดเป็น**สัดส่วนของ median range 20 แท่งก่อนหน้า**
+มันมาแทนบทบาทของ `minRiskTicks` ในทางปฏิบัติ (ตัวไหนกว้างกว่าใช้ตัวนั้น) — ดูข้อ 5.4
 
 เฉพาะกฎ:
 
@@ -212,22 +259,21 @@ POC ขยับระหว่างแท่งข้างเคียง **�
 
 | # | งาน | สถานะ |
 |---|---|---|
-| A | **`minRiskTicks` ไม่ scale ตาม instrument** | ยังไม่ทำ — เจ้าของอนุญาตแล้ว |
+| A | **`minRiskTicks` ไม่ scale ตาม instrument** | ✅ **เสร็จแล้ว** (migration 0010 + ingest v9) — ดูข้อ 5.4 |
 | B | วัดผล price action flags | รอข้อมูล 3–5 วัน |
 | C | ตัดสินชะตา `poc_shift` | รอข้อมูลเพิ่ม |
+| D | วัดซ้ำว่า `minRiskRangeShare` ควรเป็น 0.30 หรือ 0.60 | รอข้อมูล MNQ เซสชันที่ 2 |
 
-**รายละเอียดข้อ A:** `minRiskTicks: 4` เป็นค่าขั้นต่ำนับเป็น "แถว footprint"
-บน BTCUSDT (แถว 0.30) = เสี่ยงแค่ 1.20 บนราคา 77,576 → **0.0015%** ไม้แบบนี้จบด้วย spread
-เคยเจอของจริง: `เข้า 77576.40 · SL 77575.20 · TP 77578.80`
+**ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
+ใน `plan.ts` มี `volatilityFloorTicks()` คำนวณพื้นความเสี่ยงจาก median range ของแท่งก่อนหน้า
+แล้ว `buildPlan()` เลือกค่ามากสุดระหว่าง (ระยะจากแท่ง + buffer) / `minRiskTicks` / พื้นจาก range
+`ingest.ts` ส่ง `history` ชุดเดียวกับที่กฎใช้เข้าไปด้วย — เหตุผลและตัวเลขทั้งหมดอยู่ในข้อ 5.4
 
-ต้นเหตุเชิงออกแบบ: ค่านี้ตั้งต่อ *กฎ* ไม่ใช่ต่อ *instrument* แต่ 1 แถวของ MNQ = 0.75
-ส่วน BTCUSDT = 0.30 ค่าเดียวเหมาะกับทั้งสองไม่ได้
+ถ้าประวัติสั้นกว่า `minRiskRangeBars` จะ**ไม่**ใช้พื้นนี้ (ตกกลับไปใช้ `minRiskTicks` เหมือนเดิม)
+เพราะ median จาก 3 แท่งไม่ได้บอกว่า "ปกติ" ของ instrument นี้คืออะไร — วิธีเดียวกับ liquidity gate
 
-**แนวทางที่เสนอไว้:** เปลี่ยนขั้นต่ำเป็น**สัดส่วนของ range เฉลี่ยของแท่ง**
-(เช่น อย่างน้อย 30% ของ median range 20 แท่ง) → ปรับตัวเองตาม instrument และความผันผวน
-ใช้ค่าเดียวได้ทุกชาร์ต ต้องเพิ่ม param `minRiskRangeShare` และส่ง `history` เข้า `buildPlan()`
-
----
+**ข้อ D ทำยังไง:** รันสคริปต์จำลองใน §8.4 อีกครั้งเมื่อมีข้อมูลมากขึ้น ถ้า 0.55–0.65 ยังชนะ
+*และชนะทั้งสอง instrument* ค่อยขยับ — แก้ที่ `/rules` ได้เลยไม่ต้อง deploy
 
 ## 8. ขั้นตอนถัดไป
 
@@ -257,7 +303,21 @@ select s.payload->'priceAction'->>'sweep'  as sweep,
 select * from public.setup_stats order by total_r desc nulls last;
 ```
 
-### 8.3 REV-RITHMIC-001 (ย้าย data source ไป Rithmic L2)
+### 8.3 วัดซ้ำว่าพื้นความเสี่ยงควรตั้งเท่าไร (งานข้อ 7.2 D)
+
+`docs/queries/risk_floor_sweep.sql` — รันไฟล์นี้ทั้งไฟล์ผ่าน `mcp__Supabase__execute_sql`
+
+มันไม่ได้อ่านค่าที่ตั้งอยู่ แต่**สร้างแผนใหม่ทุกค่า share แล้วเดินแท่งจริงซ้ำ**
+แถว `share = 0` คือของเดิมที่ระบบบันทึกไว้ ใช้เป็นตัวตรวจว่าตัวจำลองยังตรงกับ
+`evaluate_pending_outcomes()` อยู่ — **ถ้าแถวนั้นไม่ตรงกับ `setup_stats` แถวอื่นก็เชื่อไม่ได้**
+
+**กติกาการอ่านผล (ตามลำดับ):**
+1. ค่าข้างเคียงของตัวที่ชนะ เห็นด้วยกันไหม → ถ้าเห็นด้วย = เป็นผลจริง
+2. ตัวที่ชนะ ดีขึ้น**ทุก instrument** ไหม → ถ้าดีแค่ตัวเดียว = fit ข้อมูลเซสชันเดียว
+
+แถวเดียวที่สูงโดดโดยเพื่อนบ้านต่ำ คือการ fit ข้อมูล ไม่ใช่การค้นพบ
+
+### 8.4 REV-RITHMIC-001 (ย้าย data source ไป Rithmic L2)
 
 **บทวิเคราะห์ที่ให้ไว้: ทำ — แต่ทำแค่ STEP 1–6 (market-data + Mock/Replay provider)
 ยังไม่ต้องต่อ Rithmic จริง**
@@ -282,10 +342,12 @@ select * from public.setup_stats order by total_r desc nulls last;
 ## 9. วิธีทำงานกับ repo นี้
 
 ```bash
-# typecheck + test (มี deno ที่ /opt/deno/bin)
+# typecheck + test
+# deno ไม่ได้ติดตั้งมากับคอนเทนเนอร์ ถ้า `deno: command not found` ให้ลงก่อน:
+#   curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh -s -- -y
 export PATH=/opt/deno/bin:$PATH
 deno task check
-deno task test          # ปัจจุบัน 62 tests ผ่านหมด
+deno task test          # ปัจจุบัน 68 tests ผ่านหมด
 
 # เว็บ
 cd web && npm run build
@@ -312,7 +374,7 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0009
+supabase/migrations/                0001–0010
 supabase/functions/_shared/
   ingest.ts        pipeline หลัก (batch write)
   plan.ts          trade plan
@@ -322,6 +384,7 @@ supabase/functions/_shared/
   telegram.ts      ข้อความแจ้งเตือน
   outcomes.ts      reply ผลลัพธ์
 web/                                Next.js dashboard
+docs/queries/                       คิวรีวิเคราะห์ที่ใช้ซ้ำได้ (ดู 8.3)
 scripts/update-indicator.{ps1,bat}  อัปเดต DLL
 docs/SETUP.md                       คู่มือติดตั้งฉบับเต็ม
 ```
@@ -337,3 +400,5 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 5. อย่าเปิดใช้ตัวกรองใหม่โดยไม่วัดก่อน — วัดแล้วค่อยกรอง คือวิธีที่ใช้มาตลอด
 6. อย่าแก้ migration เก่า
 7. อย่าสร้างสัญญาณจากแท่งที่ยังไม่ปิด
+8. อย่าตั้งเกณฑ์ที่นับเป็น "แถว footprint" แล้วคาดว่าจะใช้ได้ทุก instrument — 1 แถวคนละขนาดกัน (ข้อ 5.4)
+9. อย่าเลือกค่าจากแถวที่ดีที่สุดแถวเดียว ถ้าเพื่อนบ้านไม่เห็นด้วย นั่นคือ fit ข้อมูล

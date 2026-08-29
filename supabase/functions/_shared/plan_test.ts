@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import type { BarInput } from "./types.ts";
+import type { BarInput, HistoryBar } from "./types.ts";
 import { buildPlan } from "./plan.ts";
 
 function bar(overrides: Partial<BarInput> = {}): BarInput {
@@ -81,4 +81,66 @@ Deno.test("plan: params override every default", () => {
   assertEquals(plan.trailTriggerTicks, 10);
   assertEquals(plan.trailOffsetTicks, 5);
   assertEquals(plan.holdBars, 20);
+});
+
+function history(count: number, range: number): HistoryBar[] {
+  return Array.from({ length: count }, (_, i) => ({
+    openedAt: `2026-08-27T0${i % 10}:00:00.000Z`,
+    open: 100, high: 100 + range, low: 100, close: 100,
+    volume: 500, delta: 0, pocPrice: null,
+  }));
+}
+
+const floorParams = { ...params, minRiskRangeShare: 0.3, minRiskRangeBars: 20 };
+
+Deno.test("plan: risk is floored at a share of what a bar normally covers", () => {
+  // Median range 10.00 -> floor of 3.00, which is 12 ticks of 0.25. The bar's
+  // own 7 ticks of risk is inside the instrument's noise, so it is widened.
+  const plan = buildPlan("long", bar(), 0.25, floorParams, 10, history(20, 10));
+
+  assertEquals(plan.riskTicks, 12);
+  assertEquals(plan.stop, 97.75);
+  assertEquals(plan.rewardTicks, 24);
+  assertEquals(plan.target, 106.75);
+});
+
+Deno.test("plan: the floor never tightens a stop the bar itself earned", () => {
+  // Median range 0.50 -> floor of 2 ticks, below the bar's own 7.
+  const plan = buildPlan("long", bar(), 0.25, floorParams, 10, history(20, 0.5));
+
+  assertEquals(plan.riskTicks, 7);
+  assertEquals(plan.stop, 99);
+});
+
+Deno.test("plan: the trail follows the floored risk, not the bar's", () => {
+  const plan = buildPlan("long", bar(), 0.25, floorParams, 10, history(20, 10));
+
+  assertEquals(plan.trailTriggerTicks, 12);
+  assertEquals(plan.trailOffsetTicks, 6);
+});
+
+Deno.test("plan: too little history falls back to the tick floor", () => {
+  // 19 bars cannot say what normal is here, so flooring against them would be
+  // flooring against a guess.
+  const plan = buildPlan("long", bar(), 0.25, floorParams, 10, history(19, 10));
+
+  assertEquals(plan.riskTicks, 7);
+});
+
+Deno.test("plan: no share configured leaves sizing exactly as it was", () => {
+  const plan = buildPlan("long", bar(), 0.25, params, 10, history(20, 10));
+
+  assertEquals(plan.riskTicks, 7);
+});
+
+Deno.test("plan: the same share adapts to each instrument's own scale", () => {
+  // The whole point: one setting, two instruments whose rows mean different
+  // amounts of market. MNQ rows are 0.75, BTCUSDT rows are 0.30.
+  const mnq = buildPlan("long", bar(), 0.75, floorParams, 10, history(20, 15));
+  const btc = buildPlan("long", bar(), 0.30, floorParams, 10, history(20, 22.2));
+
+  // 30% of 15.00 = 4.50 -> 6 rows of 0.75.
+  assertEquals(mnq.riskTicks, 6);
+  // 30% of 22.20 = 6.66 -> 22.2 rows of 0.30, where minRiskTicks alone gave 4.
+  assertEquals(btc.riskTicks, 22.2);
 });
