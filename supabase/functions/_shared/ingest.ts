@@ -10,6 +10,7 @@ import type {
 import { pointOfControl, sortLevels } from "./util.ts";
 import { runRules } from "./rules/index.ts";
 import { describeEvidence } from "./evidence.ts";
+import { buildPlan } from "./plan.ts";
 import { sendSignal, telegramConfig } from "./telegram.ts";
 
 /** Enough history for every rule's lookback, with room to spare. */
@@ -273,6 +274,14 @@ interface SignalRow {
   price: number;
   confidence: number;
   payload: Record<string, unknown>;
+  entry_price: number;
+  stop_price: number;
+  target_price: number;
+  risk_ticks: number;
+  reward_ticks: number;
+  trail_trigger_ticks: number;
+  trail_offset_ticks: number;
+  hold_bars: number;
 }
 
 /**
@@ -301,6 +310,7 @@ async function evaluateBars(
   );
 
   const rows: SignalRow[] = [];
+  const byKey = new Map(rules.map((rule) => [rule.key, rule]));
 
   for (const [index, entry] of prepared.entries()) {
     if (!entry.bar.isClosed) continue;
@@ -313,6 +323,15 @@ async function evaluateBars(
     });
 
     for (const signal of evaluated) {
+      const rule = byKey.get(signal.ruleKey);
+      const plan = buildPlan(
+        signal.direction,
+        entry.bar,
+        tickSize,
+        rule?.params ?? {},
+        rule?.horizon_bars ?? 10,
+      );
+
       rows.push({
         bar_id: barIds[index],
         instrument_id: scope.instrumentId,
@@ -322,6 +341,14 @@ async function evaluateBars(
         price: signal.price,
         confidence: Number(signal.confidence.toFixed(3)),
         payload: signal.payload,
+        entry_price: plan.entry,
+        stop_price: plan.stop,
+        target_price: plan.target,
+        risk_ticks: plan.riskTicks,
+        reward_ticks: plan.rewardTicks,
+        trail_trigger_ticks: plan.trailTriggerTicks,
+        trail_offset_ticks: plan.trailOffsetTicks,
+        hold_bars: plan.holdBars,
       });
     }
 
@@ -400,7 +427,7 @@ async function persistSignals(
       onConflict: "bar_id,rule_key,direction",
       ignoreDuplicates: true,
     })
-    .select("id, rule_key, direction, price, confidence, payload, fired_at");
+    .select("id, rule_key, direction, price, confidence, payload, fired_at, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
 
   if (error) throw new Error(`signal insert failed: ${error.message}`);
 
@@ -442,6 +469,16 @@ async function announce(
       confidence: Number(signal.confidence),
       firedAt: signal.fired_at as string,
       evidence: describeEvidence(rule.key, payload),
+      plan: {
+        entry: Number(signal.entry_price),
+        stop: Number(signal.stop_price),
+        target: Number(signal.target_price),
+        riskTicks: Number(signal.risk_ticks),
+        rewardTicks: Number(signal.reward_ticks),
+        trailTriggerTicks: Number(signal.trail_trigger_ticks),
+        trailOffsetTicks: Number(signal.trail_offset_ticks),
+        holdBars: Number(signal.hold_bars),
+      },
     });
 
     if (messageId === null) continue;

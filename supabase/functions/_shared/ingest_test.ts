@@ -97,7 +97,16 @@ const STACKED_RULE = {
   enabled: true,
   telegram_enabled: true,
   horizon_bars: 10,
-  params: { ratio: 3, minVolume: 10, stack: 3 },
+  params: {
+    ratio: 3,
+    minVolume: 10,
+    stack: 3,
+    bufferTicks: 2,
+    minRiskTicks: 4,
+    rewardRatio: 2,
+    trailAfterR: 1,
+    trailOffsetR: 0.5,
+  },
 };
 
 function level(price: number, ask: number, bid: number): ClusterLevel {
@@ -462,6 +471,28 @@ Deno.test("ingest: a single closed bar is the live case and may be announced", a
   // Telegram is unconfigured in tests, so announce returns before sending; the
   // point here is that the single-bar path is not short-circuited as history.
   assertEquals(client.callsFor("signals", "upsert").length, 1);
+});
+
+Deno.test("ingest: the signal carries the whole trade, not just a direction", async () => {
+  const client = readyClient().queue("signals.upsert", { data: [], error: null });
+
+  await ingest(client.asClient(), payload());
+
+  const row = client.rowsFor("signals", "upsert")[0];
+
+  // Bar closes 100.75 with a low of 100.00: 3 ticks of bar plus the 2 tick
+  // buffer is 5 ticks of risk, and the default 2R target is 10 ticks out.
+  assertEquals(row.entry_price, 100.75);
+  assertEquals(row.risk_ticks, 5);
+  assertEquals(row.stop_price, 99.5);
+  assertEquals(row.reward_ticks, 10);
+  assertEquals(row.target_price, 103.25);
+
+  // The trail and the horizon travel with the signal so that retuning the rule
+  // later cannot rewrite trades already taken.
+  assertEquals(row.trail_trigger_ticks, 5);
+  assertEquals(row.trail_offset_ticks, 2.5);
+  assertEquals(row.hold_bars, 10);
 });
 
 Deno.test("ingest: a bar with no footprint still stores cleanly", async () => {

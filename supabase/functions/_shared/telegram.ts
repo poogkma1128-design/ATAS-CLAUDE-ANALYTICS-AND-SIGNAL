@@ -70,6 +70,25 @@ export interface SignalMessage {
   confidence: number;
   firedAt: string;
   evidence: string | null;
+  plan: TradePlanLines | null;
+}
+
+/** The alert has to be actionable on its own: someone reading it on a phone,
+ *  away from the chart, must be able to place the trade from the message. */
+export interface TradePlanLines {
+  entry: number;
+  stop: number;
+  target: number;
+  riskTicks: number;
+  rewardTicks: number;
+  trailTriggerTicks: number;
+  trailOffsetTicks: number;
+  holdBars: number;
+}
+
+/** Trims the float noise that price arithmetic leaves behind. */
+function fmt(value: number): string {
+  return String(Number(value.toFixed(4)));
 }
 
 export function formatSignal(msg: SignalMessage): string {
@@ -78,9 +97,37 @@ export function formatSignal(msg: SignalMessage): string {
 
   const lines = [
     `<b>${arrow}</b> · ${escapeHtml(msg.ruleName)}`,
-    `<code>${escapeHtml(msg.symbol)}</code> · ${escapeHtml(msg.timeframe)} @ <b>${msg.price}</b>`,
-    `ความมั่นใจ ${confidence}%`,
+    `<code>${escapeHtml(msg.symbol)}</code> · ${escapeHtml(msg.timeframe)} · ความมั่นใจ ${confidence}%`,
   ];
+
+  if (msg.plan) {
+    const p = msg.plan;
+    const rr = p.riskTicks > 0 ? (p.rewardTicks / p.riskTicks).toFixed(1) : "-";
+
+    // Distances are given in price, not in ticks. ATAS reports TickSize as the
+    // chart's footprint row spacing, which is a multiple of the exchange tick
+    // (0.75 on an MNQ chart grouping three ticks per row), so a tick count here
+    // would read as three times tighter than the trade actually is.
+    const risk = Math.abs(p.stop - p.entry);
+    const reward = Math.abs(p.target - p.entry);
+
+    // The plan stores its trail in the same unit as the risk, so the price step
+    // it was built from is recoverable without carrying tick size around.
+    const step = p.riskTicks > 0 ? risk / p.riskTicks : 0;
+    const away = msg.direction === "long" ? 1 : -1;
+    const trailAt = p.entry + away * p.trailTriggerTicks * step;
+    const trailBy = p.trailOffsetTicks * step;
+
+    lines.push(
+      "",
+      `🎯 เข้า <b>${p.entry}</b>`,
+      `🛑 SL <b>${p.stop}</b>  (เสี่ยง ${fmt(risk)})`,
+      `✅ TP <b>${p.target}</b>  (ได้ ${fmt(reward)} · RR 1:${rr})`,
+      `↕️ ราคาถึง ${fmt(trailAt)} แล้วเลื่อน SL ตามห่าง ${fmt(trailBy)}`,
+      `⏱ ถือไม่เกิน ${p.holdBars} แท่ง ไม่ถึง TP/SL ให้ปิดที่ราคาตลาด`,
+      "",
+    );
+  }
 
   if (msg.evidence) lines.push(escapeHtml(msg.evidence));
 
@@ -119,17 +166,28 @@ export interface OutcomeMessage {
   mfeTicks: number;
   maeTicks: number;
   barsUsed: number;
+  exitReason: string | null;
 }
+
+const EXIT_LABEL: Record<string, string> = {
+  target: "ถึง TP",
+  stop: "โดน SL",
+  trail: "SL ที่เลื่อนตามมา",
+  timeout: "ครบจำนวนแท่ง ปิดที่ราคาตลาด",
+};
 
 export function formatOutcome(msg: OutcomeMessage): string {
   const won = msg.pnlTicks > 0;
   const mark = won ? "✅" : msg.pnlTicks < 0 ? "❌" : "➖";
   const sign = msg.pnlTicks > 0 ? "+" : "";
 
+  const how = msg.exitReason ? EXIT_LABEL[msg.exitReason] ?? msg.exitReason : null;
+
   return [
     `${mark} <b>${sign}${msg.pnlTicks} ticks</b> หลังจบ ${msg.barsUsed} แท่ง`,
+    how ? `จบเพราะ: ${escapeHtml(how)}` : null,
     `ไปได้ไกลสุด +${msg.mfeTicks} · สวนไปสุด -${msg.maeTicks}`,
-  ].join("\n");
+  ].filter((line): line is string => line !== null).join("\n");
 }
 
 /** Posts the result as a reply on the original alert, keeping them together. */
