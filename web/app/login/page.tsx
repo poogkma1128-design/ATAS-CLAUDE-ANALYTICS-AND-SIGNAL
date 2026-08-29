@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { BuildTag } from "@/components/BuildTag";
 
 /**
  * Sign-in offers two ways through on purpose.
@@ -162,6 +163,10 @@ export default function LoginPage() {
               </button>
             </form>
           )}
+      </div>
+
+      <div className="fixed bottom-4 left-0 right-0 flex justify-center">
+        <BuildTag />
       </div>
     </main>
   );
