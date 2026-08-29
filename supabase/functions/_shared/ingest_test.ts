@@ -77,11 +77,11 @@ class StubClient {
     return this.calls.filter((c) => c.table === table && c.ops[0]?.name === op);
   }
 
-  /** The payload handed to the first matching write. */
-  argsFor(table: string, op: string, index = 0): Record<string, unknown> {
+  /** The rows handed to the first matching write, which are always batched. */
+  rowsFor(table: string, op: string, index = 0): Record<string, unknown>[] {
     const call = this.callsFor(table, op)[index];
     assertExists(call, `expected a ${op} on ${table}`);
-    return call.ops[0].args[0] as Record<string, unknown>;
+    return call.ops[0].args[0] as Record<string, unknown>[];
   }
 
   asClient(): SupabaseClient {
@@ -151,7 +151,10 @@ function readyClient(): StubClient {
   return new StubClient()
     .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
-    .queue("bars.upsert", { data: { id: 101 }, error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    })
     .queue("bars.select", { data: [], error: null });
 }
 
@@ -218,7 +221,7 @@ Deno.test("ingest: records the point of control on the bar", async () => {
   await ingest(client.asClient(), payload());
 
   // 100.50 carries ask 40 + bid 3 = 43, the heaviest level in the footprint.
-  assertEquals(client.argsFor("bars", "upsert").poc_price, 100.5);
+  assertEquals(client.rowsFor("bars", "upsert")[0].poc_price, 100.5);
 });
 
 Deno.test("ingest: an unfinished bar is stored but never judged", async () => {
@@ -251,24 +254,22 @@ Deno.test("ingest: deduplication is delegated to the unique constraint", async (
   assertEquals(result.signalsCreated, 0);
 });
 
-Deno.test("ingest: bars in one request are written oldest first", async () => {
+Deno.test("ingest: bars in one request go up as one ordered batch", async () => {
   const client = new StubClient()
     .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
-    .queue(
-      "bars.upsert",
-      { data: { id: 101 }, error: null },
-      { data: { id: 102 }, error: null },
-      { data: { id: 103 }, error: null },
-    )
-    .queue("bars.select", { data: [], error: null }, { data: [], error: null }, {
-      data: [],
+    .queue("bars.upsert", {
+      data: [
+        // Deliberately out of order: ids are matched on the timestamp, not on
+        // the position PostgREST happens to return them in.
+        { id: 103, opened_at: "2026-08-27T10:10:00.000Z" },
+        { id: 101, opened_at: "2026-08-27T10:00:00.000Z" },
+        { id: 102, opened_at: "2026-08-27T10:05:00.000Z" },
+      ],
       error: null,
     })
-    .queue("signals.upsert", { data: [], error: null }, { data: [], error: null }, {
-      data: [],
-      error: null,
-    });
+    .queue("bars.select", { data: [], error: null })
+    .queue("signals.upsert", { data: [], error: null });
 
   await ingest(
     client.asClient(),
@@ -281,15 +282,59 @@ Deno.test("ingest: bars in one request are written oldest first", async () => {
     }),
   );
 
-  const written = client
-    .callsFor("bars", "upsert")
-    .map((c) => (c.ops[0].args[0] as Record<string, unknown>).opened_at);
+  // One request for all three bars, oldest first.
+  assertEquals(client.callsFor("bars", "upsert").length, 1);
+  assertEquals(
+    client.rowsFor("bars", "upsert").map((row) => row.opened_at),
+    [
+      "2026-08-27T10:00:00.000Z",
+      "2026-08-27T10:05:00.000Z",
+      "2026-08-27T10:10:00.000Z",
+    ],
+  );
 
-  assertEquals(written, [
-    "2026-08-27T10:00:00.000Z",
-    "2026-08-27T10:05:00.000Z",
-    "2026-08-27T10:10:00.000Z",
-  ]);
+  // Every footprint in one request too, each row carrying the id its own bar
+  // came back with.
+  assertEquals(client.callsFor("cluster_levels", "upsert").length, 1);
+  const levelBarIds = client.rowsFor("cluster_levels", "upsert").map((r) => r.bar_id);
+  assertEquals(levelBarIds.slice(0, 5), [101, 101, 101, 101, 101]);
+  assertEquals(levelBarIds.slice(-5), [103, 103, 103, 103, 103]);
+
+  // And history is read once for the batch, not once per bar.
+  assertEquals(client.callsFor("bars", "select").length, 1);
+});
+
+Deno.test("ingest: a bar repeated in one request is collapsed, not sent twice", async () => {
+  // Postgres rejects an ON CONFLICT batch that hits the same key twice, so a
+  // duplicated timestamp has to be folded before the batch is sent.
+  const client = readyClient().queue("signals.upsert", { data: [], error: null });
+
+  const result = await ingest(
+    client.asClient(),
+    payload({ bars: [bar({ close: 100.5 }), bar({ close: 100.75 })] }),
+  );
+
+  const rows = client.rowsFor("bars", "upsert");
+  assertEquals(rows.length, 1);
+  // The later copy wins: within one request it is the more complete one.
+  assertEquals(rows[0].close, 100.75);
+  assertEquals(result.barsWritten, 1);
+});
+
+Deno.test("ingest: a footprint batch is chunked rather than sent whole", async () => {
+  const wide = Array.from({ length: 1200 }, (_, i) => level(i * 0.25, 1, 1));
+  const client = readyClient();
+
+  const result = await ingest(
+    client.asClient(),
+    payload({ bars: [bar({ levels: wide, isClosed: false })] }),
+  );
+
+  assertEquals(result.levelsWritten, 1200);
+  const chunks = client.callsFor("cluster_levels", "upsert");
+  assertEquals(chunks.length, 2);
+  assertEquals(client.rowsFor("cluster_levels", "upsert", 0).length, 1000);
+  assertEquals(client.rowsFor("cluster_levels", "upsert", 1).length, 200);
 });
 
 Deno.test("ingest: history is scoped to the same instrument, timeframe and past", async () => {
@@ -311,13 +356,17 @@ Deno.test("ingest: a disabled rule produces nothing", async () => {
   const client = new StubClient()
     .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
     .queue("rules.select", { data: [], error: null })
-    .queue("bars.upsert", { data: { id: 101 }, error: null })
-    .queue("bars.select", { data: [], error: null });
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    });
 
   const result = await ingest(client.asClient(), payload());
 
   assertEquals(result.signalsCreated, 0);
   assertEquals(client.callsFor("signals", "upsert").length, 0);
+  // Nothing to judge, so history is never read either.
+  assertEquals(client.callsFor("bars", "select").length, 0);
 });
 
 Deno.test("ingest: a database error is surfaced, not swallowed", async () => {
@@ -336,6 +385,85 @@ Deno.test("ingest: a database error is surfaced, not swallowed", async () => {
   assertEquals(message, "instrument upsert failed: permission denied");
 });
 
+Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
+  // Startup backfill arrives as one request carrying the whole visible history.
+  // Those bars closed long ago, so their signals belong in the database and the
+  // statistics but must not reach anyone's phone.
+  const client = new StubClient()
+    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("rules.select", { data: [STACKED_RULE], error: null })
+    .queue("bars.upsert", {
+      data: [
+        { id: 101, opened_at: "2026-08-27T10:00:00.000Z" },
+        { id: 102, opened_at: "2026-08-27T10:05:00.000Z" },
+      ],
+      error: null,
+    })
+    .queue("bars.select", { data: [], error: null })
+    .queue("signals.upsert", {
+      data: [
+        {
+          id: "sig-1",
+          rule_key: "stacked_imbalance",
+          direction: "long",
+          price: 100.75,
+          confidence: 0.4,
+          payload: {},
+          fired_at: "2026-08-27T10:05:00.000Z",
+        },
+        {
+          id: "sig-2",
+          rule_key: "stacked_imbalance",
+          direction: "long",
+          price: 100.75,
+          confidence: 0.4,
+          payload: {},
+          fired_at: "2026-08-27T10:10:00.000Z",
+        },
+      ],
+      error: null,
+    });
+
+  const result = await ingest(
+    client.asClient(),
+    payload({
+      bars: [
+        bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+        bar({ openedAt: "2026-08-27T10:05:00.000Z" }),
+      ],
+    }),
+  );
+
+  // Both signals are persisted and counted.
+  assertEquals(result.signalsCreated, 2);
+
+  // Announcing writes the telegram id back onto the signal row. No update means
+  // nothing was sent.
+  assertEquals(client.callsFor("signals", "update").length, 0);
+});
+
+Deno.test("ingest: a single closed bar is the live case and may be announced", async () => {
+  const client = readyClient().queue("signals.upsert", {
+    data: [{
+      id: "sig-1",
+      rule_key: "stacked_imbalance",
+      direction: "long",
+      price: 100.75,
+      confidence: 0.4,
+      payload: {},
+      fired_at: "2026-08-27T10:05:00.000Z",
+    }],
+    error: null,
+  });
+
+  const result = await ingest(client.asClient(), payload());
+
+  assertEquals(result.signalsCreated, 1);
+  // Telegram is unconfigured in tests, so announce returns before sending; the
+  // point here is that the single-bar path is not short-circuited as history.
+  assertEquals(client.callsFor("signals", "upsert").length, 1);
+});
+
 Deno.test("ingest: a bar with no footprint still stores cleanly", async () => {
   const client = readyClient();
 
@@ -347,5 +475,5 @@ Deno.test("ingest: a bar with no footprint still stores cleanly", async () => {
   assertEquals(result.barsWritten, 1);
   assertEquals(result.levelsWritten, 0);
   assertEquals(client.callsFor("cluster_levels", "upsert").length, 0);
-  assertEquals(client.argsFor("bars", "upsert").poc_price, null);
+  assertEquals(client.rowsFor("bars", "upsert")[0].poc_price, null);
 });

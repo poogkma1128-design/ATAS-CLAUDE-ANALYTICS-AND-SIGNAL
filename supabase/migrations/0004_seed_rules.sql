@@ -33,6 +33,6 @@ insert into public.rules (key, name, description, horizon_bars, params) values
     'POC Shift / HVN',
     'Point of Control ขยับไปทางเดียวต่อเนื่อง — โซนที่ตลาดยอมรับราคากำลังเลื่อน',
     10,
-    '{"minTicks": 3, "consecutive": 2, "hvnShare": 0.25}'::jsonb
+    '{"minTicks": 8, "consecutive": 3, "hvnShare": 0.25}'::jsonb
   )
 on conflict (key) do nothing;

@@ -2,6 +2,7 @@ import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
 
 import type {
   BarInput,
+  ClusterLevel,
   HistoryBar,
   IngestPayload,
   RuleRow,
@@ -15,6 +16,13 @@ import { sendSignal, telegramConfig } from "./telegram.ts";
 const HISTORY_BARS = 50;
 const MAX_BARS_PER_REQUEST = 200;
 const MAX_LEVELS_PER_BAR = 2000;
+
+/**
+ * A wide backfill can carry tens of thousands of footprint rows. They go up in
+ * chunks so one request never grows past what PostgREST will accept, while
+ * still being far fewer round trips than a request per bar.
+ */
+const LEVEL_ROWS_PER_REQUEST = 1000;
 
 // --------------------------------------------------------------- validation
 
@@ -64,6 +72,13 @@ export interface IngestResult {
   signalsCreated: number;
 }
 
+/** A bar with the derived values every later step needs, computed once. */
+interface PreparedBar {
+  bar: BarInput;
+  levels: ClusterLevel[];
+  pocPrice: number | null;
+}
+
 export async function ingest(
   supabase: SupabaseClient,
   payload: IngestPayload,
@@ -72,50 +87,66 @@ export async function ingest(
   const rules = await loadRules(supabase);
   const tickSize = payload.tickSize;
 
-  let barsWritten = 0;
-  let levelsWritten = 0;
-  let signalsCreated = 0;
-
   // Oldest first, so a request carrying several bars builds history in order.
-  const bars = [...payload.bars].sort(
-    (a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt),
+  const bars = orderBars(payload.bars);
+
+  // The indicator posts exactly one bar as it closes, and the whole visible
+  // history in a single batch when it starts up. Announcing that batch means a
+  // phone full of alerts for bars that closed hours ago, so a multi-bar request
+  // is treated as history: the signals are still stored and still counted in
+  // the statistics, they are simply not announced.
+  const isHistoricalBatch = bars.length > 1;
+
+  const prepared: PreparedBar[] = bars.map((bar) => {
+    const levels = collapseLevels(bar.levels ?? []);
+    return { bar, levels, pocPrice: pointOfControl(levels)?.price ?? null };
+  });
+
+  // Everything below is batched. A hundred-bar backfill used to cost four round
+  // trips per bar; it now costs a handful for the whole request, which is the
+  // difference between the function finishing in a second and timing out.
+  const barIds = await upsertBars(supabase, instrumentId, payload.timeframe, prepared);
+  const levelsWritten = await upsertLevels(supabase, prepared, barIds);
+
+  const signalRows = await evaluateBars(
+    supabase,
+    { instrumentId, timeframe: payload.timeframe },
+    rules,
+    prepared,
+    barIds,
+    tickSize,
   );
 
-  for (const bar of bars) {
-    const levels = sortLevels(bar.levels ?? []);
-    const poc = pointOfControl(levels);
+  const signalsCreated = await persistSignals(
+    supabase,
+    { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
+    rules,
+    signalRows,
+    isHistoricalBatch,
+  );
 
-    const barId = await upsertBar(supabase, instrumentId, payload.timeframe, bar, poc?.price ?? null);
-    barsWritten++;
+  return { barsWritten: prepared.length, levelsWritten, signalsCreated };
+}
 
-    if (levels.length > 0) {
-      await upsertLevels(supabase, barId, levels);
-      levelsWritten += levels.length;
-    }
+/**
+ * Postgres rejects an ON CONFLICT batch that touches the same key twice, so a
+ * timestamp repeated inside one request has to be collapsed before it is sent.
+ * The last copy wins: within a request it is the more complete one.
+ */
+function orderBars(bars: BarInput[]): BarInput[] {
+  const byTime = new Map<number, BarInput>();
+  for (const bar of bars) byTime.set(Date.parse(bar.openedAt), bar);
 
-    // Rules only ever judge finished bars; an in-progress footprint would fire
-    // and un-fire as volume lands.
-    if (!bar.isClosed) continue;
+  return [...byTime.values()].sort(
+    (a, b) => Date.parse(a.openedAt) - Date.parse(b.openedAt),
+  );
+}
 
-    const history = await loadHistory(
-      supabase,
-      instrumentId,
-      payload.timeframe,
-      bar.openedAt,
-    );
-
-    const evaluated = runRules(rules, { bar, levels, history, tickSize });
-    if (evaluated.length === 0) continue;
-
-    signalsCreated += await persistSignals(
-      supabase,
-      { instrumentId, barId, timeframe: payload.timeframe, symbol: payload.symbol },
-      rules,
-      evaluated,
-    );
-  }
-
-  return { barsWritten, levelsWritten, signalsCreated };
+/** The same collapsing for footprint rows, which are keyed by (bar, price). */
+function collapseLevels(levels: ClusterLevel[]): ClusterLevel[] {
+  const byPrice = new Map<number, ClusterLevel>();
+  for (const level of levels) byPrice.set(level.price, level);
+  return sortLevels([...byPrice.values()]);
 }
 
 async function upsertInstrument(
@@ -150,67 +181,168 @@ async function loadRules(supabase: SupabaseClient): Promise<RuleRow[]> {
   return (data ?? []) as RuleRow[];
 }
 
-async function upsertBar(
+async function upsertBars(
   supabase: SupabaseClient,
   instrumentId: string,
   timeframe: string,
-  bar: BarInput,
-  pocPrice: number | null,
-): Promise<number> {
+  prepared: PreparedBar[],
+): Promise<number[]> {
+  const rows = prepared.map(({ bar, pocPrice }) => ({
+    instrument_id: instrumentId,
+    timeframe,
+    opened_at: new Date(bar.openedAt).toISOString(),
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume ?? 0,
+    ask_volume: bar.askVolume ?? 0,
+    bid_volume: bar.bidVolume ?? 0,
+    delta: bar.delta ?? 0,
+    min_delta: bar.minDelta ?? 0,
+    max_delta: bar.maxDelta ?? 0,
+    cum_delta: bar.cumDelta ?? null,
+    poc_price: pocPrice,
+    ticks: bar.ticks ?? 0,
+    trades: bar.trades ?? 0,
+    is_closed: bar.isClosed === true,
+  }));
+
   const { data, error } = await supabase
     .from("bars")
-    .upsert(
-      {
-        instrument_id: instrumentId,
-        timeframe,
-        opened_at: new Date(bar.openedAt).toISOString(),
-        open: bar.open,
-        high: bar.high,
-        low: bar.low,
-        close: bar.close,
-        volume: bar.volume ?? 0,
-        ask_volume: bar.askVolume ?? 0,
-        bid_volume: bar.bidVolume ?? 0,
-        delta: bar.delta ?? 0,
-        min_delta: bar.minDelta ?? 0,
-        max_delta: bar.maxDelta ?? 0,
-        cum_delta: bar.cumDelta ?? null,
-        poc_price: pocPrice,
-        ticks: bar.ticks ?? 0,
-        trades: bar.trades ?? 0,
-        is_closed: bar.isClosed === true,
-      },
-      { onConflict: "instrument_id,timeframe,opened_at" },
-    )
-    .select("id")
-    .single();
+    .upsert(rows, { onConflict: "instrument_id,timeframe,opened_at" })
+    .select("id, opened_at");
 
   if (error) throw new Error(`bar upsert failed: ${error.message}`);
-  return data.id as number;
+
+  // The returned rows are not promised to come back in the order they were
+  // sent, and Postgres normalises the timestamp text, so the ids are matched
+  // on the instant rather than on position or on the string.
+  const idByInstant = new Map<number, number>();
+  for (const row of (data ?? []) as { id: number; opened_at: string }[]) {
+    idByInstant.set(Date.parse(row.opened_at), row.id);
+  }
+
+  return prepared.map(({ bar }) => {
+    const id = idByInstant.get(Date.parse(bar.openedAt));
+    if (id === undefined) {
+      throw new Error(`bar upsert returned no id for ${bar.openedAt}`);
+    }
+    return id;
+  });
 }
 
 async function upsertLevels(
   supabase: SupabaseClient,
-  barId: number,
-  levels: BarInput["levels"],
-): Promise<void> {
+  prepared: PreparedBar[],
+  barIds: number[],
+): Promise<number> {
   // Volume within a bar only accumulates, so upserting by price is safe and
   // avoids deleting and rewriting the footprint on every intrabar update.
-  const rows = levels.map((level) => ({
-    bar_id: barId,
-    price: level.price,
-    ask: level.ask ?? 0,
-    bid: level.bid ?? 0,
-    between: level.between ?? 0,
-    volume: level.volume ?? 0,
-    ticks: level.ticks ?? 0,
-  }));
+  const rows = prepared.flatMap((entry, index) =>
+    entry.levels.map((level) => ({
+      bar_id: barIds[index],
+      price: level.price,
+      ask: level.ask ?? 0,
+      bid: level.bid ?? 0,
+      between: level.between ?? 0,
+      volume: level.volume ?? 0,
+      ticks: level.ticks ?? 0,
+    }))
+  );
 
-  const { error } = await supabase
-    .from("cluster_levels")
-    .upsert(rows, { onConflict: "bar_id,price" });
+  for (let start = 0; start < rows.length; start += LEVEL_ROWS_PER_REQUEST) {
+    const { error } = await supabase
+      .from("cluster_levels")
+      .upsert(rows.slice(start, start + LEVEL_ROWS_PER_REQUEST), {
+        onConflict: "bar_id,price",
+      });
 
-  if (error) throw new Error(`cluster level upsert failed: ${error.message}`);
+    if (error) throw new Error(`cluster level upsert failed: ${error.message}`);
+  }
+
+  return rows.length;
+}
+
+interface SignalRow {
+  bar_id: number;
+  instrument_id: string;
+  timeframe: string;
+  rule_key: string;
+  direction: string;
+  price: number;
+  confidence: number;
+  payload: Record<string, unknown>;
+}
+
+/**
+ * Runs every rule over every closed bar in the request. History is fetched once
+ * for the batch and then extended in memory, because the bars of the batch are
+ * exactly the bars that would come back from a per-bar query anyway.
+ */
+async function evaluateBars(
+  supabase: SupabaseClient,
+  scope: { instrumentId: string; timeframe: string },
+  rules: RuleRow[],
+  prepared: PreparedBar[],
+  barIds: number[],
+  tickSize: number,
+): Promise<SignalRow[]> {
+  // Rules only ever judge finished bars; an in-progress footprint would fire
+  // and un-fire as volume lands.
+  const firstClosed = prepared.findIndex((entry) => entry.bar.isClosed);
+  if (firstClosed === -1 || rules.length === 0) return [];
+
+  const history = await loadHistory(
+    supabase,
+    scope.instrumentId,
+    scope.timeframe,
+    prepared[firstClosed].bar.openedAt,
+  );
+
+  const rows: SignalRow[] = [];
+
+  for (const [index, entry] of prepared.entries()) {
+    if (!entry.bar.isClosed) continue;
+
+    const evaluated = runRules(rules, {
+      bar: entry.bar,
+      levels: entry.levels,
+      history: history.slice(-HISTORY_BARS),
+      tickSize,
+    });
+
+    for (const signal of evaluated) {
+      rows.push({
+        bar_id: barIds[index],
+        instrument_id: scope.instrumentId,
+        timeframe: scope.timeframe,
+        rule_key: signal.ruleKey,
+        direction: signal.direction,
+        price: signal.price,
+        confidence: Number(signal.confidence.toFixed(3)),
+        payload: signal.payload,
+      });
+    }
+
+    // Only now, so a bar is never part of its own history.
+    history.push(asHistoryBar(entry));
+  }
+
+  return rows;
+}
+
+function asHistoryBar({ bar, pocPrice }: PreparedBar): HistoryBar {
+  return {
+    openedAt: new Date(bar.openedAt).toISOString(),
+    open: bar.open,
+    high: bar.high,
+    low: bar.low,
+    close: bar.close,
+    volume: bar.volume ?? 0,
+    delta: bar.delta ?? 0,
+    pocPrice,
+  };
 }
 
 async function loadHistory(
@@ -246,7 +378,6 @@ async function loadHistory(
 
 interface SignalTarget {
   instrumentId: string;
-  barId: number;
   timeframe: string;
   symbol: string;
 }
@@ -255,18 +386,10 @@ async function persistSignals(
   supabase: SupabaseClient,
   target: SignalTarget,
   rules: RuleRow[],
-  evaluated: ReturnType<typeof runRules>,
+  rows: SignalRow[],
+  isHistoricalBatch: boolean,
 ): Promise<number> {
-  const rows = evaluated.map((signal) => ({
-    bar_id: target.barId,
-    instrument_id: target.instrumentId,
-    timeframe: target.timeframe,
-    rule_key: signal.ruleKey,
-    direction: signal.direction,
-    price: signal.price,
-    confidence: Number(signal.confidence.toFixed(3)),
-    payload: signal.payload,
-  }));
+  if (rows.length === 0) return 0;
 
   // ignoreDuplicates makes the unique(bar_id, rule_key, direction) constraint
   // do the deduplication: re-posting a bar returns only genuinely new signals,
@@ -284,7 +407,10 @@ async function persistSignals(
   const created = data ?? [];
   if (created.length === 0) return 0;
 
-  await announce(supabase, target, rules, created);
+  if (!isHistoricalBatch) {
+    await announce(supabase, target, rules, created);
+  }
+
   return created.length;
 }
 
@@ -328,4 +454,3 @@ async function announce(
     if (error) console.error("could not store telegram message id:", error.message);
   }
 }
-

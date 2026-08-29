@@ -320,6 +320,28 @@ Deno.test("poc shift: a shift smaller than minTicks is noise", () => {
   assertEquals(signals, []);
 });
 
+Deno.test("poc shift: a longer run length demands more agreeing steps", () => {
+  // The shipped default is three steps. Two steps that agree are exactly the
+  // chop that made the rule fire on half of every bar, so they must not pass.
+  const levels = [level(101.00, 200, 150)];
+  const strict = { ...pocParams, consecutive: 3 };
+
+  const twoSteps = pocShift({
+    ...ctx(levels, strict),
+    bar: bar({ close: 101, volume: 400, levels }),
+    history: history(2, (i) => ({ pocPrice: [100.00, 100.50][i] })),
+  });
+  assertEquals(twoSteps, []);
+
+  const threeSteps = pocShift({
+    ...ctx(levels, strict),
+    bar: bar({ close: 101, volume: 400, levels }),
+    history: history(3, (i) => ({ pocPrice: [100.00, 100.25, 100.50][i] })),
+  });
+  assertEquals(threeSteps.length, 1);
+  assertEquals(threeSteps[0].direction, "long");
+});
+
 Deno.test("poc shift: missing historical POCs are not guessed at", () => {
   const levels = [level(101.00, 200, 150)];
 

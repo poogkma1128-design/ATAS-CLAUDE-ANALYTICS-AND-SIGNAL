@@ -79,8 +79,15 @@ namespace AtasSignalBridge
         {
             // A settings change or chart reload replays history from the start,
             // so forget where the live edge was.
+            //
+            // _seeded is deliberately left alone. ATAS recalculates far more
+            // often than the chart actually reloads, and re-seeding here posted
+            // the whole backfill again on every one of those passes: the same
+            // hundred bars and several thousand footprint rows, four times over
+            // in one session. Switching instrument or timeframe builds a new
+            // indicator instance, which starts with _seeded false anyway, so
+            // the backfill still happens exactly when it should.
             _lastBar = -1;
-            _seeded = false;
             _lastIntrabarSend = DateTime.MinValue;
         }
 
