@@ -159,22 +159,34 @@ ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ�
 
 ต้องลง **.NET 10 SDK** ก่อน → https://dotnet.microsoft.com/download/dotnet/10.0
 
-### วิธีที่ง่ายที่สุด: รันสคริปต์
+### วิธีที่ง่ายที่สุด: ดับเบิลคลิก
 
 ในโฟลเดอร์ repo มีสคริปต์ที่ทำให้ครบทั้งดึงโค้ดใหม่ build และวางไฟล์ไว้บน Desktop
-**คลิกขวาที่ `scripts\update-indicator.ps1` → Run with PowerShell**
 
-ถ้าเปิดจาก PowerShell ที่เปิดค้างอยู่แล้วโดนบล็อกเรื่อง execution policy ใช้บรรทัดนี้แทน:
+**ดับเบิลคลิก `scripts\update-indicator.bat`**
+
+ถ้าอยากสั่งจาก PowerShell ที่เปิดค้างอยู่:
 
 ```powershell
-powershell -ExecutionPolicy Bypass -File .\scripts\update-indicator.ps1
+.\scripts\update-indicator.bat
 ```
+
+> **ทำไมต้องมีไฟล์ .bat?** Windows ปิดการรันไฟล์ `.ps1` ไว้ตั้งแต่แรก
+> ถ้าเรียก `.\scripts\update-indicator.ps1` ตรง ๆ จะขึ้น
+> *"running scripts is disabled on this system"* ซึ่งอ่านแล้วเหมือนสคริปต์พัง
+> ทั้งที่เป็นแค่นโยบายความปลอดภัย ไฟล์ `.bat` เรียก PowerShell พร้อมยกเว้นนโยบาย
+> **เฉพาะครั้งนั้น** ไม่ได้ไปแก้ค่าอะไรค้างไว้ในเครื่อง
+>
+> ถ้าอยากสั่ง `.ps1` ตรง ๆ ใช้:
+> ```powershell
+> powershell -ExecutionPolicy Bypass -File .\scripts\update-indicator.ps1
+> ```
 
 ### หรือทำเองทีละขั้น
 
 ```powershell
-git fetch origin
-git checkout -B main origin/main
+git checkout main
+git pull
 cd atas-indicator
 dotnet build -c Release
 ```
