@@ -315,10 +315,14 @@ async function evaluateBars(
   for (const [index, entry] of prepared.entries()) {
     if (!entry.bar.isClosed) continue;
 
+    // Shared by the rules and by plan sizing, and correct for both only
+    // because the bar is appended to `history` after it has been evaluated.
+    const recent = history.slice(-HISTORY_BARS);
+
     const evaluated = runRules(rules, {
       bar: entry.bar,
       levels: entry.levels,
-      history: history.slice(-HISTORY_BARS),
+      history: recent,
       tickSize,
     });
 
@@ -330,6 +334,7 @@ async function evaluateBars(
         tickSize,
         rule?.params ?? {},
         rule?.horizon_bars ?? 10,
+        recent,
       );
 
       rows.push({
