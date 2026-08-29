@@ -71,7 +71,16 @@
   -->
   <Target Name="GenerateBuildInfo" BeforeTargets="BeforeCompile">
 
-    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; rev-parse --short=7 HEAD"
+    <!--
+      The last commit that touched THIS directory, not the repository's HEAD.
+      Most work in this repo is server-side, so HEAD moves constantly while the
+      indicator does not. Stamping HEAD made a perfectly current DLL report a
+      commit that no longer matched the repo and read as stale: the About tab
+      said a9d3da6 while main had moved on, even though no commit in between
+      had touched a single C# file. Stamping the indicator's own last change
+      means this string moves only when the thing it describes moves.
+    -->
+    <Exec Command="git -C &quot;$(MSBuildProjectDirectory)&quot; log -1 --abbrev=7 --format=%h -- ."
           ConsoleToMSBuild="true"
           ContinueOnError="true"
           IgnoreExitCode="true"

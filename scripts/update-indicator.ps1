@@ -81,9 +81,13 @@ if ($LASTEXITCODE -ne 0) {
 git checkout --quiet -B main origin/main
 if ($LASTEXITCODE -ne 0) { Stop-Here "สลับไปสาขา main ไม่ได้" "ส่ง error ข้างบนมาให้ดู" }
 
-$Commit = (git rev-parse --short=7 HEAD)
+# commit ที่แตะตัว indicator ล่าสุด ไม่ใช่ HEAD ของทั้ง repo
+# งานส่วนใหญ่ในโปรเจกต์นี้อยู่ฝั่ง server ซึ่งไม่แตะ C# เลย HEAD จึงขยับเรื่อย ๆ
+# ทั้งที่ DLL ไม่ต้องเปลี่ยน ถ้าเทียบกับ HEAD จะเห็นเลขไม่ตรงแล้วนึกว่าตัวเก่า
+$Commit = (git log -1 --abbrev=7 --format=%h -- atas-indicator)
 Ok "อัปเดตแล้ว — $(git log -1 --format=%s)"
-Note "commit $Commit"
+Note "commit ของ indicator: $Commit"
+Note "(repo HEAD คือ $(git rev-parse --short=7 HEAD) — คนละเลขได้ ไม่ผิด)"
 
 # --- 3. Build ----------------------------------------------------------------
 Step 3 "Build DLL (ครั้งแรกอาจนานสัก 1-2 นาที)"
@@ -118,5 +122,8 @@ Write-Host "  คลิก Signal Bridge ในหน้า Indicators แล้
 Write-Host "  ต้องขึ้น: " -NoNewline
 Write-Host "commit $Commit" -ForegroundColor Green
 Write-Host "  ถ้าขึ้น commit อื่น แปลว่า ATAS ยังใช้ตัวเก่า - ปิด ATAS แล้ว Import ใหม่"
+Write-Host ""
+Write-Host "  เลขนี้จะไม่เปลี่ยนจนกว่าจะมีการแก้โค้ด C# จริง ๆ" -ForegroundColor DarkGray
+Write-Host "  งานฝั่ง server (กฎ/ค่าตั้ง/เว็บ) ไม่ทำให้ต้อง build ใหม่" -ForegroundColor DarkGray
 Write-Host ""
 Read-Host "กด Enter เพื่อปิดหน้าต่าง" | Out-Null
