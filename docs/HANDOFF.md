@@ -36,7 +36,7 @@ ATAS (Windows)
 |---|---|
 | Supabase project ref | `sckdriuwfyittcybnbhz` |
 | Ingest endpoint | `https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest` |
-| Edge function `ingest` | **version 10, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
+| Edge function `ingest` | **version 11, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
 | Dashboard | `https://atas-signal-board.vercel.app` |
 | Vercel production branch | **`claude/form-signal-telegram-rz8am1`** (ไม่ใช่ `main` — ตั้งไว้แบบนี้) |
 | Repo | `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL` |
@@ -125,6 +125,7 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 | 9 | **Liquidity gate** | ตัดแท่ง volume บาง |
 | 10 | **Price action context** | เก็บไว้รอวัด ยังไม่กรอง |
 | 11 | **พื้นความเสี่ยงตามความผันผวนของ instrument** | `minRiskTicks` นับ "แถว footprint" ซึ่งคนละขนาดกันในแต่ละ instrument — ดูข้อ 5.4 |
+| 13 | **ตั้งค่าแยกราย instrument + ด่านความนิ่ง** | กฎเดียวกันให้ผลตรงข้ามกันคนละ instrument — ดูข้อ 5.5 |
 | 12 | **เลขลำดับไม้ `#S<seq>` + เวลาไทย + ผลรายงานเป็นราคา/R** | ผลมาเป็น reply แต่ preview ถูกตัดบนมือถือ ผลของไม้ 12:15 จึงไปแสดงใต้ไม้ 12:25 ที่ยังไม่จบ · และผลเคยรายงานเป็น ticks ทั้งที่สัญญาณรายงานเป็นราคา |
 
 ---
@@ -220,6 +221,39 @@ POC ขยับระหว่างแท่งข้างเคียง **�
 จากข้อมูลเซสชันเดียว = fit ข้อมูล 0.30 ยังเป็น *พื้น* ของเคสที่เพี้ยน ไม่ได้กลายเป็นตัวกำหนดขนาดไม้
 
 **ช่วง 0.55–0.65 ให้ R สูงกว่าจริง — ควรวัดซ้ำเมื่อมีข้อมูล MNQ มากกว่า 1 เซสชัน**
+
+### 5.5 ทำไมต้องตั้งค่าแยกราย instrument และทำไมยังไม่ปิดอะไร
+
+กฎเดียวกัน ทิศทางเดียวกัน ช่วงวันเดียวกัน แต่ผลตรงข้าม:
+
+| กฎ + ทิศทาง | BTCUSDT | MNQU6 |
+|---|---|---|
+| `poc_shift` short | 18 ไม้ · 67% · **+9.41R** | 36 ไม้ · 31% · **−9.09R** |
+| `absorption` long | 34 ไม้ · 68% · **+26.10R** | (1 ไม้) |
+| `absorption` short | 30 ไม้ · 27% · **−9.57R** | (1 ไม้) |
+
+สวิตช์ตัวเดียวที่ใช้ร่วมกันจึงผิดกับตัวใดตัวหนึ่งเสมอ **และ `setup_stats` มองไม่เห็นเรื่องนี้เลย**
+เพราะมัน group แค่ (กฎ, ทิศทาง) — สอง instrument ถูกเฉลี่ยกลบกันหมด
+view ที่อธิบายปัญหาไม่ได้ ใช้หาปัญหาไม่ได้ จึงมี `setup_stats_by_instrument` เพิ่มมา
+
+**แต่ยังไม่ปิดอะไรทั้งนั้น** เพราะตัวเลขรายวันบอกว่าเชื่อไม่ได้:
+
+| cell | 28 ส.ค. | 29 ส.ค. |
+|---|---|---|
+| MNQ `stacked_imbalance` long | 12 ไม้ · 25% · **−5.37R** | 9 ไม้ · 89% · **+7.82R** |
+| MNQ `poc_shift` long | 24 ไม้ · 33% · −4.15R | 14 ไม้ · 57% · +0.40R |
+| BTC ทุก cell | — | **มีวันเดียว ไม่มี out-of-sample** |
+
+ถ้าจูนจากวันที่ 28 จะปิด `stacked_imbalance long` ทิ้ง แล้วเสีย +7.82R ของวันถัดมา
+
+**วินัยข้อนี้จึงกลายเป็น view ไม่ใช่สิ่งที่ต้องจำ** — `setup_stability` จะไม่เสนอให้เปลี่ยนอะไร
+จนกว่า cell นั้นจะมี **ไม้ ≥ 30 · เซสชัน ≥ 3 · มีเซสชันค้านได้ไม่เกิน 1** วันนี้ยัง**ไม่ผ่านสักตัว**
+ทั้ง 13 cell ขึ้นว่า `need more trades` หรือ `need more sessions`
+ตัวที่ใกล้ที่สุดคือ MNQ `poc_shift short` (36 ไม้ ติดลบทั้ง 2 เซสชัน) ขาดอีกเซสชันเดียว
+
+**สำคัญ: mute ไม่ใช่ disable** — setup ที่ถูก mute ยังถูกประเมิน เก็บ และให้คะแนนตามปกติ
+แค่ไม่แจ้งเตือน สถิติจึงเดินต่อขณะปิดอยู่ และมันมีโอกาส "พิสูจน์ตัวเองกลับมา" ได้
+`signals.muted` บันทึกไว้ตอนยิง การเปลี่ยนค่าทีหลังจึงไม่ไปแก้ประวัติไม้ที่เทรดจริงไปแล้ว
 
 ---
 
@@ -357,7 +391,7 @@ select * from public.setup_stats order by total_r desc nulls last;
 #   curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh -s -- -y
 export PATH=/opt/deno/bin:$PATH
 deno task check
-deno task test          # ปัจจุบัน 76 tests ผ่านหมด
+deno task test          # ปัจจุบัน 84 tests ผ่านหมด
 
 # เว็บ
 cd web && npm run build
@@ -384,12 +418,13 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0011
+supabase/migrations/                0001–0012
 supabase/functions/_shared/
   ingest.ts        pipeline หลัก (batch write)
   plan.ts          trade plan
   liquidity.ts     volume gate
   price_action.ts  structure/BOS/CHoCH/sweep/zone (เก็บอย่างเดียว)
+  overrides.ts     ตั้งค่าแยกราย instrument (ดู 5.5)
   rules/           4 กฎ + registry
   telegram.ts      ข้อความแจ้งเตือน
   outcomes.ts      reply ผลลัพธ์
@@ -413,3 +448,5 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 8. อย่าตั้งเกณฑ์ที่นับเป็น "แถว footprint" แล้วคาดว่าจะใช้ได้ทุก instrument — 1 แถวคนละขนาดกัน (ข้อ 5.4)
 9. อย่าเลือกค่าจากแถวที่ดีที่สุดแถวเดียว ถ้าเพื่อนบ้านไม่เห็นด้วย นั่นคือ fit ข้อมูล
 10. อย่ารายงานผลเป็น ticks ในเมื่อข้อความสัญญาณรายงานเป็นราคา — ไม้เดียวกันต้องใช้หน่วยเดียวกัน ไม่งั้นอ่านแล้วนึกว่าคนละไม้
+11. อย่าปรับค่าจาก cell ที่ยังไม่ผ่าน `setup_stability` — เซสชันเดียวพลิกกลับข้างได้ทั้งอัน (ข้อ 5.5)
+12. อย่าเล็งเป้าที่ win rate ตรง ๆ — ขยาย TP/ถือนานขึ้นทำให้ win rate ขึ้นแต่เงินหาย ค่า share 1.00 เคยให้ WR สูงสุด 50.5% แต่ได้ R น้อยกว่า 0.30 ที่ WR 47.2%
