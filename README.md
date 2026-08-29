@@ -1,5 +1,8 @@
 # ATAS Orderflow Signal System
 
+> **เริ่มงานต่อจากที่ค้างไว้:** อ่าน [`docs/HANDOFF.md`](docs/HANDOFF.md) ก่อน
+> — สถานะปัจจุบัน ตัวเลขที่วัดจริง งานที่ค้าง และกับดักที่แลกมาด้วยการดีบักแล้ว
+
 ดึงตัวเลข **cluster / delta / imbalance** จริงออกจาก ATAS → ให้ server ตัดสินสัญญาณ →
 ยิงเข้า Telegram → ดูและวัดผลได้จาก dashboard ทุกที่
 
