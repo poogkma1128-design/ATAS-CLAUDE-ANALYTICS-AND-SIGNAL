@@ -159,12 +159,27 @@ ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ�
 
 ต้องลง **.NET 10 SDK** ก่อน → https://dotnet.microsoft.com/download/dotnet/10.0
 
+### วิธีที่ง่ายที่สุด: รันสคริปต์
+
+ในโฟลเดอร์ repo มีสคริปต์ที่ทำให้ครบทั้งดึงโค้ดใหม่ build และวางไฟล์ไว้บน Desktop
+**คลิกขวาที่ `scripts\update-indicator.ps1` → Run with PowerShell**
+
+ถ้าเปิดจาก PowerShell ที่เปิดค้างอยู่แล้วโดนบล็อกเรื่อง execution policy ใช้บรรทัดนี้แทน:
+
 ```powershell
+powershell -ExecutionPolicy Bypass -File .\scripts\update-indicator.ps1
+```
+
+### หรือทำเองทีละขั้น
+
+```powershell
+git fetch origin
+git checkout -B main origin/main
 cd atas-indicator
 dotnet build -c Release
 ```
 
-ถ้าเครื่องคุณใช้เวอร์ชันอื่น สั่งทับได้โดยไม่ต้องแก้ไฟล์:
+ถ้าเครื่องคุณใช้ .NET เวอร์ชันอื่น สั่งทับได้โดยไม่ต้องแก้ไฟล์:
 
 ```powershell
 dotnet build -c Release -p:AtasTargetFramework=net8.0-windows
@@ -176,20 +191,41 @@ dotnet build -c Release -p:AtasTargetFramework=net8.0-windows
 dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 ```
 
-### ติดตั้ง
+### ติดตั้งเข้า ATAS
 
-โฟลเดอร์ปลายทางอาจยังไม่มี ให้สร้างก่อน (ไม่งั้น `copy` จะขึ้น
-DirectoryNotFoundException):
+ไฟล์ที่ได้อยู่ที่ **`atas-indicator\AtasSignalBridge\bin\Release\AtasSignalBridge.dll`**
+(ไม่มีโฟลเดอร์ย่อยตามชื่อ .NET เพราะโปรเจกต์ตั้ง `AppendTargetFrameworkToOutputPath`
+เป็น false ไว้)
 
-```powershell
-mkdir "$env:USERPROFILE\Documents\ATAS\Indicators" -Force
-copy .\AtasSignalBridge\bin\Release\AtasSignalBridge.dll "$env:USERPROFILE\Documents\ATAS\Indicators\"
-dir  "$env:USERPROFILE\Documents\ATAS\Indicators\AtasSignalBridge.dll"
-```
+**อย่าก็อปไฟล์ไปวางใน `Documents\ATAS\Indicators\` — ATAS ไม่ได้อ่านโฟลเดอร์นั้น**
+ให้ใช้ปุ่ม Import ในโปรแกรมแทน:
 
-จากนั้น **ปิด ATAS ให้สนิท** (ออกจาก system tray ด้วย) แล้วเปิดใหม่
+1. เปิด ATAS → เปิดชาร์ต → คลิกขวาบนชาร์ต → **Indicators**
+2. กดปุ่ม **Import** (ไอคอนลูกศรขึ้น ⬆️) มุมขวาบนของหน้าต่าง
+3. เลือกไฟล์ `AtasSignalBridge.dll`
+4. หา **Signal Bridge** ในหมวด **Custom** → กด Add
 
-บนชาร์ต → Indicators → หมวด **Order Flow** → **Signal Bridge**
+ถ้ามี Signal Bridge อยู่ในชาร์ตอยู่แล้ว ให้ลบตัวเก่าออกก่อนแล้ว Add ใหม่
+ไม่งั้นชาร์ตจะยังใช้โค้ดเวอร์ชันเดิม
+
+### เช็คว่า ATAS ใช้เวอร์ชันไหนอยู่
+
+ทุกครั้งที่ build ตัวเลข commit กับวันเวลาจะถูกฝังลงไปใน DLL อัตโนมัติ
+(ไม่ต้องแก้เลขเวอร์ชันเอง เลขที่ค้างไว้ไม่อัปเดตจะหลอกมากกว่าไม่มีเลย)
+
+ดูได้ 3 ที่:
+
+| ที่ | เห็นอะไร |
+|---|---|
+| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | `REV 1.1.0 \| commit 70776f6 \| built 2026-08-29 04:27` |
+| แท็บ **Settings** → กลุ่ม **About** → ช่อง **Revision** | ข้อความเดียวกัน (อ่านอย่างเดียว แก้ไม่ได้) |
+| Log ของ ATAS ตอน indicator โหลด | บรรทัด `Signal Bridge REV ...` |
+
+**วิธีตอบคำถาม "ล่าสุดหรือยัง":** `scripts\update-indicator.ps1` จะพิมพ์ commit
+ที่มัน build ให้ตอนจบ เอาไปเทียบกับที่ขึ้นในแท็บ About ถ้าตรงกัน = ATAS ใช้ตัวใหม่แล้ว
+ถ้าไม่ตรง = ATAS ยังโหลดตัวเก่าค้างอยู่ ให้ปิด ATAS แล้ว Import ใหม่
+
+ถ้า build จากไฟล์ zip หรือเครื่องไม่มี git จะขึ้น `commit no-git` แทนตัวเลข
 
 ### ตั้งค่าใน indicator
 

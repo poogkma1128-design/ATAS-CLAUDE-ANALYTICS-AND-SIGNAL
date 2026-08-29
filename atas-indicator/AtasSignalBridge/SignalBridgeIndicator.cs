@@ -18,6 +18,12 @@ namespace AtasSignalBridge
     /// </summary>
     [DisplayName("Signal Bridge")]
     [Category("Order Flow")]
+    // ATAS renders a class-level Description in the About panel of the
+    // Indicators dialog, which is the one place to check what is actually
+    // loaded without rebuilding. BuildInfo is generated at compile time by the
+    // GenerateBuildInfo target; see the csproj for why it cannot be read off
+    // the assembly at runtime instead.
+    [Description(BuildInfo.Summary)]
     public class SignalBridgeIndicator : Indicator
     {
         private readonly HttpSender _sender = new HttpSender();
@@ -36,6 +42,15 @@ namespace AtasSignalBridge
         }
 
         #region Settings
+
+        // Read-only, and first in the list on purpose. The About panel carries
+        // the same string, but a setting is rendered by the same mechanism as
+        // every other field here, so it still shows if a future ATAS lays that
+        // panel out differently.
+        [Display(Name = "Revision", GroupName = "About", Order = 1,
+            Description = "Which build of this indicator is loaded. Compare the commit with the one you just built.")]
+        [ReadOnly(true)]
+        public string Revision => BuildInfo.Summary;
 
         [Display(Name = "Endpoint URL", GroupName = "Connection", Order = 10,
             Description = "Full URL of the ingest function, e.g. https://<project>.supabase.co/functions/v1/ingest")]
@@ -72,6 +87,11 @@ namespace AtasSignalBridge
         protected override void OnInitialize()
         {
             _sender.Log = message => this.LogInfo(message);
+
+            // Written on every load, so the ATAS log can still answer which
+            // build was running during a session that has already ended.
+            this.LogInfo("Signal Bridge " + BuildInfo.Summary);
+
             _sender.Start();
         }
 
