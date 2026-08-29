@@ -1,6 +1,7 @@
 import type { RuleContext, RuleEvaluator, RuleRow, RuleSignal } from "../types.ts";
 import { sortLevels } from "../util.ts";
 import { hasEnoughLiquidity } from "../liquidity.ts";
+import { priceActionContext } from "../price_action.ts";
 import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 import { evaluate as deltaDivergence } from "./delta_divergence.ts";
 import { evaluate as absorption } from "./absorption.ts";
@@ -37,6 +38,12 @@ export function runRules(
   const levels = sortLevels(ctx.levels);
   const out: EvaluatedSignal[] = [];
 
+  // Recorded on every signal, read by nothing. It is here so that in a few days
+  // the outcomes table can answer whether any of it predicts anything, the way
+  // the volume gate was decided. Computed once: it describes the bar, not the
+  // rule that happened to fire on it.
+  const priceAction = priceActionContext(ctx.bar, ctx.history);
+
   for (const rule of rules) {
     if (!rule.enabled) continue;
 
@@ -52,7 +59,11 @@ export function runRules(
     try {
       const signals = evaluator(ruleCtx);
       for (const signal of signals) {
-        out.push({ ...signal, ruleKey: rule.key });
+        out.push({
+          ...signal,
+          ruleKey: rule.key,
+          payload: { ...signal.payload, priceAction },
+        });
       }
     } catch (error) {
       console.error(`rule ${rule.key} threw:`, error);
