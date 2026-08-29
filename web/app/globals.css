@@ -1,0 +1,98 @@
+@import "tailwindcss";
+
+/*
+ * Palette roles. Long/short use the diverging blue<->red pair rather than the
+ * conventional trading green/red: green vs red is the classic red-green colour
+ * blindness failure, and every direction marker here is paired with the words
+ * LONG or SHORT anyway. Ask and bid are two sequential contexts shown at once,
+ * so they take blue and orange ramps respectively.
+ */
+:root {
+  --surface-1: #fcfcfb;
+  --surface-page: #f9f9f7;
+  --text-primary: #0b0b0b;
+  --text-secondary: #52514e;
+  --text-muted: #898781;
+  --gridline: #e1e0d9;
+  --baseline: #c3c2b7;
+  --border-hairline: rgba(11, 11, 11, 0.1);
+
+  --long: #2a78d6;
+  --short: #e34948;
+  --neutral-mid: #f0efec;
+
+  --ask: #2a78d6;
+  --bid: #eb6834;
+
+  --status-good: #0ca30c;
+  --status-critical: #d03b3b;
+  --success-text: #006300;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root:where(:not([data-theme="light"])) {
+    --surface-1: #1a1a19;
+    --surface-page: #0d0d0d;
+    --text-primary: #ffffff;
+    --text-secondary: #c3c2b7;
+    --text-muted: #898781;
+    --gridline: #2c2c2a;
+    --baseline: #383835;
+    --border-hairline: rgba(255, 255, 255, 0.1);
+
+    --long: #3987e5;
+    --short: #e66767;
+    --neutral-mid: #383835;
+
+    --ask: #3987e5;
+    --bid: #d95926;
+
+    --success-text: #0ca30c;
+  }
+}
+
+:root[data-theme="dark"] {
+  --surface-1: #1a1a19;
+  --surface-page: #0d0d0d;
+  --text-primary: #ffffff;
+  --text-secondary: #c3c2b7;
+  --text-muted: #898781;
+  --gridline: #2c2c2a;
+  --baseline: #383835;
+  --border-hairline: rgba(255, 255, 255, 0.1);
+
+  --long: #3987e5;
+  --short: #e66767;
+  --neutral-mid: #383835;
+
+  --ask: #3987e5;
+  --bid: #d95926;
+
+  --success-text: #0ca30c;
+}
+
+html {
+  color-scheme: light dark;
+}
+
+body {
+  background: var(--surface-page);
+  color: var(--text-primary);
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Numeric columns line up only with tabular figures. */
+.tabular {
+  font-variant-numeric: tabular-nums;
+}
+
+.card {
+  background: var(--surface-1);
+  border: 1px solid var(--border-hairline);
+  border-radius: 10px;
+}
+
+.hairline {
+  border-color: var(--border-hairline);
+}
