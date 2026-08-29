@@ -2,8 +2,11 @@
 <#
     อัปเดต indicator เป็นเวอร์ชันล่าสุด แล้ว build DLL ให้พร้อม Import เข้า ATAS
 
-    วิธีใช้: คลิกขวาที่ไฟล์นี้ -> Run with PowerShell
-             (หรือเปิด PowerShell แล้วพิมพ์  .\scripts\update-indicator.ps1)
+    วิธีใช้: ดับเบิลคลิก update-indicator.bat ที่อยู่ข้าง ๆ ไฟล์นี้
+
+    เรียกไฟล์นี้ตรง ๆ ไม่ได้ ถ้าเครื่องยังไม่ได้เปิด execution policy ไว้
+    (จะขึ้น "running scripts is disabled on this system") ไฟล์ .bat มีไว้
+    ข้ามข้อจำกัดนั้นเฉพาะตอนรัน โดยไม่แก้ค่าอะไรค้างไว้ในเครื่อง
 
     สคริปต์นี้ไม่แตะโฟลเดอร์ ATAS เลย มันแค่ build DLL แล้ววางไว้บน Desktop
     ให้หาเจอง่าย ๆ ตอนกดปุ่ม Import ในหน้า Indicators ของ ATAS
