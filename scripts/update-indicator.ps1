@@ -78,7 +78,9 @@ if ($LASTEXITCODE -ne 0) {
 git checkout --quiet -B main origin/main
 if ($LASTEXITCODE -ne 0) { Stop-Here "สลับไปสาขา main ไม่ได้" "ส่ง error ข้างบนมาให้ดู" }
 
+$Commit = (git rev-parse --short=7 HEAD)
 Ok "อัปเดตแล้ว — $(git log -1 --format=%s)"
+Note "commit $Commit"
 
 # --- 3. Build ----------------------------------------------------------------
 Step 3 "Build DLL (ครั้งแรกอาจนานสัก 1-2 นาที)"
@@ -102,10 +104,16 @@ Note "วันที่ไฟล์: $((Get-Item $target).LastWriteTime)"
 
 Write-Host ""
 Write-Host "เสร็จแล้ว ต่อไปทำใน ATAS:" -ForegroundColor White
-Write-Host "  1. เปิด ATAS -> เปิดชาร์ต -> คลิกขวา -> Indicators"
-Write-Host "  2. กดปุ่ม Import (ลูกศรขึ้น) มุมขวาบน"
-Write-Host "  3. เลือก AtasSignalBridge.dll บน Desktop"
-Write-Host "  4. หา Signal Bridge ในหมวด Custom -> Add"
-Write-Host "  5. ถ้าเคยใส่ไว้ในชาร์ตอยู่แล้ว ให้ลบตัวเก่าออกแล้ว Add ใหม่"
+Write-Host "  1. ปิด ATAS ให้สนิท (ออกจาก system tray ด้วย) แล้วเปิดใหม่"
+Write-Host "  2. ลบ Signal Bridge ตัวเก่าออกจากชาร์ตก่อน"
+Write-Host "  3. คลิกขวาบนชาร์ต -> Indicators -> ปุ่ม Import (ลูกศรขึ้น) มุมขวาบน"
+Write-Host "  4. เลือก AtasSignalBridge.dll บน Desktop"
+Write-Host "  5. หา Signal Bridge ในหมวด Custom -> Add"
+Write-Host ""
+Write-Host "ตรวจว่าได้ตัวใหม่จริง:" -ForegroundColor White
+Write-Host "  คลิก Signal Bridge ในหน้า Indicators แล้วดูแท็บ About"
+Write-Host "  ต้องขึ้น: " -NoNewline
+Write-Host "commit $Commit" -ForegroundColor Green
+Write-Host "  ถ้าขึ้น commit อื่น แปลว่า ATAS ยังใช้ตัวเก่า - ปิด ATAS แล้ว Import ใหม่"
 Write-Host ""
 Read-Host "กด Enter เพื่อปิดหน้าต่าง" | Out-Null
