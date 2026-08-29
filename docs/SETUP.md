@@ -292,7 +292,47 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 ---
 
-## 5. สถิติเริ่มมาเมื่อไหร่
+## 5. บริบท Price Action ที่เก็บไว้รอวัดผล
+
+ทุกสัญญาณจะมี `payload.priceAction` ติดมาด้วย **ยังไม่ได้ใช้กรองอะไร** — เก็บไว้
+เพื่อตอบคำถามด้วยข้อมูลจริงว่า "สัญญาณที่มีบริบทนี้ให้ผลดีกว่าจริงไหม"
+แบบเดียวกับที่ `minVolumeRatio` ถูกตัดสินมา
+
+| ฟิลด์ | ความหมาย |
+|---|---|
+| `structure` | `up` / `down` / `range` — ดูจาก swing high กับ swing low สองคู่ล่าสุด |
+| `bos` | ปิดทะลุ swing ล่าสุด (**ใช้ราคาปิด ไม่ใช่ไส้เทียน**) |
+| `choch` | ทะลุสวนกับโครงสร้างเดิม |
+| `sweep` | ไส้เทียนทะลุ swing แล้วปิดกลับเข้ามา |
+| `rangePosition` | 0 = ก้น range, 1 = ยอด range (20 แท่งล่าสุด) |
+| `zone` | `premium` / `discount` / `equilibrium` |
+
+**เริ่มเก็บตั้งแต่สัญญาณใหม่เท่านั้น** สัญญาณเก่าไม่มีฟิลด์นี้ เพราะการย้อนคำนวณ
+ต้องเขียน logic ชุดที่สองใน SQL ซึ่งเสี่ยงให้ผลไม่ตรงกับตัวจริง
+
+### วิธีวัดผลเมื่อเก็บข้อมูลได้ 3–5 วัน
+
+```sql
+select s.payload->'priceAction'->>'sweep'  as sweep,
+       s.payload->'priceAction'->>'zone'   as zone,
+       s.direction,
+       count(*)                                            as trades,
+       round(avg(case when o.pnl_ticks > 0 then 1 else 0 end), 3) as win_rate,
+       round(sum(o.pnl_ticks / nullif(s.risk_ticks, 0)), 2)       as total_r
+  from public.signals s
+  join public.signal_outcomes o on o.signal_id = s.id
+ where o.status = 'resolved'
+   and s.payload ? 'priceAction'
+ group by 1, 2, 3
+ order by total_r desc nulls last;
+```
+
+ถ้าช่องไหนดีกว่าอย่างชัดเจนและมีจำนวนไม้มากพอ **ค่อยเลื่อนขึ้นเป็นตัวกรอง**
+โดยย้ายเกณฑ์ไปไว้ใน `rules.params` ถ้าไม่ต่างกัน ก็ลบทิ้งได้โดยไม่เสียอะไร
+
+---
+
+## 6. สถิติเริ่มมาเมื่อไหร่
 
 ทุกสัญญาณจะถูกตั้งเป็น `pending` ทันทีที่เกิด แล้ว `pg_cron` จะเช็คทุกนาทีว่ามีแท่ง
 ครบตาม `horizon_bars` หรือยัง ถ้าครบก็คำนวณ MFE / MAE / กำไรขาดทุนเป็น tick แล้วเปลี่ยนเป็น `resolved`
