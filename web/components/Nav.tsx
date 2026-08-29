@@ -6,6 +6,29 @@ const LINKS = [
   { href: "/rules", label: "กฎ" },
 ];
 
+/**
+ * Which build is being looked at.
+ *
+ * Stamped in next.config.ts, so it names the deployment rather than the
+ * moment the page was requested. It sits next to the nav because the question
+ * it answers — "am I looking at the latest one?" — is asked while wondering
+ * whether something is missing, not on a page anyone would go looking for.
+ */
+function BuildTag() {
+  const commit = process.env.NEXT_PUBLIC_BUILD_COMMIT ?? "dev";
+  const builtAt = process.env.NEXT_PUBLIC_BUILT_AT ?? "";
+
+  return (
+    <span
+      className="ml-auto shrink-0 font-mono text-[11px]"
+      style={{ color: "var(--text-muted)" }}
+      title={builtAt ? `เว็บตัวนี้ build เมื่อ ${builtAt} น. (ไทย)` : undefined}
+    >
+      web {commit}
+    </span>
+  );
+}
+
 export function Nav({ current }: { current: string }) {
   return (
     <header
@@ -31,6 +54,7 @@ export function Nav({ current }: { current: string }) {
             </Link>
           ))}
         </nav>
+        <BuildTag />
       </div>
     </header>
   );

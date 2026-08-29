@@ -99,7 +99,23 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 - `trailing` เป็น reserved word ของ Postgres ใช้เป็นชื่อตัวแปรใน plpgsql ไม่ได้
 - supabase-js อนุมาน type จาก select string ที่เป็น **literal เดียว** — ถ้าต่อ string จะกลายเป็น error type
 
-### 3.7 ข้อความ Telegram — สองอย่างที่เสียเวลาไปแล้วอย่าเสียซ้ำ
+### 3.7 REV ของ indicator ไม่ใช่ commit ของ repo
+
+`atas-indicator/` แทบไม่เคยถูกแตะ งานเกือบทั้งหมดอยู่ฝั่ง server ดังนั้น **HEAD ของ repo ขยับตลอด
+ทั้งที่ DLL ไม่ต้อง build ใหม่** ของเดิม stamp `git rev-parse HEAD` ลงไป พอเทียบกับ repo แล้วเลขไม่ตรง
+เลยดูเหมือนใช้ตัวเก่าอยู่ ทั้งที่เป็นตัวล่าสุดจริง — เคยทำให้เข้าใจผิดมาแล้ว (About ขึ้น `a9d3da6`
+แต่ main ไปถึง `fe0867d` โดยไม่มี commit ไหนแตะ C# เลยสักบรรทัด)
+
+ตอนนี้ stamp เป็น `git log -1 --format=%h -- atas-indicator` = **commit ที่แตะตัว indicator ล่าสุด**
+เลขนี้จะนิ่งจนกว่าจะมีการแก้ C# จริง `scripts/update-indicator.ps1` พิมพ์เลขเดียวกันให้เทียบตรง ๆ
+
+**วิธีตอบคำถาม "ต้อง build ใหม่ไหม" ให้เด็ดขาด:**
+```bash
+git log -1 --abbrev=7 --format=%h -- atas-indicator
+```
+ตรงกับที่แท็บ About ขึ้น = ไม่ต้องทำอะไร
+
+### 3.8 ข้อความ Telegram — สองอย่างที่เสียเวลาไปแล้วอย่าเสียซ้ำ
 
 **Telegram ไม่ทำ hashtag ที่เป็นตัวเลขล้วนให้กดได้** `#218` เป็นข้อความเฉย ๆ แต่ `#S218` กดได้
 และการกดคือการค้นหาในแชต → เจอทั้งสัญญาณและผลของไม้นั้นพร้อมกัน นี่คือเหตุผลที่ตั้งรูปแบบเป็น `#S<seq>`
