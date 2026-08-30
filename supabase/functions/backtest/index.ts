@@ -121,15 +121,20 @@ Deno.serve(async (req: Request) => {
 
     for (const variant of [BASELINE, ...body.variants]) {
       const effective = applyVariant(rules, variant);
-      const trades = usable.flatMap((feed) =>
-        simulate(feed.bars, effective, feed.tickSize).trades.map((trade) => ({
-          ...trade,
-          symbol: feed.symbol,
-        }))
-      );
 
-      rows.push(...resultRows(variant.label, effective, trades));
-      summaries.push({ variant: variant.label, ...summarise(trades) });
+      // Signals whose entry never traded back are kept, not dropped. With a
+      // pullback entry they are the trades that ran away without retracing,
+      // which skew toward the winners — counting only the fills would make a
+      // worse entry look like a better one. Zero unless pullbackShare is set.
+      let missed = 0;
+      const trades = usable.flatMap((feed) => {
+        const run = simulate(feed.bars, effective, feed.tickSize);
+        missed += run.missed;
+        return run.trades.map((trade) => ({ ...trade, symbol: feed.symbol }));
+      });
+
+      rows.push(...resultRows(variant.label, effective, trades, missed));
+      summaries.push({ variant: variant.label, missed, ...summarise(trades) });
     }
 
     await writeResults(supabase, experimentId, rows);
@@ -456,6 +461,10 @@ interface ResultRow {
   timed_out: number;
   max_drawdown_r: number;
   worst_losing_streak: number;
+  /** Only on a variant's total row: the breakdowns cannot own a share of it,
+   *  because a signal that never filled has no rule or instrument outcome to
+   *  be attributed to. Splitting it would be inventing a number. */
+  missed_fills: number | null;
 }
 
 /**
@@ -470,6 +479,7 @@ function resultRows(
   label: string,
   rules: RuleRow[],
   trades: TaggedTrade[],
+  missed: number,
 ): ResultRow[] {
   const params = paramsOf(rules);
   const row = (
@@ -494,11 +504,15 @@ function resultRows(
       // that would have ended the account trading it alone.
       max_drawdown_r: s.maxDrawdownR,
       worst_losing_streak: s.worstLosingStreak,
+      missed_fills: null,
     };
   };
 
   const rows: ResultRow[] = [
-    row({ symbol: null, rule_key: null, direction: null }, trades),
+    {
+      ...row({ symbol: null, rule_key: null, direction: null }, trades),
+      missed_fills: missed,
+    },
   ];
 
   for (const symbol of unique(trades.map((t) => t.symbol))) {

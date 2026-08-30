@@ -146,7 +146,14 @@ export function simulate(
         1,
         Math.round(num(rule?.params ?? {}, "pullbackWithinBars", 1)),
       );
-      const fill = fillIndex(plan.entry, signal.direction, forward, fillWithin);
+      const fill = fillIndex(
+        plan.entry,
+        signal.direction,
+        stored.close,
+        tickSize,
+        forward,
+        fillWithin,
+      );
       if (fill === null) {
         missed++;
         continue;
@@ -338,20 +345,37 @@ export function drawdown(
 /**
  * The first bar within reach that traded at the entry, or null if none did.
  *
- * Entry at the close always fills on the signal bar itself, so index 0 is
- * returned for that case without looking at anything — which keeps the
- * behaviour identical to before when pullbackShare is 0.
+ * `forward` is the bars after the signal bar, so a market entry has to be
+ * settled before any of them are looked at. With pullbackShare at 0 the entry
+ * *is* the signal bar's close, a price that demonstrably traded, and waiting
+ * for a later bar to touch it again would have counted every gap away from the
+ * close as a signal that never filled — turning the baseline, the thing every
+ * variant is read against, into a quietly different measurement. That is the
+ * failure this whole column exists to prevent, so it is ruled out first.
+ *
+ * Half a tick of tolerance because the plan puts the entry on the tick grid
+ * and the close need not already sit on it: rounding must not be what decides
+ * whether a trade happened.
  */
 export function fillIndex(
   entry: number,
   direction: "long" | "short",
-  forward: StoredBar[],
+  signalClose: number,
+  tickSize: number,
+  forward: PriceBar[],
   withinBars: number,
 ): number | null {
+  const long = direction === "long";
+
+  const atMarket = long
+    ? entry >= signalClose - tickSize / 2
+    : entry <= signalClose + tickSize / 2;
+  if (atMarket) return 0;
+
   const reachable = forward.slice(0, withinBars);
 
   for (const [i, bar] of reachable.entries()) {
-    const traded = direction === "long" ? bar.low <= entry : bar.high >= entry;
+    const traded = long ? bar.low <= entry : bar.high >= entry;
     if (traded) return i;
   }
   return null;
