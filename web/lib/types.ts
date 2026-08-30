@@ -71,3 +71,44 @@ export interface ClusterLevelRow {
   volume: number;
   ticks: number;
 }
+
+export interface ExperimentRow {
+  id: string;
+  name: string;
+  note: string | null;
+  variants: { label: string; ruleKey?: string; params: Record<string, unknown> }[];
+  symbols: string[];
+  bars_from: string | null;
+  bars_to: string | null;
+  status: string;
+  error: string | null;
+  created_at: string;
+}
+
+export interface ExperimentResultRow {
+  experiment_id: string;
+  variant: string;
+  symbol: string | null;
+  rule_key: string | null;
+  direction: Direction | null;
+  trades: number;
+  wins: number;
+  win_rate: number | null;
+  total_r: number | null;
+  hit_target: number;
+  hit_stop: number;
+  hit_trail: number;
+  timed_out: number;
+}
+
+export interface RuleSnapshotRow {
+  id: string;
+  label: string;
+  note: string | null;
+  params: Record<string, Record<string, number>>;
+  measured_r: number | null;
+  measured_win_rate: number | null;
+  measured_trades: number | null;
+  is_best_known: boolean;
+  taken_at: string;
+}
