@@ -8,7 +8,19 @@ import type { Direction, SignalRow } from "@/lib/types";
 import { DirectionTag } from "./DirectionTag";
 import { OutcomeTag } from "./OutcomeTag";
 
-const SELECT =
+/**
+ * Every column this feed renders, in one place.
+ *
+ * Exported because the page that server-renders the first hundred rows has to
+ * ask for exactly the same set. It did not: the page's own list omitted the
+ * plan columns, so `stop_price` arrived as undefined, the `!== null` guard let
+ * it through, and every row on first load read "SL 0 · TP 0" — a stop of zero
+ * on a real trade — until a realtime update replaced it with the full row.
+ *
+ * One literal, one importer. supabase-js also infers the row type from a single
+ * string literal, so this cannot be built by concatenation (HANDOFF 3.6).
+ */
+export const SIGNAL_SELECT =
   "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, exit_reason, bars_used)";
 
 interface Props {
@@ -35,7 +47,7 @@ export function SignalFeed({ initial, ruleNames }: Props) {
           // the feed renders so a new signal looks identical to the rest.
           const { data } = await supabase
             .from("signals")
-            .select(SELECT)
+            .select(SIGNAL_SELECT)
             .eq("id", (payload.new as { id: string }).id)
             .single();
 
@@ -121,7 +133,10 @@ export function SignalFeed({ initial, ruleNames }: Props) {
 
                 {/* The levels matter more than the rule's name when scanning the
                     feed: they are what says whether the trade is still live. */}
-                {signal.stop_price !== null && signal.target_price !== null && (
+                {/* `!=` on purpose: it rejects undefined as well as null, so a
+                    column that was never selected shows nothing rather than a
+                    stop of zero. */}
+                {signal.stop_price != null && signal.target_price != null && (
                   <span className="tabular text-xs whitespace-nowrap">
                     <span style={{ color: "var(--short)" }}>SL {num(signal.stop_price)}</span>
                     <span style={{ color: "var(--text-muted)" }}> · </span>
@@ -141,6 +156,7 @@ export function SignalFeed({ initial, ruleNames }: Props) {
                   <OutcomeTag
                     status={signal.signal_outcomes?.status}
                     pnlTicks={num(signal.signal_outcomes?.pnl_ticks)}
+                    riskTicks={signal.risk_ticks}
                   />
                 </span>
 

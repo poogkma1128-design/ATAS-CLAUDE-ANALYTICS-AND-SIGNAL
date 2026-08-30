@@ -1,5 +1,5 @@
 import { assertEquals } from "jsr:@std/assert@1";
-import { scorePlan } from "./backtest.ts";
+import { drawdown, fillIndex, scorePlan } from "./backtest.ts";
 import { SCORER_CASES } from "./testdata/scorer_cases.ts";
 import type { TradePlan } from "./plan.ts";
 
@@ -91,4 +91,72 @@ Deno.test("backtest: the trail cannot use the same bar it was raised on", () => 
   // original stop would have given.
   assertEquals(got.exitPrice, 101.5);
   assertEquals(got.pnlTicks, 6);
+});
+
+// ------------------------------------------------------- drawdown and fills
+
+Deno.test("drawdown: measures the deepest hole, not the final result", () => {
+  // Ends at +1R, but only after giving back 3R from a peak of +3R.
+  const trades = [
+    { openedAt: "2026-08-30T00:00:00Z", r: 2 },
+    { openedAt: "2026-08-30T00:05:00Z", r: 1 },
+    { openedAt: "2026-08-30T00:10:00Z", r: -1 },
+    { openedAt: "2026-08-30T00:15:00Z", r: -1 },
+    { openedAt: "2026-08-30T00:20:00Z", r: -1 },
+    { openedAt: "2026-08-30T00:25:00Z", r: 1 },
+  ] as unknown as Parameters<typeof drawdown>[0];
+
+  assertEquals(drawdown(trades), { maxDrawdownR: 3, worstLosingStreak: 3 });
+});
+
+Deno.test("drawdown: reads trades in time order, not the order given", () => {
+  // The simulator groups by instrument, so the list can arrive out of order.
+  // Sorted, this is -2 then +2: a 2R hole. Unsorted it would look like none.
+  const trades = [
+    { openedAt: "2026-08-30T00:05:00Z", r: 2 },
+    { openedAt: "2026-08-30T00:00:00Z", r: -2 },
+  ] as unknown as Parameters<typeof drawdown>[0];
+
+  assertEquals(drawdown(trades).maxDrawdownR, 2);
+});
+
+Deno.test("drawdown: an equity curve that never falls has none", () => {
+  const trades = [
+    { openedAt: "2026-08-30T00:00:00Z", r: 1 },
+    { openedAt: "2026-08-30T00:05:00Z", r: 2 },
+  ] as unknown as Parameters<typeof drawdown>[0];
+
+  assertEquals(drawdown(trades), { maxDrawdownR: 0, worstLosingStreak: 0 });
+});
+
+Deno.test("fill: entry at the close fills on the next bar either way", () => {
+  const forward = [{ high: 110, low: 90 }] as unknown as Parameters<typeof fillIndex>[2];
+  assertEquals(fillIndex(100, "long", forward, 1), 0);
+  assertEquals(fillIndex(100, "short", forward, 1), 0);
+});
+
+Deno.test("fill: a long fills only where price traded down to the entry", () => {
+  // Runs away upward and never comes back — the trade never happens, which is
+  // exactly the case that would flatter a pullback if it were dropped quietly.
+  const ranAway = [
+    { high: 120, low: 105 },
+    { high: 130, low: 118 },
+  ] as unknown as Parameters<typeof fillIndex>[2];
+  assertEquals(fillIndex(100, "long", ranAway, 2), null);
+
+  const cameBack = [
+    { high: 120, low: 105 },
+    { high: 118, low: 99 },
+  ] as unknown as Parameters<typeof fillIndex>[2];
+  assertEquals(fillIndex(100, "long", cameBack, 2), 1);
+});
+
+Deno.test("fill: reach is limited to the window, not the whole horizon", () => {
+  const late = [
+    { high: 120, low: 105 },
+    { high: 118, low: 99 },
+  ] as unknown as Parameters<typeof fillIndex>[2];
+
+  assertEquals(fillIndex(100, "long", late, 1), null);
+  assertEquals(fillIndex(100, "long", late, 2), 1);
 });

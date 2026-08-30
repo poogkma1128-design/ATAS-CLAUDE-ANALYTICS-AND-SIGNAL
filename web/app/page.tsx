@@ -1,6 +1,6 @@
 import { createClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/Nav";
-import { SignalFeed } from "@/components/SignalFeed";
+import { SignalFeed, SIGNAL_SELECT } from "@/components/SignalFeed";
 import { FeedStatus, type InstrumentStatus } from "@/components/FeedStatus";
 import type { RuleRow, SignalRow } from "@/lib/types";
 
@@ -12,9 +12,7 @@ export default async function FeedPage() {
   const [{ data: signals }, { data: rules }, { data: status }] = await Promise.all([
     supabase
       .from("signals")
-      .select(
-        "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks)",
-      )
+      .select(SIGNAL_SELECT)
       .order("fired_at", { ascending: false })
       .limit(100),
     supabase.from("rules").select("key, name").order("name"),

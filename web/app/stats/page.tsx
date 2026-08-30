@@ -6,6 +6,7 @@ import { DirectionTag } from "@/components/DirectionTag";
 import { PnlBar, WinRateMeter } from "@/components/StatBars";
 import { num, percent, signed, signedTicks } from "@/lib/format";
 import type {
+  ForwardTestRow,
   PriceActionEdgeRow,
   RuleRow,
   SettingsEffectRow,
@@ -23,6 +24,7 @@ export default async function StatsPage() {
     { count: pending },
     { data: settings },
     { data: priceAction },
+    { data: forward },
   ] = await Promise.all([
     supabase.from("setup_stats").select("*"),
     supabase.from("rules").select("key, name"),
@@ -32,6 +34,7 @@ export default async function StatsPage() {
       .eq("status", "pending"),
     supabase.from("settings_effect").select("*"),
     supabase.from("price_action_edge").select("*"),
+    supabase.from("forward_test").select("*"),
   ]);
 
   const rows = ((stats ?? []) as SetupStatRow[])
@@ -41,6 +44,9 @@ export default async function StatsPage() {
   const ruleNames = Object.fromEntries(
     ((rules ?? []) as Pick<RuleRow, "key" | "name">[]).map((r) => [r.key, r.name]),
   );
+
+  const forwardRows = ((forward ?? []) as ForwardTestRow[])
+    .sort((a, b) => (b.adopted_at ?? "").localeCompare(a.adopted_at ?? ""));
 
   const settingsRows = ((settings ?? []) as SettingsEffectRow[])
     .sort((a, b) => (b.last_fired ?? "").localeCompare(a.last_fired ?? ""));
@@ -145,6 +151,73 @@ export default async function StatsPage() {
         <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
           ทุกตัวเลขเป็นหน่วย tick · &ldquo;ไกลสุด&rdquo; คือ MFE, &ldquo;สวนสุด&rdquo; คือ MAE
         </p>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">ผลจริงหลังรับค่าไปใช้ (ข้อมูลที่ backtest ไม่เคยเห็น)</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            ทุกการกวาดค่าเลือกค่าจากแท่งที่มีอยู่ทั้งหมด รวมแท่งที่ใช้เลือกเอง ตารางนี้ต่างออกไป —
+            นับเฉพาะไม้ที่ยิงจริง<strong>หลัง</strong>ค่านั้นถูกใช้ จึงเป็นข้อมูลนอกกลุ่มตัวอย่างจริง ๆ
+            และ <strong>ขาดทุนลึกสุด</strong> คือสิ่งที่ R รวมกับ R/ไม้ ไม่เคยบอก
+          </p>
+
+          {forwardRows.length === 0
+            ? <Empty>ยังไม่มีไม้ที่วัดผลเสร็จ</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["ตั้งค่า", "left"],
+                        ["ไม้", "right"],
+                        ["สินทรัพย์", "right"],
+                        ["อัตราชนะ", "right"],
+                        ["รวม R", "right"],
+                        ["R/ไม้", "right"],
+                        ["ขาดทุนลึกสุด", "right"],
+                        ["สรุปได้ไหม", "left"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {forwardRows.map((row) => (
+                      <tr
+                        key={`${row.reward_r}-${row.trail_after_r}-${row.trail_offset_r}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5 tabular font-medium">
+                          TP {num(row.reward_r)}R · trail {num(row.trail_after_r)}/{num(row.trail_offset_r)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.trades}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.symbols}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{percent(num(row.win_rate), 1)}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{signed(num(row.total_r))}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{signed(num(row.r_per_trade), 3)}</td>
+                        <td
+                          className="px-4 py-2.5 text-right tabular"
+                          style={{ color: "var(--status-critical)" }}
+                        >
+                          −{num(row.max_drawdown_r)}R
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Verdict
+                            text={forwardVerdict(row)}
+                            settled={row.verdict === "readable"}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+            <strong>ขาดทุนลึกสุด</strong> = ตกจากยอดสูงสุดมากที่สุดกี่ R ระหว่างทาง —
+            ค่าสองชุดที่ R/ไม้ เท่ากันอาจต้องนั่งทนหลุมลึกไม่เท่ากัน และหลุมที่ลึกกว่าคือตัวที่คนเลิกใช้ก่อนจะได้กำไร
+          </p>
+        </section>
 
         <section className="mt-10">
           <h2 className="text-base font-semibold">การเปลี่ยนค่าได้ผลไหม</h2>
@@ -305,6 +378,14 @@ export default async function StatsPage() {
 }
 
 /** Says what is still missing, so a thin row is not misread as a bad result. */
+function forwardVerdict(row: ForwardTestRow): string {
+  if (row.verdict === "need more trades") {
+    return `ยังตอบไม่ได้ · ขาดอีก ${30 - row.trades} ไม้`;
+  }
+  if (row.verdict === "need more symbols") return "ยังตอบไม่ได้ · ยังมีสินทรัพย์เดียว";
+  return "เทียบได้แล้ว";
+}
+
 function settingsVerdict(row: SettingsEffectRow): string {
   if (row.verdict === "need more trades") {
     return `ยังตอบไม่ได้ · ขาดอีก ${30 - row.trades} ไม้`;
