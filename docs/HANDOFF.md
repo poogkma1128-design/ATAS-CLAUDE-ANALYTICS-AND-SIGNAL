@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-08-29 (อัปเดตหลังทำข้อ 7.2 A)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-08-30 (อัปเดตหลังสร้างตัวรัน backtest + หน้าทดลอง)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -37,13 +37,19 @@ ATAS (Windows)
 | Supabase project ref | `sckdriuwfyittcybnbhz` |
 | Ingest endpoint | `https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest` |
 | Edge function `ingest` | **version 11, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) |
+| Edge function `backtest` | **version 2, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN หรือ runner token) |
+| Edge function `outcome-notify` | version 3, ACTIVE แต่ **โค้ด shared เก่า** — ไม่มีอะไรเรียกมัน ดูข้อ 7.3 |
 | Dashboard | `https://atas-signal-board.vercel.app` |
 | Vercel production branch | **`claude/form-signal-telegram-rz8am1`** (ไม่ใช่ `main` — ตั้งไว้แบบนี้) |
 | Repo | `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL` |
 | branch ที่ใช้พัฒนา | `claude/form-signal-telegram-rz8am1` |
-| Instruments ที่มีข้อมูล | `MNQU6` (5m), `BTCUSDT` (5m — เดิมเขียนว่า 1m ตอนนี้ยิง 5m อยู่) |
+| Instruments ที่มีข้อมูล | `BTCUSDT` 5m (สด) · `MNQU6` 5m · `NQU6` 5m · `GC` 5m (สามตัวหลังหยุดที่ 2026-08-28) |
+| pg_cron | `evaluate-outcomes` ทุกนาที · `nightly-standing-experiment` 21:00 UTC (04:00 ไทย) |
 
 Secrets ที่ตั้งบน Supabase แล้ว: `INGEST_TOKEN`, `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID`, `DASHBOARD_URL`
+
+ใน Postgres `vault` มีสองอย่าง (ใส่ไว้แล้ว ไม่ต้องทำซ้ำ): `functions_base_url` และ
+`backtest_runner_token` — ใช้โดย `public.run_backtest()` ดูข้อ 3.10
 
 ---
 
@@ -147,6 +153,50 @@ git log -1 --abbrev=7 --format=%h -- atas-indicator
 
 ---
 
+### 3.10 วิธีสั่ง backtest — ต้องผ่าน Postgres ไม่ใช่ curl
+
+`INGEST_TOKEN` อยู่แค่ใน environment ของ edge function อ่านจาก SQL ไม่ได้ และ anon key
+ก็ใช้ไม่ได้เพราะมันฝังอยู่ใน bundle ของเว็บ (ใครเปิดเว็บก็สั่งรันได้) ทางที่ใช้จริงคือ:
+
+- `public.runner_tokens` เก็บ **hash** ของ key ที่ฟังก์ชันยอมรับ (RLS เปิด ไม่มี policy —
+  service role เท่านั้นที่อ่านได้)
+- `public.issue_runner_token(label)` ออก key ใหม่และคืน plaintext **ครั้งเดียว** อ่านย้อนไม่ได้
+- plaintext ตัวที่ใช้อยู่ถูกเก็บใน `vault` ชื่อ `backtest_runner_token`
+- `public.run_backtest(body jsonb)` อ่าน vault แล้วยิงผ่าน `pg_net` — token ไม่เคยโผล่ในคำสั่ง
+
+สั่งรันจริง (จาก MCP `execute_sql` ได้เลย):
+
+```sql
+select public.run_backtest('{
+  "name": "ชื่อการทดลอง",
+  "note": "ทำไมถึงถามคำถามนี้",
+  "maxBars": 400,
+  "variants": [
+    { "label": "reward 3", "params": { "rewardRatio": 3 } },
+    { "label": "ratio 3.5", "ruleKey": "stacked_imbalance", "params": { "ratio": 3.5 } }
+  ]
+}'::jsonb) as request_id;
+
+-- pg_net เป็น fire-and-forget ผลมาทีหลัง:
+select status_code, left(content, 2000) from net._http_response where id = <request_id>;
+```
+
+`params` จะถูก **merge ทับ** ค่าที่ใช้อยู่จริง ไม่ได้แทนทั้งชุด · ไม่ใส่ `ruleKey` = ใช้กับทุกกฎ
+· ทุกครั้งจะมี variant ชื่อ `baseline` (ค่าที่ใช้อยู่จริง) รันเทียบให้เสมอ
+· `label` ห้ามชื่อ `baseline` · สูงสุด 8 variants ต่อครั้ง
+· feed ที่มีแท่งน้อยกว่า 70 จะถูกข้าม
+
+**สิ่งที่มันทำไม่ได้เลยคือส่ง Telegram** — ไม่ใช่เพราะมี flag ปิดไว้ แต่เพราะมันเขียนลง
+`experiments` / `experiment_results` เท่านั้น ไม่แตะ `public.signals` ซึ่งเป็นทางเดียวที่ต่อกับ
+Telegram อยู่ (ดู `supabase/functions/backtest/index.ts` — ไม่มี import ของ telegram.ts)
+
+### 3.11 CPU ของ edge function ไม่ใช่คอขวด
+
+รันจริง: 6 variants × 812 แท่ง (60k footprint rows) = **2.3 วินาที** · 9 variants ก็ยังไม่ถึง 3 วิ
+ที่ต้องระวังคือขนาด response ของ PostgREST ตอนโหลดแท่ง จึงแบ่งดึงทีละ 100 แท่ง
+
+---
+
 ## 4. สิ่งที่สร้างไปแล้ว (ตามลำดับ พร้อมเหตุผล)
 
 | # | อะไร | ทำไม |
@@ -164,6 +214,8 @@ git log -1 --abbrev=7 --format=%h -- atas-indicator
 | 11 | **พื้นความเสี่ยงตามความผันผวนของ instrument** | `minRiskTicks` นับ "แถว footprint" ซึ่งคนละขนาดกันในแต่ละ instrument — ดูข้อ 5.4 |
 | 13 | **ตั้งค่าแยกราย instrument + ด่านความนิ่ง** | กฎเดียวกันให้ผลตรงข้ามกันคนละ instrument — ดูข้อ 5.5 |
 | 12 | **เลขลำดับไม้ `#S<seq>` + เวลาไทย + ผลรายงานเป็นราคา/R** | ผลมาเป็น reply แต่ preview ถูกตัดบนมือถือ ผลของไม้ 12:15 จึงไปแสดงใต้ไม้ 12:25 ที่ยังไม่จบ · และผลเคยรายงานเป็น ticks ทั้งที่สัญญาณรายงานเป็นราคา |
+| 14 | **สถานะ feed ในหน้าสัญญาณ** | ตลาดปิดกับ bridge พังหน้าตาเหมือนกัน — ดูข้อ 3.7 |
+| 15 | **ตัวรัน backtest + หน้า `/experiments` + สำรอง/ย้อนค่า** | เปลี่ยน threshold ของกฎแล้วรู้ผลก่อนที่โทรศัพท์จะดัง — ดูข้อ 3.10 และ 5.6 |
 
 ---
 
@@ -325,6 +377,96 @@ view ที่อธิบายปัญหาไม่ได้ ใช้ห�
 
 ---
 
+### 5.6 `rewardRatio` — ข้อค้นพบที่ใหญ่ที่สุดจากตัวรัน backtest (ยังไม่ได้ปรับ รอเจ้าของอนุมัติ)
+
+รันจริง 4 การทดลอง บนแท่งทั้งหมดที่มี (BTCUSDT 375 · MNQU6 239 · NQU6 100 · GC 100 = 812 แท่ง
+5m, 2026-08-28 ถึง 2026-08-29) ผลอยู่ในตาราง `experiments` / `experiment_results` และดูได้ที่
+`/experiments`
+
+**หลักฐานชั้นดี:** `rewardRatio` ไม่เปลี่ยนว่า *ไม้ไหนเกิด* มันเปลี่ยนแค่ว่า TP อยู่ตรงไหน
+ทุก variant จึงเดินบน **174 ไม้ชุดเดียวกันเป๊ะ ๆ** (จำนวน SL เท่ากันหมดที่ 67) — ชั้นหลักฐาน
+เดียวกับตอนปรับ trail ไม่ใช่การเทียบชุดสัญญาณคนละชุดกัน
+
+| rewardRatio | ไม้ | ชนะ | R รวม | R/ไม้ | TP | SL | trail | หมดเวลา |
+|---|---|---|---|---|---|---|---|---|
+| 1.25 | 174 | 58% | +21.43 | 0.123 | 50 | 67 | 51 | 6 |
+| 1.5  | 174 | 58% | +31.80 | 0.183 | 44 | 67 | 57 | 6 |
+| 1.75 | 174 | 58% | +41.10 | 0.236 | 40 | 67 | 61 | 6 |
+| **2.0 (ใช้อยู่)** | 174 | 58% | **+49.64** | **0.285** | 36 | 67 | 65 | 6 |
+| 2.5  | 174 | 58% | +63.92 | 0.367 | 28 | 67 | 73 | 6 |
+| 3.0  | 174 | 58% | +73.25 | 0.421 | 20 | 67 | 81 | 6 |
+| 4.0  | 174 | 58% | +83.44 | 0.480 | 11 | 67 | 90 | 6 |
+| 6.0  | 174 | 58% | +99.29 | 0.571 | 6  | 67 | 95 | 6 |
+| 32   | 174 | 58% | +156.59 | 0.900 | 2 | 67 | 99 | 6 |
+
+**อัตราชนะไม่ขยับเลยสักค่าเดียว** เพราะ trail 0.5/0.25 ตัดสินแพ้ชนะไปแล้ว: ไม้ที่วิ่งถึง 0.5R
+จะได้ stop ที่ `best − 0.25R` แปลว่ามันชนะแน่นอนอย่างน้อย +0.25R ไม่ว่า TP จะอยู่ไหน
+การขยับ TP จึงเปลี่ยนแค่ว่า "ชนะเท่าไร" ไม่ใช่ "ชนะหรือแพ้"
+
+**เช็กว่าไม่ใช่ของแถมจาก trail:** รันไขว้ TP × trail (การทดลอง `target versus trail`)
+TP กว้างขึ้นดีขึ้น**ทุกแบบของ trail รวมทั้งไม่มี trail เลย**
+
+| ตั้งค่า | R รวม | R/ไม้ | ชนะ |
+|---|---|---|---|
+| ไม่มี trail, reward 2 | +28.85 | 0.166 | 43% |
+| ไม่มี trail, reward 3 | +50.29 | 0.289 | 39% |
+| trail 1/0.5 (แบบเก่า), reward 2 | +44.84 | 0.258 | 52% |
+| trail 1/0.5, reward 3 | +68.85 | 0.396 | 52% |
+| trail 0.5/0.25 (ปัจจุบัน), reward 2 | +49.64 | 0.285 | 58% |
+| trail 0.5/0.25, reward 3 | +73.25 | 0.421 | 58% |
+
+กลไกจริงคือ **TP ที่ 2R กำลังตัดขาไม้ที่ยังวิ่งต่อ** ส่วนขาแพ้ถูก SL ล็อกไว้อยู่แล้ว
+การขยับ TP ออกจึงเพิ่มด้านบนโดยไม่เพิ่มด้านล่าง — และ trail คือตัวที่แปลง "วิ่งต่อ" เป็น "ชนะ"
+(ไม่มี trail อัตราชนะร่วงเหลือ 39–43% ทันที)
+
+**ทุก instrument ดีขึ้น ไม่มีตัวไหนแย่ลง** (R/ไม้ ที่ reward 3.0 เทียบ 2.0):
+
+| instrument | ไม้ | 2.0 | 3.0 |
+|---|---|---|---|
+| BTCUSDT | 98 | 0.385 | **0.567** |
+| GC | 18 | 0.579 | **0.597** |
+| MNQU6 | 46 | −0.078 | **−0.008** |
+| NQU6 | 12 | 0.427 | **0.605** |
+
+**ทำไมยังไม่ปรับ:** เส้นมัน**ไม่มีจุดกลับตัว** — ไล่ไปถึง reward 32 ก็ยังขึ้น ซึ่งแปลว่าข้อมูลเท่านี้
+บอกไม่ได้ว่าควรหยุดตรงไหน (และที่ reward 16→32 ส่วนต่าง +32.00R มาจากไม้ **2 ไม้** ที่ชน TP
+ระดับนั้นพอดี — ปลายเส้นพิงอยู่บนไม้ไม่กี่ไม้) บวกกับข้อมูลแค่ ~2 วัน 174 ไม้ ยังไม่ครบ 3 เซสชัน
+ตามด่านความนิ่งในข้อ 5.5
+
+**ข้อเสนอ:** ขยับ `rewardRatio` 2.0 → **3.0** ทุกกฎ — อยู่ในช่วงที่ข้อมูลหนา (ยังมี TP โดน 20 ไม้
+ไม่ได้พิงหางแจก) ดีขึ้นทั้ง 4 instrument เพื่อนบ้าน (2.5 / 4.0) เห็นตรงกัน และถ้าแย่ลงกดย้อนกลับ
+ได้ที่ `/experiments` ทันที **ยังไม่ทำ รอเจ้าของสั่ง** (เจ้าของเลือกไว้ว่า "เสนอให้อนุมัติก่อน")
+
+### 5.7 `minVolumeRatio` — วัดแล้ว ไม่ต้องขยับ
+
+การทดลอง `liquidity gate sweep` กวาด 0.8 → 2.0 ผล R รวมสูงขึ้นเมื่อ**ลด**ค่า แต่นั่นเป็นเพราะ
+มันปล่อยให้เทรดถี่ขึ้น ไม่ใช่เทรดดีขึ้น — ดูที่ R/ไม้ จะเห็นว่าแบนราบ:
+
+| gate | ไม้ | R รวม | R/ไม้ |
+|---|---|---|---|
+| 0.8 | 209 | +55.86 | 0.267 |
+| 1.0 | 189 | +54.22 | 0.287 |
+| **1.2 (ใช้อยู่)** | 174 | +49.64 | **0.285** |
+| 1.4 | 155 | +42.86 | 0.277 |
+| 1.6 | 137 | +37.45 | 0.273 |
+| 2.0 | 118 | +29.85 | 0.253 |
+
+และรายตัวไม่เห็นตรงกัน: GC บอกว่า 1.2 คือยอด (0.579 แล้วตกทั้งสองข้าง) BTCUSDT บอก 1.0
+ดีกว่านิดเดียวในระดับ noise ส่วน MNQ/NQ ไม้น้อยเกินจะพูด — **ไม่ขยับ**
+
+บทเรียนที่ต้องจำ: **R รวมโกหกได้ ถ้าตัวแปรนั้นเปลี่ยนจำนวนไม้** ต้องดู R/ไม้ ควบเสมอ
+หน้า `/experiments` จึงแสดงสองคอลัมน์คู่กันตลอด
+
+### 5.8 MNQU6 ติดลบทุกการตั้งค่า
+
+ในทุก variant ที่รันมา MNQU6 อยู่ระหว่าง −0.086 ถึง +0.019 R/ไม้ (46–56 ไม้) ขณะที่อีกสามตัว
+บวกหมด นี่ไม่ใช่ปัญหาของ threshold ตัวใดตัวหนึ่ง — ปรับอะไรก็ยังติดลบ
+ยังไม่ปิดอะไรเพราะ `setup_stability` ยังไม่ผ่าน (ดูข้อ 5.5 — MNQ มีเซสชันเดียว)
+**ต้องเปิดชาร์ต MNQ ให้ได้อีก 2 เซสชันก่อนถึงจะตัดสินได้** ถ้ายังติดลบค่อยใช้ `rule_overrides`
+ปิดเฉพาะ instrument นี้
+
+---
+
 ## 6. ค่า params ปัจจุบัน (แก้ได้ที่ `/rules` ไม่ต้อง deploy)
 
 ทุกกฎมีชุดนี้เหมือนกัน:
@@ -375,6 +517,8 @@ view ที่อธิบายปัญหาไม่ได้ ใช้ห�
 | B | วัดผล price action flags | รอข้อมูล 3–5 วัน |
 | C | ตัดสินชะตา `poc_shift` | รอข้อมูลเพิ่ม |
 | D | วัดซ้ำว่า `minRiskRangeShare` ควรเป็น 0.30 หรือ 0.60 | รอข้อมูล MNQ เซสชันที่ 2 |
+| E | **ขยับ `rewardRatio` 2.0 → 3.0** | ✅ วัดครบแล้ว (ข้อ 5.6) — **รอเจ้าของสั่ง** ทำได้ที่ `/rules` ไม่ต้อง deploy |
+| F | ตัดสินชะตา MNQU6 | รอ MNQ อีก 2 เซสชัน (ข้อ 5.8) |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
 ใน `plan.ts` มี `volatilityFloorTicks()` คำนวณพื้นความเสี่ยงจาก median range ของแท่งก่อนหน้า
@@ -386,6 +530,19 @@ view ที่อธิบายปัญหาไม่ได้ ใช้ห�
 
 **ข้อ D ทำยังไง:** รันสคริปต์จำลองใน §8.4 อีกครั้งเมื่อมีข้อมูลมากขึ้น ถ้า 0.55–0.65 ยังชนะ
 *และชนะทั้งสอง instrument* ค่อยขยับ — แก้ที่ `/rules` ได้เลยไม่ต้อง deploy
+
+### 7.3 กับดักที่รู้แล้ว ยังไม่ได้แก้
+
+`outcome-notify` (edge function) ยังเป็น **version 3** ที่ bundle โค้ด `_shared/telegram.ts` และ
+`_shared/outcomes.ts` **ตัวเก่า** — ถ้าใครไปเรียกมัน ผลที่ส่งจะเป็นฟอร์แมตเก่า (ticks ล้วน
+ไม่มี `#S<seq>` ไม่มีเวลาไทย) ตอนนี้ **ไม่มีอะไรเรียกมัน**: `ingest` เรียก
+`flushOutcomeNotifications()` ในโปรเซสตัวเองด้วยโค้ดใหม่ และ pg_cron ก็ไม่ได้ชี้มาที่นี่
+ถ้าจะใช้ endpoint นี้เมื่อไร **ต้อง deploy ใหม่ก่อน**
+
+การ deploy edge function ผ่าน MCP ต้องอัปโหลด **ทุกไฟล์ที่ import ถึง** ทุกครั้ง (มันแทนที่ทั้งชุด
+ไม่ใช่ patch) สำหรับ `backtest` คือ 12 ไฟล์ ~66KB — เผื่อ token ไว้ด้วย
+
+---
 
 ## 8. ขั้นตอนถัดไป
 
@@ -459,7 +616,7 @@ select * from public.setup_stats order by total_r desc nulls last;
 #   curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh -s -- -y
 export PATH=/opt/deno/bin:$PATH
 deno task check
-deno task test          # ปัจจุบัน 84 tests ผ่านหมด
+deno task test          # ปัจจุบัน 88 tests ผ่านหมด
 
 # เว็บ
 cd web && npm run build
@@ -468,8 +625,13 @@ cd web && npm run build
 **Deploy edge function:** ใช้ `mcp__Supabase__deploy_edge_function` ต้องส่ง **ทุกไฟล์**
 ที่ `ingest/index.ts` import ถึง (โดย transitive) ไม่งั้นได้ 400 "Entrypoint path does not exist"
 
-รายการไฟล์: `ingest/index.ts`, `_shared/{ingest,plan,liquidity,price_action,telegram,outcomes,types,util,evidence}.ts`,
+รายการไฟล์ของ `ingest`: `ingest/index.ts`, `_shared/{ingest,plan,liquidity,price_action,telegram,outcomes,overrides,types,util,evidence}.ts`,
 `_shared/rules/{index,stacked_imbalance,delta_divergence,absorption,poc_shift}.ts`
+
+รายการไฟล์ของ `backtest`: `backtest/index.ts`, `_shared/{backtest,plan,liquidity,price_action,types,util}.ts`,
+`_shared/rules/{index,stacked_imbalance,delta_divergence,absorption,poc_shift}.ts` (12 ไฟล์ ไม่มี telegram.ts — โดยตั้งใจ)
+
+**สั่ง backtest:** ดูข้อ 3.10 — ยิงผ่าน `select public.run_backtest('{...}'::jsonb)` ไม่ใช่ curl
 
 **อัปเดต DLL บนเครื่อง Windows:**
 ```
@@ -486,17 +648,23 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0014
-supabase/functions/_shared/
-  ingest.ts        pipeline หลัก (batch write)
-  plan.ts          trade plan
-  liquidity.ts     volume gate
-  price_action.ts  structure/BOS/CHoCH/sweep/zone (เก็บอย่างเดียว)
-  overrides.ts     ตั้งค่าแยกราย instrument (ดู 5.5)
-  rules/           4 กฎ + registry
-  telegram.ts      ข้อความแจ้งเตือน
-  outcomes.ts      reply ผลลัพธ์
-web/                                Next.js dashboard
+supabase/migrations/                0001–0018
+supabase/functions/
+  ingest/index.ts       HTTP shell ของ pipeline สด
+  outcome-notify/index.ts  endpoint สำรอง (โค้ดเก่า ดู 7.3)
+  backtest/index.ts     ตัวรันการทดลอง — ไม่ import telegram.ts โดยตั้งใจ
+  _shared/
+    ingest.ts        pipeline หลัก (batch write)
+    plan.ts          trade plan
+    liquidity.ts     volume gate
+    price_action.ts  structure/BOS/CHoCH/sweep/zone (เก็บอย่างเดียว)
+    overrides.ts     ตั้งค่าแยกราย instrument (ดู 5.5)
+    backtest.ts      simulate() + scorePlan() — เรียก runRules/buildPlan ตัวจริง
+    testdata/scorer_cases.ts  20 ไม้จริงที่ DB ให้คะแนนเอง (5 ไม้ต่อ exit reason)
+    rules/           4 กฎ + registry
+    telegram.ts      ข้อความแจ้งเตือน
+    outcomes.ts      reply ผลลัพธ์
+web/app/experiments/                หน้าแสดงผลทดลอง + ปุ่มย้อนค่า
 docs/queries/                       คิวรีวิเคราะห์ที่ใช้ซ้ำได้ (ดู 8.3)
 scripts/update-indicator.{ps1,bat}  อัปเดต DLL
 docs/SETUP.md                       คู่มือติดตั้งฉบับเต็ม
@@ -518,3 +686,11 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 10. อย่ารายงานผลเป็น ticks ในเมื่อข้อความสัญญาณรายงานเป็นราคา — ไม้เดียวกันต้องใช้หน่วยเดียวกัน ไม่งั้นอ่านแล้วนึกว่าคนละไม้
 11. อย่าปรับค่าจาก cell ที่ยังไม่ผ่าน `setup_stability` — เซสชันเดียวพลิกกลับข้างได้ทั้งอัน (ข้อ 5.5)
 12. อย่าเล็งเป้าที่ win rate ตรง ๆ — ขยาย TP/ถือนานขึ้นทำให้ win rate ขึ้นแต่เงินหาย ค่า share 1.00 เคยให้ WR สูงสุด 50.5% แต่ได้ R น้อยกว่า 0.30 ที่ WR 47.2%
+13. **อย่าอ่าน R รวมโดยไม่ดู R ต่อไม้** ตัวแปรที่เปลี่ยนจำนวนไม้ (เช่น `minVolumeRatio`)
+    ทำให้ R รวมสูงขึ้นได้ทั้งที่ทุกไม้แย่ลง — ดูข้อ 5.7
+14. **อย่าเชื่อเส้นที่ไม่มีจุดกลับตัว** ถ้ากวาดค่าแล้วดีขึ้นเรื่อย ๆ ไม่หยุด แปลว่าโมเดลกำลังถูกใช้
+    ประโยชน์ ไม่ใช่ตลาดกำลังบอกอะไร — ให้ไล่ต่อจนเห็นว่าปลายเส้นพิงอยู่บนกี่ไม้ (ข้อ 5.6)
+15. **อย่าเขียนผลการทดลองลง `public.signals`** ตัวรัน backtest แยกจากทางที่ต่อกับ Telegram
+    ด้วย *สิ่งที่มันเขียน* ไม่ใช่ด้วย flag — ถ้าเผลอเขียน signals เมื่อไร คุณสมบัตินี้หายทันที
+16. **อย่าใส่ anon key เป็นทางเข้าของอะไรที่กินทรัพยากร** มันฝังอยู่ใน bundle ของเว็บ
+    ใครเปิดเว็บก็มี — ใช้ `runner_tokens` แทน (ข้อ 3.10)
