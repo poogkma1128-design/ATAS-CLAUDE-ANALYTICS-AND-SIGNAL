@@ -85,8 +85,14 @@ if ($LASTEXITCODE -ne 0) { Stop-Here "สลับไปสาขา main ไม
 # งานส่วนใหญ่ในโปรเจกต์นี้อยู่ฝั่ง server ซึ่งไม่แตะ C# เลย HEAD จึงขยับเรื่อย ๆ
 # ทั้งที่ DLL ไม่ต้องเปลี่ยน ถ้าเทียบกับ HEAD จะเห็นเลขไม่ตรงแล้วนึกว่าตัวเก่า
 $Commit = (git log -1 --abbrev=7 --format=%h -- atas-indicator)
+
+# REV ของ indicator อ่านจาก csproj ตรง ๆ เป็นเลขคนละตัวกับ REV ของเว็บโดยตั้งใจ
+# เพราะ indicator เปลี่ยนน้อยกว่ามาก ถ้าใช้เลขร่วมกันจะขยับทุกครั้งที่แก้เว็บ
+# แล้วต้องมา build DLL ใหม่ฟรี ๆ
+$Rev = [regex]::Match((Get-Content $Project -Raw), '<Version>([^<]+)</Version>').Groups[1].Value
+
 Ok "อัปเดตแล้ว — $(git log -1 --format=%s)"
-Note "commit ของ indicator: $Commit"
+Note "REV ของ indicator: $Rev (commit $Commit)"
 Note "(repo HEAD คือ $(git rev-parse --short=7 HEAD) — คนละเลขได้ ไม่ผิด)"
 
 # --- 3. Build ----------------------------------------------------------------
@@ -120,10 +126,11 @@ Write-Host ""
 Write-Host "ตรวจว่าได้ตัวใหม่จริง:" -ForegroundColor White
 Write-Host "  คลิก Signal Bridge ในหน้า Indicators แล้วดูแท็บ About"
 Write-Host "  ต้องขึ้น: " -NoNewline
-Write-Host "commit $Commit" -ForegroundColor Green
-Write-Host "  ถ้าขึ้น commit อื่น แปลว่า ATAS ยังใช้ตัวเก่า - ปิด ATAS แล้ว Import ใหม่"
+Write-Host "REV $Rev | commit $Commit" -ForegroundColor Green
+Write-Host "  ถ้าขึ้นเลขอื่น แปลว่า ATAS ยังใช้ตัวเก่า - ปิด ATAS แล้ว Import ใหม่"
 Write-Host ""
 Write-Host "  เลขนี้จะไม่เปลี่ยนจนกว่าจะมีการแก้โค้ด C# จริง ๆ" -ForegroundColor DarkGray
 Write-Host "  งานฝั่ง server (กฎ/ค่าตั้ง/เว็บ) ไม่ทำให้ต้อง build ใหม่" -ForegroundColor DarkGray
+Write-Host "  REV ที่มุมขวาบนของเว็บเป็นคนละเลข และไม่ต้องตรงกับเลขนี้" -ForegroundColor DarkGray
 Write-Host ""
 Read-Host "กด Enter เพื่อปิดหน้าต่าง" | Out-Null
