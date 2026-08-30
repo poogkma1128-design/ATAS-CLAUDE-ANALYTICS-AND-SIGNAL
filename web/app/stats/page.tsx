@@ -1,22 +1,37 @@
+import type { ReactNode } from "react";
+
 import { createClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/Nav";
 import { DirectionTag } from "@/components/DirectionTag";
 import { PnlBar, WinRateMeter } from "@/components/StatBars";
-import { num, percent, signedTicks } from "@/lib/format";
-import type { RuleRow, SetupStatRow } from "@/lib/types";
+import { num, percent, signed, signedTicks } from "@/lib/format";
+import type {
+  PriceActionEdgeRow,
+  RuleRow,
+  SettingsEffectRow,
+  SetupStatRow,
+} from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
 export default async function StatsPage() {
   const supabase = await createClient();
 
-  const [{ data: stats }, { data: rules }, { count: pending }] = await Promise.all([
+  const [
+    { data: stats },
+    { data: rules },
+    { count: pending },
+    { data: settings },
+    { data: priceAction },
+  ] = await Promise.all([
     supabase.from("setup_stats").select("*"),
     supabase.from("rules").select("key, name"),
     supabase
       .from("signal_outcomes")
       .select("signal_id", { count: "exact", head: true })
       .eq("status", "pending"),
+    supabase.from("settings_effect").select("*"),
+    supabase.from("price_action_edge").select("*"),
   ]);
 
   const rows = ((stats ?? []) as SetupStatRow[])
@@ -26,6 +41,18 @@ export default async function StatsPage() {
   const ruleNames = Object.fromEntries(
     ((rules ?? []) as Pick<RuleRow, "key" | "name">[]).map((r) => [r.key, r.name]),
   );
+
+  const settingsRows = ((settings ?? []) as SettingsEffectRow[])
+    .sort((a, b) => (b.last_fired ?? "").localeCompare(a.last_fired ?? ""));
+
+  // Cells this thin cannot say anything either way, and two dozen of them bury
+  // the ones that might. They are counted below the table rather than dropped
+  // silently -- an absence that is never explained reads as a bug.
+  const allPriceAction = (priceAction ?? []) as PriceActionEdgeRow[];
+  const priceActionRows = allPriceAction
+    .filter((r) => r.trades >= 5)
+    .sort((a, b) => b.trades - a.trades);
+  const thinCells = allPriceAction.length - priceActionRows.length;
 
   const totalTrades = rows.reduce((sum, r) => sum + r.trades, 0);
   const totalWins = rows.reduce((sum, r) => sum + r.wins, 0);
@@ -118,8 +145,218 @@ export default async function StatsPage() {
         <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
           ทุกตัวเลขเป็นหน่วย tick · &ldquo;ไกลสุด&rdquo; คือ MFE, &ldquo;สวนสุด&rdquo; คือ MAE
         </p>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">การเปลี่ยนค่าได้ผลไหม</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            จัดกลุ่มตามค่าที่ <strong>บันทึกไว้บนไม้ตอนยิง</strong> ไม่ใช่ตามวันที่ —
+            เปลี่ยนค่าเมื่อไรก็แตกกลุ่มใหม่เอง กลุ่มเดิมไม่ถูกปน
+          </p>
+
+          {settingsRows.length === 0
+            ? <Empty>ยังไม่มีไม้ที่วัดผลเสร็จ</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[820px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["ตั้งค่า", "left"],
+                        ["ไม้", "right"],
+                        ["สินทรัพย์", "right"],
+                        ["อัตราชนะ", "right"],
+                        ["รวม R", "right"],
+                        ["R/ไม้", "right"],
+                        ["SL / TP / trail / หมดเวลา", "right"],
+                        ["สรุปได้ไหม", "left"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {settingsRows.map((row) => (
+                      <tr
+                        key={`${row.reward_r}-${row.trail_after_r}-${row.trail_offset_r}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5">
+                          <span className="tabular font-medium">
+                            TP {num(row.reward_r)}R · trail {num(row.trail_after_r)}/{num(row.trail_offset_r)}
+                          </span>
+                          {row.is_live && (
+                            <span
+                              className="ml-2 rounded px-1.5 py-0.5 text-xs"
+                              style={{ background: "var(--surface-raised)", color: "var(--text-secondary)" }}
+                            >
+                              ใช้อยู่
+                            </span>
+                          )}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.trades}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.symbols}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {percent(num(row.win_rate), 1)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {signed(num(row.total_r))}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {signed(num(row.r_per_trade), 3)}
+                        </td>
+                        <td
+                          className="px-4 py-2.5 text-right tabular"
+                          style={{ color: "var(--text-secondary)" }}
+                        >
+                          {row.hit_stop} / {row.hit_target} / {row.hit_trail} / {row.timed_out}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Verdict text={settingsVerdict(row)} settled={row.verdict === "comparable"} />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+            เกณฑ์ก่อนจะเทียบกันได้: ≥ 30 ไม้ และมีอย่างน้อย 2 สินทรัพย์ ·
+            แถวที่ยังไม่ถึงเกณฑ์แปลว่า <strong>ยังตอบไม่ได้</strong> ไม่ใช่ตอบแล้วว่าแย่
+          </p>
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">price action flags คุ้มจะเอามากรองไหม</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            เก็บอย่างเดียวมาตลอด ยังไม่เคยกรองอะไร — วัดก่อน แล้วค่อยกรอง
+            วิธีเดียวกับที่ตัดสิน volume gate มา
+          </p>
+
+          {priceActionRows.length === 0
+            ? <Empty>ยังไม่มีช่องไหนที่มีไม้ถึง 5 ไม้</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["sweep", "left"],
+                        ["zone", "left"],
+                        ["ทิศทาง", "left"],
+                        ["ไม้", "right"],
+                        ["เซสชัน", "right"],
+                        ["อัตราชนะ", "right"],
+                        ["รวม R", "right"],
+                        ["R/ไม้", "right"],
+                        ["สรุปได้ไหม", "left"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {priceActionRows.map((row) => (
+                      <tr
+                        key={`${row.sweep}-${row.zone}-${row.direction}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5" style={{ color: row.sweep ? undefined : "var(--text-muted)" }}>
+                          {row.sweep ?? "ไม่มี"}
+                        </td>
+                        <td className="px-4 py-2.5">{row.zone ?? "–"}</td>
+                        <td className="px-4 py-2.5">
+                          <DirectionTag direction={row.direction} />
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.trades}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.sessions}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {percent(num(row.win_rate), 1)}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {signed(num(row.total_r))}
+                        </td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {signed(num(row.r_per_trade), 3)}
+                        </td>
+                        <td className="px-4 py-2.5">
+                          <Verdict
+                            text={priceActionVerdict(row)}
+                            settled={row.verdict === "separates" || row.verdict === "no different"}
+                          />
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+            เกณฑ์: ≥ 30 ไม้ และ ≥ 3 เซสชัน ถึงจะอ่านผลได้ · ช่องที่แยกตัวชัดค่อยเลื่อนขึ้นเป็นตัวกรอง
+            ช่องที่ไม่ต่างลบทิ้งได้โดยไม่เสียอะไร · เทียบกับค่าเฉลี่ยทุกช่อง{" "}
+            <span className="tabular">
+              {signed(num(allPriceAction[0]?.overall_r_per_trade), 3)} R/ไม้
+            </span>
+            {thinCells > 0 && ` · อีก ${thinCells} ช่องมีไม้ไม่ถึง 5 ไม้ จึงยังไม่แสดง`}
+          </p>
+        </section>
       </main>
     </>
+  );
+}
+
+/** Says what is still missing, so a thin row is not misread as a bad result. */
+function settingsVerdict(row: SettingsEffectRow): string {
+  if (row.verdict === "need more trades") {
+    return `ยังตอบไม่ได้ · ขาดอีก ${30 - row.trades} ไม้`;
+  }
+  if (row.verdict === "need more symbols") return "ยังตอบไม่ได้ · ยังมีสินทรัพย์เดียว";
+  return "เทียบได้แล้ว";
+}
+
+function priceActionVerdict(row: PriceActionEdgeRow): string {
+  if (row.verdict === "need more trades") {
+    return `ยังตอบไม่ได้ · ขาดอีก ${30 - row.trades} ไม้`;
+  }
+  if (row.verdict === "need more sessions") {
+    return `ยังตอบไม่ได้ · ขาดอีก ${3 - row.sessions} เซสชัน`;
+  }
+  return row.verdict === "separates" ? "แยกตัวชัด" : "ไม่ต่างจากค่าเฉลี่ย";
+}
+
+function Verdict({ text, settled }: { text: string; settled: boolean }) {
+  return (
+    <span
+      className="text-xs"
+      style={{ color: settled ? "var(--text-primary)" : "var(--text-muted)" }}
+    >
+      {text}
+    </span>
+  );
+}
+
+function Head({ cells }: { cells: [string, "left" | "right"][] }) {
+  return (
+    <tr
+      className="border-b text-xs"
+      style={{ color: "var(--text-muted)", borderColor: "var(--border-hairline)" }}
+    >
+      {cells.map(([label, align]) => (
+        <th
+          key={label}
+          className={align === "right" ? "px-4 py-2 text-right font-normal" : "px-4 py-2 text-left font-normal"}
+        >
+          {label}
+        </th>
+      ))}
+    </tr>
+  );
+}
+
+function Empty({ children }: { children: ReactNode }) {
+  return (
+    <div className="card mt-4 p-8 text-center text-sm" style={{ color: "var(--text-secondary)" }}>
+      {children}
+    </div>
   );
 }
 

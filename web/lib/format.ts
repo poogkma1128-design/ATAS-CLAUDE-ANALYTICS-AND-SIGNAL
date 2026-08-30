@@ -1,8 +1,14 @@
+/** Signed quantities read better with an explicit plus, whatever the unit. */
+export function signed(value: number | null | undefined, digits = 2): string {
+  if (value === null || value === undefined) return "–";
+  const factor = 10 ** digits;
+  const rounded = Math.round(value * factor) / factor;
+  return `${rounded > 0 ? "+" : ""}${rounded}`;
+}
+
 /** Signed tick counts read better with an explicit plus. */
 export function signedTicks(value: number | null | undefined): string {
-  if (value === null || value === undefined) return "–";
-  const rounded = Math.round(value * 100) / 100;
-  return `${rounded > 0 ? "+" : ""}${rounded}`;
+  return signed(value);
 }
 
 export function percent(value: number | null | undefined, digits = 0): string {

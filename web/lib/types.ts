@@ -112,3 +112,40 @@ export interface RuleSnapshotRow {
   is_best_known: boolean;
   taken_at: string;
 }
+
+/** One arrangement of plan geometry, and how the trades that used it turned out. */
+export interface SettingsEffectRow {
+  reward_r: number | null;
+  trail_after_r: number | null;
+  trail_offset_r: number | null;
+  trades: number;
+  symbols: number;
+  sessions: number;
+  wins: number;
+  win_rate: number | null;
+  total_r: number | null;
+  r_per_trade: number | null;
+  hit_stop: number;
+  hit_target: number;
+  hit_trail: number;
+  timed_out: number;
+  first_fired: string | null;
+  last_fired: string | null;
+  is_live: boolean;
+  verdict: "need more trades" | "need more symbols" | "comparable";
+}
+
+/** One price action cell, and whether it has earned the right to be read yet. */
+export interface PriceActionEdgeRow {
+  sweep: string | null;
+  zone: string | null;
+  direction: Direction;
+  trades: number;
+  sessions: number;
+  wins: number;
+  win_rate: number | null;
+  total_r: number | null;
+  r_per_trade: number | null;
+  overall_r_per_trade: number | null;
+  verdict: "need more trades" | "need more sessions" | "separates" | "no different";
+}
