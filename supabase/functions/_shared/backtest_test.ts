@@ -129,10 +129,40 @@ Deno.test("drawdown: an equity curve that never falls has none", () => {
   assertEquals(drawdown(trades), { maxDrawdownR: 0, worstLosingStreak: 0 });
 });
 
-Deno.test("fill: entry at the close fills on the next bar either way", () => {
-  const forward = [{ high: 110, low: 90 }] as unknown as Parameters<typeof fillIndex>[2];
-  assertEquals(fillIndex(100, "long", forward, 1), 0);
-  assertEquals(fillIndex(100, "short", forward, 1), 0);
+type Forward = Parameters<typeof fillIndex>[4];
+
+Deno.test("fill: entry at the close fills at once, whatever comes next", () => {
+  const forward = [{ high: 110, low: 90 }] as unknown as Forward;
+  assertEquals(fillIndex(100, "long", 100, 1, forward, 1), 0);
+  assertEquals(fillIndex(100, "short", 100, 1, forward, 1), 0);
+});
+
+/**
+ * The baseline is the number every variant is judged against, and with
+ * pullbackShare at 0 it must measure exactly what it measured before this
+ * column existed. Scanning the following bars for a price the signal bar had
+ * already traded at would have failed here — a gap away from the close is
+ * common, and every one of those trades would have quietly left the baseline.
+ */
+Deno.test("fill: a gap away from the close is not a missed fill", () => {
+  const gappedUp = [
+    { high: 130, low: 120 },
+    { high: 140, low: 128 },
+  ] as unknown as Forward;
+  assertEquals(fillIndex(100, "long", 100, 1, gappedUp, 1), 0);
+
+  const gappedDown = [
+    { high: 80, low: 70 },
+    { high: 78, low: 60 },
+  ] as unknown as Forward;
+  assertEquals(fillIndex(100, "short", 100, 1, gappedDown, 1), 0);
+});
+
+Deno.test("fill: rounding to the tick grid does not decide it", () => {
+  // buildPlan puts the entry on the grid; a close between ticks must not make
+  // a market entry look like a price that never came back.
+  const gappedUp = [{ high: 130, low: 120 }] as unknown as Forward;
+  assertEquals(fillIndex(100, "long", 100.2, 0.5, gappedUp, 1), 0);
 });
 
 Deno.test("fill: a long fills only where price traded down to the entry", () => {
@@ -141,22 +171,22 @@ Deno.test("fill: a long fills only where price traded down to the entry", () => 
   const ranAway = [
     { high: 120, low: 105 },
     { high: 130, low: 118 },
-  ] as unknown as Parameters<typeof fillIndex>[2];
-  assertEquals(fillIndex(100, "long", ranAway, 2), null);
+  ] as unknown as Forward;
+  assertEquals(fillIndex(100, "long", 110, 1, ranAway, 2), null);
 
   const cameBack = [
     { high: 120, low: 105 },
     { high: 118, low: 99 },
-  ] as unknown as Parameters<typeof fillIndex>[2];
-  assertEquals(fillIndex(100, "long", cameBack, 2), 1);
+  ] as unknown as Forward;
+  assertEquals(fillIndex(100, "long", 110, 1, cameBack, 2), 1);
 });
 
 Deno.test("fill: reach is limited to the window, not the whole horizon", () => {
   const late = [
     { high: 120, low: 105 },
     { high: 118, low: 99 },
-  ] as unknown as Parameters<typeof fillIndex>[2];
+  ] as unknown as Forward;
 
-  assertEquals(fillIndex(100, "long", late, 1), null);
-  assertEquals(fillIndex(100, "long", late, 2), 1);
+  assertEquals(fillIndex(100, "long", 110, 1, late, 1), null);
+  assertEquals(fillIndex(100, "long", 110, 1, late, 2), 1);
 });
