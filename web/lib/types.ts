@@ -149,3 +149,20 @@ export interface PriceActionEdgeRow {
   overall_r_per_trade: number | null;
   verdict: "need more trades" | "need more sessions" | "separates" | "no different";
 }
+
+/** One settings arrangement, scored only on trades that fired after it went live. */
+export interface ForwardTestRow {
+  reward_r: number | null;
+  trail_after_r: number | null;
+  trail_offset_r: number | null;
+  trades: number;
+  symbols: number;
+  sessions: number;
+  adopted_at: string | null;
+  last_fired: string | null;
+  total_r: number | null;
+  r_per_trade: number | null;
+  max_drawdown_r: number | null;
+  win_rate: number | null;
+  verdict: "need more trades" | "need more symbols" | "readable";
+}

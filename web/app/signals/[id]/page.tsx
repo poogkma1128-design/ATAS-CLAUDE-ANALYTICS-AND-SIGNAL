@@ -105,7 +105,8 @@ export default async function SignalDetailPage(
           <Tile label="ความมั่นใจ" value={percent(num(signal.confidence))} />
           <Tile
             label="ผลลัพธ์"
-            value={<OutcomeTag status={outcome?.status} pnlTicks={num(outcome?.pnl_ticks)} />}
+            value={<OutcomeTag status={outcome?.status} pnlTicks={num(outcome?.pnl_ticks)}
+                     riskTicks={signal.risk_ticks} />}
           />
           <Tile label="ไปได้ไกลสุด" value={`${signedTicks(num(outcome?.mfe_ticks))} ticks`} />
           <Tile label="สวนไปสุด" value={`-${num(outcome?.mae_ticks)} ticks`} />

@@ -122,7 +122,7 @@ Deno.serve(async (req: Request) => {
     for (const variant of [BASELINE, ...body.variants]) {
       const effective = applyVariant(rules, variant);
       const trades = usable.flatMap((feed) =>
-        simulate(feed.bars, effective, feed.tickSize).map((trade) => ({
+        simulate(feed.bars, effective, feed.tickSize).trades.map((trade) => ({
           ...trade,
           symbol: feed.symbol,
         }))
@@ -454,6 +454,8 @@ interface ResultRow {
   hit_stop: number;
   hit_trail: number;
   timed_out: number;
+  max_drawdown_r: number;
+  worst_losing_streak: number;
 }
 
 /**
@@ -487,6 +489,11 @@ function resultRows(
       hit_stop: s.stop,
       hit_trail: s.trail,
       timed_out: s.timeout,
+      // Stored per breakdown, not only for the total: a variant whose overall
+      // drawdown looks calm can still have put one instrument through a run
+      // that would have ended the account trading it alone.
+      max_drawdown_r: s.maxDrawdownR,
+      worst_losing_streak: s.worstLosingStreak,
     };
   };
 
