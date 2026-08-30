@@ -21,7 +21,7 @@
       dashboard: the indicator has changed 6 times in 52 commits while the web
       and server have changed 25 between them, so one number across both would
       move this one on every server deploy and send someone to rebuild a DLL
-      that did not change -- the same misreading section 3.8 of HANDOFF already
+      that did not change. The same misreading in section 3.8 of HANDOFF already
       cost a debugging session.
 
       `deno task rev:check` fails when this directory has changed since this
