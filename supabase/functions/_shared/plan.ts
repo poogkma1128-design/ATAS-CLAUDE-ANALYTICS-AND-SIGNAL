@@ -45,11 +45,27 @@ export function buildPlan(
   const trailOffsetR = Math.max(0.1, num(params, "trailOffsetR", 0.5));
 
   const long = direction === "long";
-  const entry = bar.close;
 
   // The far side of the signal bar, plus room for the wick that would take out
   // a stop sitting exactly on it.
   const anchor = long ? bar.low : bar.high;
+
+  // Entering on a retracement rather than at the close.
+  //
+  // Expressed as a share of the distance from the close back to that anchor, so
+  // it scales with the bar that produced the signal instead of being a fixed
+  // number of ticks that means something different on every instrument — the
+  // mistake minRiskTicks already made once (see volatilityFloorTicks below).
+  //
+  // 0 is off and is the default, deliberately: this changes where a trade is
+  // entered, so it cannot be turned on from /rules alone. The live scorer,
+  // evaluate_pending_outcomes(), assumes every plan is filled on its signal
+  // bar; a pullback that never traded back would be scored as though it had.
+  // Measuring it needs the backtest, which models the fill and counts the
+  // trades that never happen.
+  const pullbackShare = Math.min(0.9, Math.max(0, num(params, "pullbackShare", 0)));
+  const entry = bar.close - (bar.close - anchor) * pullbackShare;
+
   const anchorTicks = Math.abs(entry - anchor) / tickSize;
 
   // A bar that closes on its own extreme would otherwise leave no risk at all,

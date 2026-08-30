@@ -1,7 +1,7 @@
 import type { BarInput, ClusterLevel, HistoryBar, RuleRow } from "./types.ts";
 import { runRules } from "./rules/index.ts";
 import { buildPlan, type TradePlan } from "./plan.ts";
-import { pointOfControl, sortLevels } from "./util.ts";
+import { num, pointOfControl, sortLevels } from "./util.ts";
 
 /**
  * Re-runs the rule engine over stored bars under settings that were never live.
@@ -67,6 +67,12 @@ export interface SimulationSummary {
   wins: number;
   winRate: number;
   totalR: number;
+  /** Deepest fall from a running peak, in R, walking the trades in the order
+   *  they happened. Positive; 0 means equity never fell below a prior high. */
+  maxDrawdownR: number;
+  /** Most consecutive losing trades. The other half of the same question:
+   *  drawdown says how deep, this says how long you would have sat in it. */
+  worstLosingStreak: number;
   target: number;
   stop: number;
   trail: number;
@@ -84,13 +90,22 @@ const HISTORY_BARS = 50;
  * and enough bars ahead to be scored, so a trade is never counted on evidence
  * the live system would not have had.
  */
+export interface SimulationRun {
+  trades: SimulatedTrade[];
+  /** Signals whose pullback entry never traded back within reach. Zero unless
+   *  pullbackShare is set, and the number that stops a pullback from being
+   *  judged only on the trades it managed to get into. */
+  missed: number;
+}
+
 export function simulate(
   bars: StoredBar[],
   rules: RuleRow[],
   tickSize: number,
-): SimulatedTrade[] {
+): SimulationRun {
   const out: SimulatedTrade[] = [];
   const history: HistoryBar[] = [];
+  let missed = 0;
 
   for (const [index, stored] of bars.entries()) {
     const levels = sortLevels(stored.levels);
@@ -121,7 +136,28 @@ export function simulate(
       const forward = bars.slice(index + 1, index + 1 + holdBars);
       if (forward.length < holdBars) continue;
 
-      const scored = scorePlan(plan, signal.direction, forward, tickSize);
+      // With a pullback entry the trade only exists if price comes back to it.
+      //
+      // Counting only the ones that filled would flatter the setting badly:
+      // the trades that run away without retracing are disproportionately the
+      // ones that were going to work, so dropping them silently would make a
+      // worse entry look like a better one. They are counted instead.
+      const fillWithin = Math.max(
+        1,
+        Math.round(num(rule?.params ?? {}, "pullbackWithinBars", 1)),
+      );
+      const fill = fillIndex(plan.entry, signal.direction, forward, fillWithin);
+      if (fill === null) {
+        missed++;
+        continue;
+      }
+
+      const scored = scorePlan(
+        plan,
+        signal.direction,
+        forward.slice(fill),
+        tickSize,
+      );
       out.push({
         openedAt: stored.openedAt,
         ruleKey: signal.ruleKey,
@@ -145,7 +181,7 @@ export function simulate(
     });
   }
 
-  return out;
+  return { trades: out, missed };
 }
 
 /**
@@ -242,16 +278,83 @@ export function summarise(trades: SimulatedTrade[]): SimulationSummary {
   const by = (reason: SimulatedTrade["exitReason"]) =>
     trades.filter((t) => t.exitReason === reason).length;
 
+  const path = drawdown(trades);
+
   return {
     trades: trades.length,
     wins,
     winRate: trades.length > 0 ? round3(wins / trades.length) : 0,
     totalR: round2(trades.reduce((sum, t) => sum + t.r, 0)),
+    maxDrawdownR: path.maxDrawdownR,
+    worstLosingStreak: path.worstLosingStreak,
     target: by("target"),
     stop: by("stop"),
     trail: by("trail"),
     timeout: by("timeout"),
   };
+}
+
+/**
+ * How bad it got along the way.
+ *
+ * Total R and R per trade describe the destination and say nothing about the
+ * route. Two settings can post the same expectancy and reach it through very
+ * different runs of losses, and the deeper one is the one that gets abandoned
+ * before the expectancy ever arrives. With stops taking roughly half of all
+ * trades here, that is not a remote risk.
+ *
+ * Trades are walked in the order they were opened, which is the order they
+ * would have been lived through. Sorting is done here rather than assumed,
+ * because the simulator groups by instrument and a drawdown computed over an
+ * instrument-ordered list would be measuring an account nobody held.
+ */
+export function drawdown(
+  trades: SimulatedTrade[],
+): { maxDrawdownR: number; worstLosingStreak: number } {
+  const ordered = [...trades].sort((a, b) => a.openedAt.localeCompare(b.openedAt));
+
+  let equity = 0;
+  let peak = 0;
+  let deepest = 0;
+  let streak = 0;
+  let worstStreak = 0;
+
+  for (const trade of ordered) {
+    equity += trade.r;
+    if (equity > peak) peak = equity;
+    if (peak - equity > deepest) deepest = peak - equity;
+
+    if (trade.r < 0) {
+      streak++;
+      if (streak > worstStreak) worstStreak = streak;
+    } else {
+      streak = 0;
+    }
+  }
+
+  return { maxDrawdownR: round2(deepest), worstLosingStreak: worstStreak };
+}
+
+/**
+ * The first bar within reach that traded at the entry, or null if none did.
+ *
+ * Entry at the close always fills on the signal bar itself, so index 0 is
+ * returned for that case without looking at anything — which keeps the
+ * behaviour identical to before when pullbackShare is 0.
+ */
+export function fillIndex(
+  entry: number,
+  direction: "long" | "short",
+  forward: StoredBar[],
+  withinBars: number,
+): number | null {
+  const reachable = forward.slice(0, withinBars);
+
+  for (const [i, bar] of reachable.entries()) {
+    const traded = direction === "long" ? bar.low <= entry : bar.high >= entry;
+    if (traded) return i;
+  }
+  return null;
 }
 
 function asBarInput(stored: StoredBar, levels: ClusterLevel[]): BarInput {

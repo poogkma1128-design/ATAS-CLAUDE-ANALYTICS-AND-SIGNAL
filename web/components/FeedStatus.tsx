@@ -1,4 +1,4 @@
-import { shortTime } from "@/lib/format";
+import { shortTime, thaiAgo } from "@/lib/format";
 
 /**
  * What each chart is doing right now.
@@ -56,6 +56,8 @@ export function FeedStatus({ rows }: { rows: InstrumentStatus[] }) {
         <span className="text-xs" style={{ color: "var(--text-secondary)" }}>
           {rows.length === 0
             ? "ยังไม่มีชาร์ตไหนส่งข้อมูลเข้ามาเลย"
+            : live === 0
+            ? `ไม่มีชาร์ตไหนส่งสดอยู่เลย (ทั้งหมด ${rows.length} ชาร์ต) — ถ้าตลาดเปิดอยู่ แปลว่าผิดปกติ`
             : `${live} จาก ${rows.length} ชาร์ตกำลังส่งสด`}
         </span>
       </div>
@@ -83,12 +85,30 @@ export function FeedStatus({ rows }: { rows: InstrumentStatus[] }) {
               </p>
 
               <dl className="mt-2 space-y-0.5 text-[11px]" style={{ color: "var(--text-muted)" }}>
+                {/* Both lines, always, and always with an age beside them.
+                    They answer two different questions that look like one: the
+                    bar says whether the market is moving, the post says whether
+                    the bridge is still talking to us. During the eight hours
+                    ATAS stopped posting on 29 Aug these two would have
+                    disagreed, and only the second one would have said so. */}
                 <div className="flex justify-between gap-3">
                   <dt>แท่งล่าสุด</dt>
                   <dd>
-                    {row.last_bar_at ? shortTime(row.last_bar_at) : "–"}
-                    {row.bar_age_minutes !== null && row.bar_age_minutes > 60 &&
-                      ` (${Math.round(row.bar_age_minutes / 60)} ชม.ก่อน)`}
+                    {row.last_bar_at ? shortTime(row.last_bar_at) : "ยังไม่เคยมี"}
+                    {row.last_bar_at && ` · ${thaiAgo(row.bar_age_minutes)}`}
+                  </dd>
+                </div>
+                <div className="flex justify-between gap-3">
+                  <dt>ส่งเข้าล่าสุด</dt>
+                  <dd
+                    style={{
+                      color: row.quiet_minutes !== null && row.quiet_minutes > 30
+                        ? "#f59e0b"
+                        : undefined,
+                    }}
+                  >
+                    {row.last_ingest_at ? shortTime(row.last_ingest_at) : "ยังไม่เคยส่ง"}
+                    {row.last_ingest_at && ` · ${thaiAgo(row.quiet_minutes)}`}
                   </dd>
                 </div>
                 <div className="flex justify-between gap-3">
