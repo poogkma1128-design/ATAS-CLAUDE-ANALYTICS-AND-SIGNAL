@@ -14,6 +14,7 @@ import { evaluate as pocShift } from "./poc_shift.ts";
 import { evaluate as deltaFlip } from "./delta_flip.ts";
 import { evaluate as lvn } from "./lvn.ts";
 import { evaluate as nakedPoc } from "./naked_poc.ts";
+import { evaluate as speedOfTape } from "./speed_of_tape.ts";
 import { evaluators, runRules } from "./index.ts";
 
 const TICK = 0.25;
@@ -52,6 +53,7 @@ function history(count: number, shape: (i: number) => Partial<HistoryBar>): Hist
     close: 100,
     volume: 100,
     delta: 0,
+    ticks: 100,
     pocPrice: null,
     ...shape(i),
   }));
@@ -686,6 +688,119 @@ Deno.test("naked poc: a bar that reaches none of them is not a signal", () => {
   assertEquals(signals, []);
 });
 
+// --------------------------------------------------------------- speed of tape
+
+const tapeParams = { minRateRatio: 2, edgeShare: 0.3, rateHistory: 10 };
+
+/** Ten bars that each traded `ticks` times, so the median is exactly `ticks`. */
+function tapeHistory(ticks: number): HistoryBar[] {
+  return history(10, () => ({ ticks, volume: ticks }));
+}
+
+/** A bar with a given trade count, closing at `closeShare` of its 100-101 range. */
+function tapeBar(ticks: number, closeShare: number): BarInput {
+  return bar({
+    high: 101,
+    low: 100,
+    close: 100 + closeShare,
+    ticks,
+    volume: ticks,
+  });
+}
+
+Deno.test("speed of tape: a burst that closes at the high is a long", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: tapeBar(300, 1),
+    history: tapeHistory(100),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "long");
+  assertEquals(signals[0].payload.kind, "tape_burst_up");
+  assertEquals(signals[0].payload.trades, 300);
+  assertEquals(signals[0].payload.observedRatio, 3);
+});
+
+Deno.test("speed of tape: the same burst closing at the low is a short", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: tapeBar(300, 0),
+    history: tapeHistory(100),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "short");
+  assertEquals(signals[0].payload.kind, "tape_burst_down");
+});
+
+Deno.test("speed of tape: a burst that settles mid-range decides nothing", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: tapeBar(300, 0.5),
+    history: tapeHistory(100),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("speed of tape: an ordinary rate is not a burst", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: tapeBar(150, 1),
+    history: tapeHistory(100),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("speed of tape: too little history to know what normal is", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: tapeBar(300, 1),
+    history: history(4, () => ({ ticks: 100 })),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("speed of tape: bars with no trade count cannot set a baseline", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: tapeBar(300, 1),
+    // What every stored bar would look like if `trades` had been used instead
+    // of `ticks`: present, and zero.
+    history: history(10, () => ({ ticks: 0 })),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("speed of tape: average trade size is recorded, not filtered on", () => {
+  // Same burst, ten times the volume per trade. It must still fire, and the
+  // size must be on the payload for the outcomes table to judge later.
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: bar({ high: 101, low: 100, close: 101, ticks: 300, volume: 3000 }),
+    history: tapeHistory(100),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].payload.avgTradeSize, 10);
+  assertEquals(signals[0].payload.medianTradeSize, 1);
+  assertEquals(signals[0].payload.tradeSizeRatio, 10);
+});
+
+Deno.test("speed of tape: a zero-range bar has no end of range to close at", () => {
+  const signals = speedOfTape({
+    ...ctx([], tapeParams),
+    bar: bar({ high: 100, low: 100, close: 100, ticks: 300, volume: 300 }),
+    history: tapeHistory(100),
+  });
+
+  assertEquals(signals, []);
+});
+
 // ------------------------------------------------------------------ registry
 
 function ruleRow(key: string, overrides: Partial<RuleRow> = {}): RuleRow {
@@ -766,7 +881,7 @@ Deno.test("runRules: one throwing rule cannot take down the others", () => {
 });
 
 Deno.test("runRules: the rules added for prop trading are registered", () => {
-  for (const key of ["delta_flip", "lvn", "naked_poc"]) {
+  for (const key of ["delta_flip", "lvn", "naked_poc", "speed_of_tape"]) {
     assertEquals(typeof evaluators[key], "function", `${key} has no evaluator`);
   }
 

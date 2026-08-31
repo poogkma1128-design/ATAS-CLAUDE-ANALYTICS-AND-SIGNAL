@@ -184,6 +184,7 @@ export function simulate(
       close: stored.close,
       volume: stored.volume,
       delta: stored.delta,
+      ticks: stored.ticks,
       pocPrice: pointOfControl(levels)?.price ?? null,
     });
   }
