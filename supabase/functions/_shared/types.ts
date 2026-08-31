@@ -54,6 +54,12 @@ export interface HistoryBar {
   close: number;
   volume: number;
   delta: number;
+  /**
+   * Number of trades in the bar, which ATAS reports as `Ticks` per footprint
+   * level and the indicator sums. Not to be confused with `BarInput.trades`,
+   * which the indicator has never assigned and is 0 on every stored bar.
+   */
+  ticks: number;
   pocPrice: number | null;
 }
 

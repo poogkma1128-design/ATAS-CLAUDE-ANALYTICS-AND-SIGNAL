@@ -6,7 +6,7 @@ function history(volumes: number[]): HistoryBar[] {
   return volumes.map((volume, i) => ({
     openedAt: new Date(Date.UTC(2026, 7, 27, 10, i * 5)).toISOString(),
     open: 100, high: 101, low: 99, close: 100,
-    volume, delta: 0, pocPrice: 100,
+    volume, delta: 0, ticks: 100, pocPrice: 100,
   }));
 }
 

@@ -385,6 +385,7 @@ function asHistoryBar({ bar, pocPrice }: PreparedBar): HistoryBar {
     close: bar.close,
     volume: bar.volume ?? 0,
     delta: bar.delta ?? 0,
+    ticks: bar.ticks ?? 0,
     pocPrice,
   };
 }
@@ -397,7 +398,7 @@ async function loadHistory(
 ): Promise<HistoryBar[]> {
   const { data, error } = await supabase
     .from("bars")
-    .select("opened_at, open, high, low, close, volume, delta, poc_price")
+    .select("opened_at, open, high, low, close, volume, delta, ticks, poc_price")
     .eq("instrument_id", instrumentId)
     .eq("timeframe", timeframe)
     .eq("is_closed", true)
@@ -416,6 +417,7 @@ async function loadHistory(
     close: Number(row.close),
     volume: Number(row.volume),
     delta: Number(row.delta),
+    ticks: Number(row.ticks),
     pocPrice: row.poc_price === null ? null : Number(row.poc_price),
   }));
 }

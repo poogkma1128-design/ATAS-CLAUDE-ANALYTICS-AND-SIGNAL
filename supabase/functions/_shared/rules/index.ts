@@ -9,6 +9,7 @@ import { evaluate as pocShift } from "./poc_shift.ts";
 import { evaluate as deltaFlip } from "./delta_flip.ts";
 import { evaluate as lvn } from "./lvn.ts";
 import { evaluate as nakedPoc } from "./naked_poc.ts";
+import { evaluate as speedOfTape } from "./speed_of_tape.ts";
 
 /**
  * Registry of rule evaluators, keyed to match public.rules.key.
@@ -25,6 +26,7 @@ export const evaluators: Record<string, RuleEvaluator> = {
   delta_flip: deltaFlip,
   lvn: lvn,
   naked_poc: nakedPoc,
+  speed_of_tape: speedOfTape,
 };
 
 export interface EvaluatedSignal extends RuleSignal {

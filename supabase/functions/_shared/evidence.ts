@@ -40,6 +40,11 @@ export function describeEvidence(
       const age = `ทิ้งไว้ ${level?.ageBars ?? "?"} แท่ง`;
       return `แตะ POC ที่ไม่เคยถูกทดสอบ ${level?.price ?? "?"} · ${age} · เข้า${side}`;
     }
+    case "speed_of_tape": {
+      const side = payload.kind === "tape_burst_up" ? "ปิดบน" : "ปิดล่าง";
+      const rate = `เทรด ${payload.trades} ครั้ง = ${payload.observedRatio}× ปกติ`;
+      return `Tape เร่ง · ${rate} · ${side}สุดแท่ง`;
+    }
     default:
       return null;
   }
