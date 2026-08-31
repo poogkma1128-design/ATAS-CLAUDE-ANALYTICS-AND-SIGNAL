@@ -7,6 +7,7 @@ const LINKS = [
   { href: "/stats", label: "สถิติ" },
   { href: "/rules", label: "กฎ" },
   { href: "/experiments", label: "ทดลอง" },
+  { href: "/account", label: "บัญชี" },
 ];
 
 export function Nav({ current }: { current: string }) {
