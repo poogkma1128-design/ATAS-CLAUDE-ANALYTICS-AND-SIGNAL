@@ -36,6 +36,9 @@ function signal(overrides: Partial<SignalMessage> = {}): SignalMessage {
 function outcome(overrides: Partial<OutcomeMessage> = {}): OutcomeMessage {
   return {
     seq: 226,
+    symbol: "BTCUSDT",
+    timeframe: "5m",
+    direction: "long",
     replyToMessageId: 226,
     pnlTicks: 200,
     mfeTicks: 203,
@@ -101,4 +104,38 @@ Deno.test("telegram: an unnumbered signal still renders", () => {
   // Signals written before the sequence existed, and the null path generally.
   assertEquals(formatSignal(signal({ seq: null })).includes("#S"), false);
   assertEquals(formatOutcome(outcome({ seq: null })).includes("#S"), false);
+});
+
+/**
+ * The reply is the message that gets read; the alert above it is one truncated
+ * line. Both therefore have to name the instrument themselves, and name it
+ * early enough to survive that truncation.
+ */
+Deno.test("telegram: the alert names the instrument before the setup", () => {
+  const text = formatSignal(signal());
+  const firstLine = text.split("\n")[0];
+
+  assertStringIncludes(firstLine, "BTCUSDT");
+  assertStringIncludes(firstLine, "LONG");
+  // The rule name is the part that may be cut off, so it must not come first.
+  assertEquals(firstLine.includes("Absorption at Level"), false);
+});
+
+Deno.test("telegram: the result names the instrument too", () => {
+  const firstLine = formatOutcome(outcome()).split("\n")[0];
+
+  assertStringIncludes(firstLine, "BTCUSDT");
+  assertStringIncludes(firstLine, "5m");
+  assertStringIncludes(firstLine, "LONG");
+});
+
+Deno.test("telegram: an outcome with no instrument omits it rather than guessing", () => {
+  const text = formatOutcome(
+    outcome({ symbol: null, timeframe: null, direction: null }),
+  );
+
+  assertEquals(text.includes("null"), false);
+  assertEquals(text.includes("undefined"), false);
+  // The numbers still arrive; only the label is missing.
+  assertStringIncludes(text, "หลังจบ 1 แท่ง");
 });
