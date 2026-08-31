@@ -6,6 +6,9 @@ import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 import { evaluate as deltaDivergence } from "./delta_divergence.ts";
 import { evaluate as absorption } from "./absorption.ts";
 import { evaluate as pocShift } from "./poc_shift.ts";
+import { evaluate as deltaFlip } from "./delta_flip.ts";
+import { evaluate as lvn } from "./lvn.ts";
+import { evaluate as nakedPoc } from "./naked_poc.ts";
 
 /**
  * Registry of rule evaluators, keyed to match public.rules.key.
@@ -19,6 +22,9 @@ export const evaluators: Record<string, RuleEvaluator> = {
   delta_divergence: deltaDivergence,
   absorption: absorption,
   poc_shift: pocShift,
+  delta_flip: deltaFlip,
+  lvn: lvn,
+  naked_poc: nakedPoc,
 };
 
 export interface EvaluatedSignal extends RuleSignal {

@@ -11,6 +11,9 @@ import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 import { evaluate as deltaDivergence } from "./delta_divergence.ts";
 import { evaluate as absorption } from "./absorption.ts";
 import { evaluate as pocShift } from "./poc_shift.ts";
+import { evaluate as deltaFlip } from "./delta_flip.ts";
+import { evaluate as lvn } from "./lvn.ts";
+import { evaluate as nakedPoc } from "./naked_poc.ts";
 import { evaluators, runRules } from "./index.ts";
 
 const TICK = 0.25;
@@ -354,6 +357,335 @@ Deno.test("poc shift: missing historical POCs are not guessed at", () => {
   assertEquals(signals, []);
 });
 
+// ------------------------------------------------------------------ delta flip
+
+const flipParams = {
+  runBars: 3,
+  minDeltaMagnitude: 200,
+  minRunDelta: 0,
+  levelShare: 0.25,
+  levelLookback: 20,
+};
+
+/** Five bars, the last three pressing `runDelta`, one of them holding a POC. */
+function flipHistory(runDelta: number, pocPrice: number | null): HistoryBar[] {
+  return history(5, (i) => ({
+    delta: i >= 2 ? runDelta : 0,
+    pocPrice: i === 2 ? pocPrice : null,
+  }));
+}
+
+/** A bar whose low is 99.5 and high 100.5, so the level tolerance is 0.25. */
+function flipBar(delta: number, close: number): BarInput {
+  return bar({ high: 100.5, low: 99.5, close, delta });
+}
+
+Deno.test("delta flip: sellers press, buyers take it back on an old POC", () => {
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(250, 100.4),
+    history: flipHistory(-300, 99.6),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "long");
+  assertEquals(signals[0].payload.kind, "delta_flip_up");
+  assertEquals((signals[0].payload.level as { price: number }).price, 99.6);
+  assertEquals((signals[0].payload.level as { ageBars: number }).ageBars, 3);
+});
+
+Deno.test("delta flip: the mirror case is a short off the high", () => {
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(-250, 99.6),
+    history: flipHistory(300, 100.4),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "short");
+  assertEquals(signals[0].payload.kind, "delta_flip_down");
+});
+
+Deno.test("delta flip: a flip away from every old POC is not a signal", () => {
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(250, 100.4),
+    // 1.5 away from the low, where the tolerance is a quarter of the bar's range.
+    history: flipHistory(-300, 98.0),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("delta flip: history with no POC on record cannot place the flip", () => {
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(250, 100.4),
+    history: flipHistory(-300, null),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("delta flip: one bar the other way breaks the run", () => {
+  const broken = history(5, (i) => ({
+    delta: [0, 0, -300, 50, -300][i],
+    pocPrice: i === 2 ? 99.6 : null,
+  }));
+
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(250, 100.4),
+    history: broken,
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("delta flip: a bar with no delta at all breaks the run too", () => {
+  const flat = history(5, (i) => ({
+    delta: [0, 0, -300, 0, -300][i],
+    pocPrice: i === 2 ? 99.6 : null,
+  }));
+
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(250, 100.4),
+    history: flat,
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("delta flip: a flip under the delta threshold is not one", () => {
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(150, 100.4),
+    history: flipHistory(-300, 99.6),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("delta flip: too little history to see a run means no signal", () => {
+  const signals = deltaFlip({
+    ...ctx([], flipParams),
+    bar: flipBar(250, 100.4),
+    history: history(2, () => ({ delta: -300, pocPrice: 99.6 })),
+  });
+
+  assertEquals(signals, []);
+});
+
+// ------------------------------------------------------------------------ lvn
+
+const lvnParams = { maxShare: 0.25, interiorShare: 0.8, minLevels: 8 };
+
+/** A level of a given total volume, split evenly, since lvn reads volume only. */
+function vol(price: number, volume: number): ClusterLevel {
+  return level(price, volume / 2, volume / 2);
+}
+
+Deno.test("lvn: volume below the hole, close above it, is a long", () => {
+  const levels = [
+    vol(100.00, 20),
+    vol(100.25, 100),
+    vol(100.50, 200), // POC
+    vol(100.75, 120),
+    vol(101.00, 4), // the hole
+    vol(101.25, 60),
+    vol(101.50, 50),
+    vol(101.75, 10),
+  ];
+
+  const signals = lvn({
+    ...ctx(levels, lvnParams),
+    bar: bar({ high: 101.75, low: 100.00, close: 101.50, levels }),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "long");
+  assertEquals(signals[0].payload.kind, "lvn_break_up");
+  assertEquals((signals[0].payload.level as { price: number }).price, 101.00);
+  assertEquals((signals[0].payload.poc as { price: number }).price, 100.50);
+});
+
+Deno.test("lvn: volume above the hole, close below it, is a short", () => {
+  const levels = [
+    vol(100.00, 15),
+    vol(100.25, 50),
+    vol(100.50, 60),
+    vol(100.75, 5), // the hole
+    vol(101.00, 130),
+    vol(101.25, 200), // POC
+    vol(101.50, 100),
+    vol(101.75, 20),
+  ];
+
+  const signals = lvn({
+    ...ctx(levels, lvnParams),
+    bar: bar({ high: 101.75, low: 100.00, close: 100.25, levels }),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "short");
+  assertEquals((signals[0].payload.level as { price: number }).price, 100.75);
+});
+
+Deno.test("lvn: a close still on the volume's side of the hole says nothing", () => {
+  const levels = [
+    vol(100.00, 20),
+    vol(100.25, 100),
+    vol(100.50, 200),
+    vol(100.75, 120),
+    vol(101.00, 4),
+    vol(101.25, 60),
+    vol(101.50, 50),
+    vol(101.75, 10),
+  ];
+
+  const signals = lvn({
+    ...ctx(levels, lvnParams),
+    bar: bar({ high: 101.75, low: 100.00, close: 100.75, levels }),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("lvn: the thin ends of a bar are not holes in its profile", () => {
+  const levels = [
+    vol(100.00, 2), // thinnest of the whole bar, and its own extreme
+    vol(100.25, 100),
+    vol(100.50, 200),
+    vol(100.75, 120),
+    vol(101.00, 90),
+    vol(101.25, 60),
+    vol(101.50, 80),
+    vol(101.75, 8),
+  ];
+
+  const signals = lvn({
+    ...ctx(levels, lvnParams),
+    bar: bar({ high: 101.75, low: 100.00, close: 101.50, levels }),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("lvn: a hole that is not empty enough is left alone", () => {
+  const levels = [
+    vol(100.00, 20),
+    vol(100.25, 100),
+    vol(100.50, 200),
+    vol(100.75, 120),
+    vol(101.00, 40), // above a quarter of the average level
+    vol(101.25, 60),
+    vol(101.50, 50),
+    vol(101.75, 10),
+  ];
+
+  const signals = lvn({
+    ...ctx(levels, lvnParams),
+    bar: bar({ high: 101.75, low: 100.00, close: 101.50, levels }),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("lvn: a profile too small to have a shape is skipped", () => {
+  const levels = [vol(100.00, 20), vol(100.25, 100), vol(100.50, 2), vol(100.75, 90)];
+
+  const signals = lvn({
+    ...ctx(levels, lvnParams),
+    bar: bar({ high: 100.75, low: 100.00, close: 100.75, levels }),
+  });
+
+  assertEquals(signals, []);
+});
+
+// ------------------------------------------------------------------ naked poc
+
+const nakedParams = { lookbackBars: 40, minAgeBars: 5 };
+
+/** Ten bars that all traded 99.5-100.5 and closed at 100. */
+function nakedHistory(pocs: Record<number, number>): HistoryBar[] {
+  return history(10, (i) => ({
+    high: 100.5,
+    low: 99.5,
+    close: 100,
+    pocPrice: pocs[i] ?? null,
+  }));
+}
+
+Deno.test("naked poc: the first trade up into an untested POC is a short", () => {
+  const signals = nakedPoc({
+    ...ctx([], nakedParams),
+    bar: bar({ high: 102.2, low: 100.0, close: 101.8 }),
+    history: nakedHistory({ 0: 102 }),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "short");
+  assertEquals(signals[0].payload.kind, "naked_poc_from_below");
+  assertEquals((signals[0].payload.level as { price: number }).price, 102);
+  assertEquals((signals[0].payload.level as { ageBars: number }).ageBars, 10);
+});
+
+Deno.test("naked poc: reached from above, the same level is support", () => {
+  const signals = nakedPoc({
+    ...ctx([], nakedParams),
+    bar: bar({ high: 100.2, low: 97.9, close: 98.3 }),
+    history: nakedHistory({ 0: 98 }),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].direction, "long");
+  assertEquals(signals[0].payload.kind, "naked_poc_from_above");
+});
+
+Deno.test("naked poc: a POC later bars traded through is not naked", () => {
+  const signals = nakedPoc({
+    ...ctx([], nakedParams),
+    // 100.2 sits inside every later bar's 99.5-100.5 range.
+    bar: bar({ high: 100.6, low: 99.8, close: 100.5 }),
+    history: nakedHistory({ 0: 100.2 }),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("naked poc: a POC from two bars ago has not been left alone yet", () => {
+  const signals = nakedPoc({
+    ...ctx([], nakedParams),
+    bar: bar({ high: 102.2, low: 100.0, close: 101.8 }),
+    history: nakedHistory({ 8: 102 }),
+  });
+
+  assertEquals(signals, []);
+});
+
+Deno.test("naked poc: reaching several at once, the deepest is the test", () => {
+  const signals = nakedPoc({
+    ...ctx([], nakedParams),
+    bar: bar({ high: 102.2, low: 100.0, close: 101.0 }),
+    history: nakedHistory({ 0: 102, 2: 101 }),
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].payload.reachedThisBar, 2);
+  assertEquals((signals[0].payload.level as { price: number }).price, 102);
+});
+
+Deno.test("naked poc: a bar that reaches none of them is not a signal", () => {
+  const signals = nakedPoc({
+    ...ctx([], nakedParams),
+    bar: bar({ high: 100.6, low: 99.4, close: 100.1 }),
+    history: nakedHistory({ 0: 102 }),
+  });
+
+  assertEquals(signals, []);
+});
+
 // ------------------------------------------------------------------ registry
 
 function ruleRow(key: string, overrides: Partial<RuleRow> = {}): RuleRow {
@@ -431,6 +763,25 @@ Deno.test("runRules: one throwing rule cannot take down the others", () => {
   } finally {
     delete evaluators.boom;
   }
+});
+
+Deno.test("runRules: the rules added for prop trading are registered", () => {
+  for (const key of ["delta_flip", "lvn", "naked_poc"]) {
+    assertEquals(typeof evaluators[key], "function", `${key} has no evaluator`);
+  }
+
+  // End to end through the registry rather than by calling the evaluator, so a
+  // rule that exists but was never wired into the table fails here.
+  const signals = runRules([ruleRow("naked_poc", { params: nakedParams })], {
+    bar: bar({ high: 102.2, low: 100.0, close: 101.8 }),
+    levels: [],
+    history: nakedHistory({ 0: 102 }),
+    tickSize: TICK,
+  });
+
+  assertEquals(signals.length, 1);
+  assertEquals(signals[0].ruleKey, "naked_poc");
+  assertEquals(signals[0].direction, "short");
 });
 
 Deno.test("runRules: tags each signal with the rule that produced it", () => {
