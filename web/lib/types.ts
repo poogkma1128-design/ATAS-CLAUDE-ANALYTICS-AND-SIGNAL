@@ -1,5 +1,38 @@
 export type Direction = "long" | "short";
 
+/**
+ * Every column the signal feed renders, in one place.
+ *
+ * It lives here, beside the row type it produces, for two separate reasons —
+ * and the second one cost a production outage.
+ *
+ * One literal, because two lists drift. The feed's realtime path and the page
+ * that server-renders the first hundred rows once kept their own copies, and
+ * the page's copy omitted the plan columns: `stop_price` arrived as undefined,
+ * the `!== null` guard let it through (undefined !== null is true), and every
+ * row on first load read "SL 0 · TP 0" — a stop of zero on a real trade.
+ *
+ * In a plain module, because the first fix put it in SignalFeed.tsx and
+ * imported it from the page. SignalFeed is a "use client" module, and a server
+ * component importing from one gets client-reference proxies rather than the
+ * values themselves. `.select()` was handed a proxy, postgrest-js called
+ * `.split(",")` on it, and every request to `/` answered 500:
+ *
+ *     TypeError: (intermediate value).split is not a function
+ *         at V.select (.next/server/chunks/501.js)
+ *         at l (.next/server/app/page.js)
+ *
+ * It builds, it typechecks, and it fails on every request — the type of a
+ * client export is the type of the value, so nothing before runtime says a
+ * word. Anything a server component and a client component both need belongs
+ * in a module that declares neither.
+ *
+ * supabase-js also infers the row type from a single string literal, so this
+ * cannot be assembled by concatenation (HANDOFF 3.6).
+ */
+export const SIGNAL_SELECT =
+  "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, exit_reason, bars_used)";
+
 export interface SignalRow {
   id: string;
   fired_at: string;
