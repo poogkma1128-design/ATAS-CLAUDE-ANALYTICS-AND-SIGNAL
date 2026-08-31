@@ -9,7 +9,7 @@
 
 **ทุกอย่างที่สั่งไว้ทำเสร็จและขึ้น production แล้ว** ไม่มีงานค้างกลางทาง
 
-**เปลี่ยนล่าสุด (migration 0027 — ยังไม่ deploy `ingest`, ดูข้อ 7.4):**
+**เปลี่ยนล่าสุด (migration 0027 + `ingest` v13 + `backtest` v4 — deploy แล้ว 2026-08-31):**
 **เพิ่มกฎ 3 ตัวจากลิสต์ prop trading ที่ต่อยอดจาก engine เดิมได้ทั้งหมด** —
 `delta_flip` · `lvn` · `naked_poc` ทั้งสามอ่านข้อมูลที่มีอยู่แล้ว ไม่มี column ใหม่
 ไม่แตะ indicator ไม่แตะ ingest **และทั้งสามตัวยิงเข้า `public.signals` แต่ไม่ส่ง Telegram**
@@ -125,8 +125,8 @@ ATAS (Windows)
 |---|---|
 | Supabase project ref | `sckdriuwfyittcybnbhz` |
 | Ingest endpoint | `https://sckdriuwfyittcybnbhz.supabase.co/functions/v1/ingest` |
-| Edge function `ingest` | **version 12, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) — v12 แก้สัญญาณส่งซ้ำ ดูข้อ 3.16 |
-| Edge function `backtest` | **version 3, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN หรือ runner token) — v3 เพิ่ม drawdown + นับไม้ที่ไม่ได้เข้า |
+| Edge function `ingest` | **version 13, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN เอง) — v13 เพิ่ม evaluator ของกฎใหม่ 3 ตัว (ข้อ 5.15) · v12 แก้สัญญาณส่งซ้ำ ดูข้อ 3.16 |
+| Edge function `backtest` | **version 4, ACTIVE** (`verify_jwt: false` — auth ด้วย INGEST_TOKEN หรือ runner token) — v4 เพิ่ม evaluator ชุดเดียวกัน · v3 เพิ่ม drawdown + นับไม้ที่ไม่ได้เข้า |
 | Edge function `feed-watch` | **version 1, ACTIVE** (`verify_jwt: false`) — เตือนเมื่อชาร์ตหยุดส่ง/กลับมาส่ง เรียกโดย pg_cron ทุก 5 นาที |
 | Edge function `outcome-notify` | **version 5, ACTIVE** — โค้ดตรงกับ repo แล้ว (ดูข้อ 7.3) |
 | Dashboard | `https://atas-signal-board.vercel.app` |
@@ -1073,6 +1073,33 @@ POC รายวันจริงต้องรวม volume ต่อ session
 **ต้องไม่ยิง** — run ที่ถูกแท่ง delta 0 ตัดขาด · รูที่อยู่ปลายแท่ง · POC ที่เคยถูก retest แล้ว ·
 POC ที่ยังใหม่เกินไป
 
+#### ตัวเลขชุดแรก (experiment `deploy check 0027` · 2026-08-31 · **อ่านเป็นสัญญาณชีพ ไม่ใช่ผลตัดสิน**)
+
+รันด้วยตัวรันจริงบนบาร์ 400 แท่งล่าสุดต่อ instrument (BTCUSDT · GC · MNQU6 · NQU6,
+ช่วง 28–31 ส.ค.) จุดประสงค์คือ**พิสูจน์ว่า evaluator ที่ deploy ไปทำงาน** ไม่ใช่เพื่อตัดสินกฎ
+
+| กฎ | ทิศ | ไม้ | WR | R รวม | R/ไม้ | DD |
+|---|---|---|---|---|---|---|
+| `delta_flip` | long | 8 | 75.0% | +2.37 | 0.296 | 1.00 |
+| `delta_flip` | short | 7 | 71.4% | +2.36 | 0.337 | 2.00 |
+| `lvn` | long | 54 | 59.3% | +12.84 | 0.238 | 3.12 |
+| `lvn` | short | 71 | 59.2% | +5.82 | 0.082 | 8.40 |
+| `naked_poc` | long | 43 | 48.8% | +12.85 | 0.299 | 5.00 |
+| `naked_poc` | short | 31 | 54.8% | +12.66 | 0.408 | 5.99 |
+
+**ห้ามใช้ตารางนี้ตัดสินใจอะไรทั้งสิ้น** เหตุผลตรง ๆ: เป็นเซสชันเดียว · `delta_flip` มี 15 ไม้
+ทั้งกฎซึ่งไม่พอแม้แต่จะดูว่าเอียงข้างไหน (ข้อห้าม #11 — ยังไม่ผ่าน `setup_stability`) ·
+ยังไม่ได้แยกดูราย instrument ว่ามีตัวไหนแย่ลงไหม (ข้อห้าม #18) · และตัวเลขพวกนี้มาจาก
+**บาร์ที่กฎไม่เคยเห็นตอนออกแบบก็จริง แต่คนออกแบบเห็น** — forward test ตามข้อ 5.12
+คือตัวที่จะตอบจริง เมื่อสัญญาณสดเริ่มสะสม
+
+สิ่งที่ตารางนี้**ตอบได้จริงข้อเดียว**: ทั้งสามกฎยิง ไม่พัง ไม่ยิงรัวจนน่าตกใจ และไม่เงียบสนิท
+`lvn` ยิงถี่สุด (125 ไม้) ซึ่งเป็นตัวที่ต้องจับตาว่าจะกลายเป็น noise หรือเปล่า
+
+**อีกอย่างที่ run นี้พิสูจน์:** variant `naked_poc minAge 10` ขยับ**เฉพาะแถวของ `naked_poc`**
+(long 43→28 · short 31→15) ส่วนกฎเดิมทั้งสี่ตัวเลขนิ่งสนิททุกแถว — แปลว่า params ของกฎใหม่
+ต่อสายถูกจริง และของเดิมไม่ถูกกระทบ
+
 ---
 
 ---
@@ -1142,7 +1169,7 @@ POC ที่ยังใหม่เกินไป
 | F | ตัดสินชะตา MNQU6 | รอ MNQ อีก 2 เซสชัน (ข้อ 5.8) |
 | G | **วัด pullback entry** | ✅ **เสร็จแล้ว** — วัดครบ 8 แบบ **ผลคือไม่รับ** (ข้อ 5.13) |
 | H | **deploy `backtest` ให้ drawdown ทำงานจริง** | ✅ **เสร็จแล้ว** — v3, `max_drawdown_r` ไม่เป็น null แล้ว |
-| I | **deploy `ingest` + `backtest` ให้กฎใหม่ 3 ตัวทำงาน** | ⏳ **ค้างอยู่** — migration 0027 insert แถวแล้ว แต่ evaluator อยู่ในโค้ดที่ยังไม่ได้ deploy จนกว่าจะ deploy กฎจะถูกข้ามเงียบ ๆ (ไม่ error — ดู `rules/index.ts`) วิธี deploy อยู่ในข้อ 7.4 |
+| I | **deploy `ingest` + `backtest` ให้กฎใหม่ 3 ตัวทำงาน** | ✅ **เสร็จแล้ว** 2026-08-31 — migration 0027 รันแล้ว · `ingest` v13 · `backtest` v4 · ตรวจครบ 3 ชั้นตามข้อ 7.4 |
 | J | **ตัดสินว่ากฎใหม่ตัวไหนควรเปิดเสียง** | รอข้อมูล — เกณฑ์และวิธีดูอยู่ในข้อ 8.5 |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
@@ -1195,12 +1222,34 @@ _shared/rules/{index,stacked_imbalance,delta_divergence,absorption,poc_shift}.ts
 
 `verify_jwt: false` ทั้งคู่ (เช็ก `INGEST_TOKEN` เอง)
 
+**อัปเดต 2026-08-31 — `ingest` v13 / `backtest` v4 (กฎใหม่ 3 ตัว):**
+
+จำนวนไฟล์เปลี่ยนแล้ว **`ingest` เป็น 19 ไฟล์** (เพิ่ม `rules/{delta_flip,lvn,naked_poc}.ts`)
+และ **`backtest` เป็น 15 ไฟล์** = `backtest/index.ts` · `_shared/{backtest,types,util,liquidity,plan,price_action}.ts` ·
+`_shared/rules/` ครบ 7 กฎ + `index.ts`
+**`backtest` ไม่มี `telegram.ts` / `evidence.ts` / `outcomes.ts` / `ingest.ts` และห้ามมี** —
+นั่นคือรูปธรรมของข้อห้าม #15 ตัวรันการทดลองแยกจากทาง Telegram ด้วย*สิ่งที่มันโหลด* ไม่ใช่ด้วย flag
+
+⚠️ **ข้อควรรู้: source ที่ deploy ไม่เท่ากับ repo แบบตัวต่อตัว** MCP รับไฟล์ทั้งชุดในคำสั่งเดียว
+ซึ่งใหญ่เกินกว่าจะใส่คอมเมนต์ยาว ๆ ครบ **โค้ดที่รันเหมือนกันทุกบรรทัด แต่คอมเมนต์อธิบาย
+ในไฟล์ `_shared/` ถูกย่อ** ตอน upload — เหตุผลเชิงลึก (ตาราง measurement ใน `plan.ts`,
+`liquidity.ts`, ที่มาของ 0.30) อยู่ครบใน repo เท่านั้น **repo คือ source of truth เสมอ**
+ถ้าจะให้ตรงกันเป๊ะต้อง upload ใหม่ด้วยไฟล์เต็มทีละ function
+
+**บทเรียนจากรอบนี้:** upload ไฟล์ไม่ครบ → bundler ตอบ `Module not found` **และ deploy ไม่ติดเลย**
+(v12 ยังอยู่เหมือนเดิม) การอัปโหลดเป็น atomic ดังนั้นความผิดพลาดแบบนี้ปลอดภัย ไม่ทำของพัง
+
 **ตรวจว่า deploy ติดจริง 3 ชั้น:**
 
 1. ยิง token มั่ว → ต้องได้ `401 {"error":"unauthorized"}` (bundle พังจะได้ boot error ไม่ใช่ 401)
 2. ยิง `GET` → ต้องได้ `405` (พิสูจน์ว่า handler ทำงาน ไม่ได้ตายตอน import)
 3. **ของจริง** — `select error, received_at from ingest_log order by received_at desc limit 5`
    ต้องเป็น `null` หมดหลังเวลาที่ deploy · **นี่คือชั้นเดียวที่พิสูจน์ว่าเส้นทางสดยังทำงาน**
+
+**ผลตรวจรอบ 2026-08-31 (v13 ขึ้น 09:10:31Z · v4 ขึ้น 09:16:18Z):** ชั้น 1 ได้ 405 · ชั้น 2 ได้ 401 ·
+ชั้น 3 GC/NQU6/MNQU6 ยิงเข้าที่ 09:15 และ 09:20 **`error` เป็น null ทุกแถว**
+เพิ่มอีกชั้นที่ทำได้เพราะมีตัวรัน: สั่ง backtest จาก SQL แล้ว **กฎใหม่ทั้งสามมีไม้จริง**
+(ดูตัวเลขในข้อ 5.15) — ชั้นนี้พิสูจน์ว่า evaluator ที่ deploy ไปทำงาน ไม่ใช่แค่ import ผ่าน
 
 ---
 
