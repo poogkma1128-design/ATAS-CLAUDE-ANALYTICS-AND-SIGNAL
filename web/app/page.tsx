@@ -1,8 +1,8 @@
 import { createClient } from "@/lib/supabase/server";
 import { Nav } from "@/components/Nav";
-import { SignalFeed, SIGNAL_SELECT } from "@/components/SignalFeed";
+import { SignalFeed } from "@/components/SignalFeed";
 import { FeedStatus, type InstrumentStatus } from "@/components/FeedStatus";
-import type { RuleRow, SignalRow } from "@/lib/types";
+import { SIGNAL_SELECT, type RuleRow, type SignalRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
 
