@@ -4,24 +4,9 @@ import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { num, percent, shortTime } from "@/lib/format";
-import type { Direction, SignalRow } from "@/lib/types";
+import { SIGNAL_SELECT, type Direction, type SignalRow } from "@/lib/types";
 import { DirectionTag } from "./DirectionTag";
 import { OutcomeTag } from "./OutcomeTag";
-
-/**
- * Every column this feed renders, in one place.
- *
- * Exported because the page that server-renders the first hundred rows has to
- * ask for exactly the same set. It did not: the page's own list omitted the
- * plan columns, so `stop_price` arrived as undefined, the `!== null` guard let
- * it through, and every row on first load read "SL 0 · TP 0" — a stop of zero
- * on a real trade — until a realtime update replaced it with the full row.
- *
- * One literal, one importer. supabase-js also infers the row type from a single
- * string literal, so this cannot be built by concatenation (HANDOFF 3.6).
- */
-export const SIGNAL_SELECT =
-  "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, exit_reason, bars_used)";
 
 interface Props {
   initial: SignalRow[];

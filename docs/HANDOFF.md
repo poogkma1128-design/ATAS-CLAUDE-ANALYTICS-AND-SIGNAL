@@ -275,6 +275,40 @@ git log -1 --abbrev=7 --format=%h -- atas-indicator
 
 ⚠️ ต้องคง select ไว้เป็น **literal เดียว** ห้ามต่อ string (ข้อ 3.6)
 
+#### ภาคสอง — ที่แก้ครั้งแรกทำหน้าแรกพัง 500 ทุก request
+
+การแก้รอบแรกเอา `SIGNAL_SELECT` ไปไว้ใน `SignalFeed.tsx` แล้วให้ `app/page.tsx` import มาใช้
+**แต่ `SignalFeed.tsx` เป็น `"use client"`** — server component ที่ import จาก client module
+จะไม่ได้ค่าจริง แต่ได้ **client-reference proxy** แทน
+
+ผลคือ `.select(proxy)` แล้ว postgrest-js เรียก `.split(",")` บน object:
+
+```
+TypeError: (intermediate value).split is not a function
+    at V.select (.next/server/chunks/501.js)
+    at l (.next/server/app/page.js)     digest: 3299342594
+```
+
+**`next build` ผ่าน · typecheck ผ่าน · แล้วพังทุก request** — เพราะ TypeScript มองว่า type ของ
+export จาก client module คือ type ของค่านั้น ไม่มีอะไรเตือนก่อน runtime เลย
+และหน้าแรกคือหน้าเดียวที่ยิง query นี้ฝั่ง server จึงพังเฉพาะ `/` ส่วน `/login` ปกติ
+ทำให้เช็กจากภายนอกแบบไม่ล็อกอินไม่เจอ (`/` → 307 → `/login` → 200 ดูปกติทุกอย่าง)
+
+**ทางแก้:** ย้าย `SIGNAL_SELECT` ไป `lib/types.ts` ซึ่งเป็น module ธรรมดา ไม่ประกาศฝั่งไหนเลย
+วางไว้ติดกับ `SignalRow` ที่มันผลิตออกมา — ได้ทั้ง "literal เดียว" และ "ข้ามเส้น client/server ได้"
+
+**กฎที่ได้มา:** *อะไรก็ตามที่ทั้ง server component และ client component ต้องใช้ ต้องอยู่ใน module
+ที่ไม่ประกาศ `"use client"`* — ตรวจแล้ว `SIGNAL_SELECT` เป็นตัวเดียวในโปรเจกต์ที่เคยข้ามเส้นแบบนี้
+(ที่เหลือ import จาก client module เป็น component หรือ `type` ซึ่งปลอดภัยทั้งคู่)
+
+**วิธีตรวจว่าแก้ติดจริง** (ไม่ต้องล็อกอิน): นับชื่อ export ใน server bundle —
+proxy จะเก็บชื่อไว้เป็น string
+
+```bash
+grep -o "SIGNAL_SELECT" web/.next/server/app/page.js | wc -l
+# ตอนพัง = 6 (คือ proxy registration) · ตอนแก้แล้ว = 0
+```
+
 ---
 
 ### 3.15 หน้าเว็บพังแล้วไม่บอกอะไรเลย — ไม่มี error boundary มาตลอด
