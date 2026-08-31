@@ -5,18 +5,29 @@ import { createClient } from "@/lib/supabase/client";
 import { BuildTag } from "@/components/BuildTag";
 
 /**
- * Sign-in offers two ways through on purpose.
+ * Sign-in, with a password first and the emailed code kept as the way back in.
  *
- * The emailed link is the convenient one, but it breaks in ways that are
- * invisible from here: it only works in the browser that asked for it, and it
- * only reaches this site if the deployment's URL is on the Supabase redirect
- * allow-list. The six digit code in the same email has neither constraint, so
- * it stays as the way in that always works.
+ * The emailed link came first and was the wrong default for one person signing
+ * in from a phone: it only works in the browser that asked for it, and it only
+ * reaches this site if the deployment's URL is on the Supabase redirect
+ * allow-list — which a preview URL never is, since it changes with the branch.
+ * Both failures look identical from here, and neither is the reader's fault.
+ *
+ * A password has neither constraint. It is typed into this page, it works on
+ * any device and any deployment, and the phone's keychain fills it in. The
+ * six-digit code stays because the password has to be set once before it
+ * exists, and because a forgotten password would otherwise lock the account
+ * out entirely. The emailed link is gone: it was never the reliable path, and
+ * offering three ways in made the working one harder to find.
  */
+type Mode = "password" | "code";
+
 export default function LoginPage() {
+  const [mode, setMode] = useState<Mode>("password");
   const [email, setEmail] = useState("");
+  const [password, setPassword] = useState("");
   const [code, setCode] = useState("");
-  const [stage, setStage] = useState<"form" | "sent">("form");
+  const [codeSent, setCodeSent] = useState(false);
   const [busy, setBusy] = useState(false);
   const [problem, setProblem] = useState("");
   const [next, setNext] = useState("/");
@@ -27,25 +38,59 @@ export default function LoginPage() {
     const params = new URLSearchParams(window.location.search);
     setNext(params.get("next") ?? "/");
 
-    // A rejected link comes back as a query from our own callback route, or as
-    // a URL fragment when Supabase bounced it before it ever reached us.
     const hash = new URLSearchParams(window.location.hash.slice(1));
     const reason = params.get("error") ?? hash.get("error_code") ?? hash.get("error");
-    if (reason) setProblem(explain(reason, params.get("detail") ?? hash.get("error_description")));
+    if (reason) {
+      setProblem(
+        params.get("detail") ?? hash.get("error_description") ??
+          `เข้าสู่ระบบไม่สำเร็จ (${reason})`,
+      );
+    }
   }, []);
 
-  async function sendLink(event: React.FormEvent) {
+  /** A full navigation, not a client-side push: the session lives in a cookie
+   *  that the middleware has to see before it will let the page through. */
+  function enter() {
+    window.location.assign(next);
+  }
+
+  async function signInWithPassword(event: React.FormEvent) {
     event.preventDefault();
     setBusy(true);
     setProblem("");
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
+    const { error } = await createClient().auth.signInWithPassword({
       email,
-      options: {
-        emailRedirectTo:
-          `${window.location.origin}/auth/callback?next=${encodeURIComponent(next)}`,
-      },
+      password,
+    });
+
+    setBusy(false);
+    if (error) {
+      // Supabase answers a wrong password and an account with no password set
+      // with the same message, and on this dashboard the second is far more
+      // likely — so the way out of it is named rather than left to be guessed.
+      setProblem(
+        error.message.toLowerCase().includes("invalid login credentials")
+          ? "อีเมลหรือรหัสผ่านไม่ถูกต้อง — ถ้ายังไม่เคยตั้งรหัสผ่าน " +
+            "ให้กด “ใช้รหัสจากอีเมลแทน” ข้างล่าง แล้วไปตั้งที่หน้า “บัญชี”"
+          : error.message,
+      );
+      return;
+    }
+    enter();
+  }
+
+  async function sendCode(event: React.FormEvent) {
+    event.preventDefault();
+    setBusy(true);
+    setProblem("");
+
+    // shouldCreateUser stays off: this dashboard has one account, and a typo in
+    // the address would otherwise quietly make a second one that can see
+    // nothing, which reads as "the code never arrived".
+    const { error } = await createClient().auth.signInWithOtp({
+      email,
+      options: { shouldCreateUser: false },
     });
 
     setBusy(false);
@@ -53,7 +98,7 @@ export default function LoginPage() {
       setProblem(error.message);
       return;
     }
-    setStage("sent");
+    setCodeSent(true);
   }
 
   async function verifyCode(event: React.FormEvent) {
@@ -61,8 +106,7 @@ export default function LoginPage() {
     setBusy(true);
     setProblem("");
 
-    const supabase = createClient();
-    const { error } = await supabase.auth.verifyOtp({
+    const { error } = await createClient().auth.verifyOtp({
       email,
       token: code.trim(),
       type: "email",
@@ -72,97 +116,160 @@ export default function LoginPage() {
       setBusy(false);
       setProblem(
         error.message.toLowerCase().includes("expired")
-          ? "รหัสหมดอายุหรือไม่ถูกต้อง — กด “ส่งอีกครั้ง” เพื่อขอรหัสใหม่"
+          ? "รหัสหมดอายุหรือไม่ถูกต้อง — กด “ส่งรหัสอีกครั้ง” เพื่อขอรหัสใหม่"
           : error.message,
       );
       return;
     }
-
-    // A full navigation, not a client-side push: the session lives in a cookie
-    // that the middleware has to see before it will let the page through.
-    window.location.assign(next);
+    enter();
   }
+
+  const field =
+    "w-full rounded-md border px-3 py-2 text-sm hairline bg-transparent";
+  const primary =
+    "w-full rounded-md px-3 py-2 text-sm font-medium text-white disabled:opacity-60";
 
   return (
     <main className="min-h-screen grid place-items-center px-6">
       <div className="card w-full max-w-sm p-6">
         <h1 className="text-lg font-semibold">ATAS Signal Board</h1>
         <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-          {stage === "form"
-            ? "ใส่อีเมลเพื่อรับลิงก์และรหัสเข้าสู่ระบบ"
-            : `ส่งไปที่ ${email} แล้ว`}
+          {mode === "password"
+            ? "ใส่อีเมลและรหัสผ่านเพื่อเข้าสู่ระบบ"
+            : codeSent
+            ? `ส่งรหัส 6 หลักไปที่ ${email} แล้ว`
+            : "ขอรหัส 6 หลักทางอีเมล"}
         </p>
 
         {problem && (
           <p
             className="mt-4 rounded-md px-3 py-2 text-sm"
-            style={{ color: "var(--status-critical)", background: "var(--neutral-mid)" }}
+            style={{
+              color: "var(--status-critical)",
+              background: "var(--neutral-mid)",
+            }}
           >
             {problem}
           </p>
         )}
 
-        {stage === "form"
-          ? (
-            <form onSubmit={sendLink} className="mt-5 space-y-3">
-              <input
-                type="email"
-                required
-                autoComplete="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@example.com"
-                className="w-full rounded-md border px-3 py-2 text-sm hairline bg-transparent"
-                style={{ color: "var(--text-primary)" }}
-              />
-              <button
-                type="submit"
-                disabled={busy}
-                className="w-full rounded-md px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                style={{ background: "var(--long)" }}
-              >
-                {busy ? "กำลังส่ง..." : "ส่งลิงก์เข้าสู่ระบบ"}
-              </button>
-            </form>
-          )
-          : (
-            <form onSubmit={verifyCode} className="mt-5 space-y-3">
-              <p className="text-sm" style={{ color: "var(--text-secondary)" }}>
-                กดลิงก์ในอีเมลได้เลย หรือถ้าลิงก์เปิดไม่ได้
-                ให้กรอกรหัส 6 หลักจากอีเมลฉบับเดียวกัน
-              </p>
-              <input
-                inputMode="numeric"
-                autoComplete="one-time-code"
-                required
-                value={code}
-                onChange={(e) => setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
-                placeholder="123456"
-                className="w-full rounded-md border px-3 py-2 text-center text-lg tracking-[0.4em] hairline bg-transparent"
-                style={{ color: "var(--text-primary)" }}
-              />
-              <button
-                type="submit"
-                disabled={busy || code.length < 6}
-                className="w-full rounded-md px-3 py-2 text-sm font-medium text-white disabled:opacity-60"
-                style={{ background: "var(--long)" }}
-              >
-                {busy ? "กำลังตรวจสอบ..." : "เข้าสู่ระบบ"}
-              </button>
-              <button
-                type="button"
-                onClick={() => {
-                  setStage("form");
-                  setCode("");
-                  setProblem("");
-                }}
-                className="w-full text-sm underline"
-                style={{ color: "var(--text-secondary)" }}
-              >
-                ส่งอีกครั้ง / เปลี่ยนอีเมล
-              </button>
-            </form>
-          )}
+        {mode === "password" && (
+          <form onSubmit={signInWithPassword} className="mt-5 space-y-3">
+            <input
+              type="email"
+              required
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className={field}
+              style={{ color: "var(--text-primary)" }}
+            />
+            <input
+              type="password"
+              required
+              // Tells the phone's keychain this is the sign-in field to fill,
+              // which is most of what makes a password the easy option here.
+              autoComplete="current-password"
+              value={password}
+              onChange={(e) => setPassword(e.target.value)}
+              placeholder="รหัสผ่าน"
+              className={field}
+              style={{ color: "var(--text-primary)" }}
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className={primary}
+              style={{ background: "var(--long)" }}
+            >
+              {busy ? "กำลังเข้าสู่ระบบ..." : "เข้าสู่ระบบ"}
+            </button>
+          </form>
+        )}
+
+        {mode === "code" && !codeSent && (
+          <form onSubmit={sendCode} className="mt-5 space-y-3">
+            <input
+              type="email"
+              required
+              autoComplete="username"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="you@example.com"
+              className={field}
+              style={{ color: "var(--text-primary)" }}
+            />
+            <button
+              type="submit"
+              disabled={busy}
+              className={primary}
+              style={{ background: "var(--long)" }}
+            >
+              {busy ? "กำลังส่ง..." : "ส่งรหัสเข้าอีเมล"}
+            </button>
+          </form>
+        )}
+
+        {mode === "code" && codeSent && (
+          <form onSubmit={verifyCode} className="mt-5 space-y-3">
+            <input
+              inputMode="numeric"
+              autoComplete="one-time-code"
+              required
+              value={code}
+              onChange={(e) =>
+                setCode(e.target.value.replace(/\D/g, "").slice(0, 6))}
+              placeholder="123456"
+              className={`${field} text-center text-lg tracking-[0.4em]`}
+              style={{ color: "var(--text-primary)" }}
+            />
+            <button
+              type="submit"
+              disabled={busy || code.length < 6}
+              className={primary}
+              style={{ background: "var(--long)" }}
+            >
+              {busy ? "กำลังตรวจสอบ..." : "เข้าสู่ระบบ"}
+            </button>
+            <button
+              type="button"
+              onClick={() => {
+                setCodeSent(false);
+                setCode("");
+                setProblem("");
+              }}
+              className="w-full text-sm underline"
+              style={{ color: "var(--text-secondary)" }}
+            >
+              ส่งรหัสอีกครั้ง / เปลี่ยนอีเมล
+            </button>
+          </form>
+        )}
+
+        <button
+          type="button"
+          onClick={() => {
+            setMode(mode === "password" ? "code" : "password");
+            setCodeSent(false);
+            setCode("");
+            setPassword("");
+            setProblem("");
+          }}
+          className="mt-4 w-full text-sm underline"
+          style={{ color: "var(--text-secondary)" }}
+        >
+          {mode === "password"
+            ? "ใช้รหัสจากอีเมลแทน (ยังไม่ได้ตั้งรหัสผ่าน / ลืมรหัสผ่าน)"
+            : "กลับไปใช้รหัสผ่าน"}
+        </button>
+
+        {mode === "code" && (
+          <p className="mt-3 text-[11px]" style={{ color: "var(--text-muted)" }}>
+            เข้าด้วยรหัสแล้วไปที่หน้า <b>บัญชี</b> เพื่อตั้งรหัสผ่าน
+            ครั้งต่อไปจะเข้าได้เลยไม่ต้องรออีเมล
+          </p>
+        )}
       </div>
 
       <div className="fixed bottom-4 left-0 right-0 flex justify-center">
@@ -170,21 +277,4 @@ export default function LoginPage() {
       </div>
     </main>
   );
-}
-
-/** Turns a callback failure code into something a person can act on. */
-function explain(reason: string, detail: string | null): string {
-  switch (reason) {
-    case "wrong_browser":
-      return "ลิงก์นี้ใช้ได้เฉพาะในเบราว์เซอร์เดียวกับที่ขอลิงก์ " +
-        "ถ้าขอจากคอมแล้วมากดบนมือถือจะไม่ผ่าน — ขอลิงก์ใหม่แล้วใช้รหัส 6 หลักแทน";
-    case "link_rejected":
-    case "otp_expired":
-      return "ลิงก์หมดอายุหรือถูกใช้ไปแล้ว (บางครั้งระบบสแกนอีเมลกดลิงก์ไปก่อน) — " +
-        "ขอใหม่แล้วใช้รหัส 6 หลักแทน";
-    case "missing_code":
-      return "ลิงก์ไม่มีข้อมูลยืนยันติดมาด้วย — ขอลิงก์ใหม่อีกครั้ง";
-    default:
-      return detail ?? `เข้าสู่ระบบไม่สำเร็จ (${reason})`;
-  }
 }

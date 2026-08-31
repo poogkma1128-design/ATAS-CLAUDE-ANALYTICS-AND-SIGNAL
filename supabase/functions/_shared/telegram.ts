@@ -132,9 +132,20 @@ export function formatSignal(msg: SignalMessage): string {
 
   const label = tag(msg.seq);
 
+  // Instrument and direction lead, and the rule name follows on its own line.
+  //
+  // Telegram shows a reply's quoted message as a single truncated line, and the
+  // reply is where the result arrives — so whatever sits at the front of this
+  // message is all you get to identify the trade later. With the rule name
+  // first, the quote read "POC Shift / HVN GC · 5m · คว..." and the instrument
+  // landed mid-string where it looked like part of the setup's name.
   const lines = [
-    `${label ? `<b>${label}</b> · ` : ""}<b>${arrow}</b> · ${escapeHtml(msg.ruleName)}`,
-    `<code>${escapeHtml(msg.symbol)}</code> · ${escapeHtml(msg.timeframe)} · ความมั่นใจ ${confidence}%`,
+    [
+      label ? `<b>${label}</b>` : null,
+      `<code>${escapeHtml(msg.symbol)}</code> ${escapeHtml(msg.timeframe)}`,
+      `<b>${arrow}</b>`,
+    ].filter((part): part is string => part !== null).join(" · "),
+    `${escapeHtml(msg.ruleName)} · ความมั่นใจ ${confidence}%`,
   ];
 
   if (msg.plan) {
@@ -199,6 +210,14 @@ export interface OutcomeMessage {
   /** Same number as the alert this replies to, so the two can be matched even
    *  when Telegram truncates the quoted message. */
   seq: number | null;
+  /** Named on the reply itself rather than left to the quote above it. The
+   *  quote is one truncated line and the result is what gets read, so a reply
+   *  that only says "-5.8 (-1R)" makes you scroll up to learn which chart it
+   *  belongs to. Null when the signal predates the instrument being carried
+   *  here -- omitted rather than guessed. */
+  symbol: string | null;
+  timeframe: string | null;
+  direction: "long" | "short" | null;
   replyToMessageId: number;
   pnlTicks: number;
   mfeTicks: number;
@@ -242,13 +261,30 @@ export function formatOutcome(msg: OutcomeMessage): string {
   const far = step !== null ? fmt(msg.mfeTicks * step) : `${msg.mfeTicks} ticks`;
   const against = step !== null ? fmt(msg.maeTicks * step) : `${msg.maeTicks} ticks`;
 
+  const which = [
+    msg.symbol ? `<code>${escapeHtml(msg.symbol)}</code>` : null,
+    msg.timeframe ? escapeHtml(msg.timeframe) : null,
+  ].filter((part): part is string => part !== null).join(" ");
+
+  const side = msg.direction === "long"
+    ? "🟢 LONG"
+    : msg.direction === "short"
+    ? "🔴 SHORT"
+    : null;
+
   return [
+    // The mark is punctuation, not a field, so it leads without a separator.
+    `${mark} ${
+      [
+        label ? `<b>${label}</b>` : null,
+        which !== "" ? which : null,
+        side,
+      ].filter((part): part is string => part !== null).join(" · ")
+    }`.trimEnd(),
     [
-      mark,
-      label ? `<b>${label}</b> ·` : null,
       `<b>${amount}${r}</b>`,
       `หลังจบ ${msg.barsUsed} แท่ง`,
-    ].filter((part): part is string => part !== null).join(" "),
+    ].join(" "),
     how ? `จบเพราะ: ${escapeHtml(how)}` : null,
     `ไปได้ไกลสุด +${far} · สวนไปสุด -${against}`,
   ].filter((line): line is string => line !== null).join("\n");
