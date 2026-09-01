@@ -19,7 +19,7 @@
 
 | อะไร | สถานะที่ตรวจแล้ว |
 |---|---|
-| source branch | `codex/evidence-first-signal-quality`, แตกจาก `claude/form-signal-telegram-rz8am1` ที่ merge PR #47 แล้ว |
+| source branch | `codex/evidence-first-signal-quality`, แตกจาก `claude/form-signal-telegram-rz8am1` ที่ merge PR #47 แล้ว; push ถึง `origin` แล้ว และยังรอสร้าง PR/merge |
 | migration production | `20260901104315 evidence_first_signal_quality` สำเร็จ |
 | Edge Functions | `ingest` **v16 Active**, `backtest` **v7 Active**; `outcome-notify` v5 และ `feed-watch` v1 ไม่ถูกแก้ |
 | policy ของ rules | ทั้ง **8 rules** เป็น `announcement_mode = evidence_first` |
