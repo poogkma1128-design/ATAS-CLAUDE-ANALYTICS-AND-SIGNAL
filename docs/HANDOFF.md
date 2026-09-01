@@ -12,7 +12,7 @@
 
 ---
 
-## 0A. สถานะปัจจุบันที่มีผลบังคับ — Evidence-first (ตรวจหลัง merge: 2026-09-01 13:45 UTC)
+## 0A. สถานะประวัติ — Evidence-first หลัง PR #48 (ตรวจ: 2026-09-01 13:45 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อนส่วนประวัติทั้งหมดด้านล่าง** เพราะบางบรรทัดก่อน §0A อธิบายสถานะ
 > ก่อน migration 0030 และไม่ใช่สถานะปัจจุบันแล้ว. ประวัติยังเก็บไว้เพื่อ audit ไม่ใช่คำสั่งทำงาน.
@@ -119,6 +119,74 @@ allow-list ถาวรใน code:
 7. Confidence v2 ยังเป็น shadow (`score: null`): evidence-first นี้เป็น **rule-cell gate**, ไม่ใช่
    model-confidence filter. ห้ามเปิด filter/model/Telegram จาก v2 ก่อน offline calibration + frozen
    model version + forward test + owner approval.
+
+---
+
+## 0B. สถานะปัจจุบัน — Cross-asset ATAS overlay (ตรวจ: 2026-09-01 15:05 UTC)
+
+> **ให้อ่านหัวข้อนี้ก่อน §0A และประวัติด้านล่าง**: งานนี้ deploy ไป production แล้ว; สิ่งเดียว
+> ที่ยังต้องทำบนเครื่องคือ Import DLL เข้า ATAS และยืนยันภาพบนกราฟจริง. ไม่ต้องติดตั้งโปรแกรมหรือ
+> เพิ่ม URL/token ใหม่.
+
+| อะไร | สถานะที่ตรวจแล้ว |
+|---|---|
+| Git source | branch `codex/cross-asset-atas-overlay`, commit `97e65a3`; push แล้วและรอเปิด/merge PR |
+| Production schema | migration `0031_cross_asset_chart_annotations.sql` สำเร็จ: policy table, `signals.suppression_reason`, `signal_outcomes.exit_bar_id`, และ scorer ที่บันทึกแท่ง exit |
+| Edge Functions | `ingest` **v17 Active** และ `chart-annotations` **v1 Active** (custom `INGEST_TOKEN`, ไม่ใช้ public endpoint) |
+| Live path หลัง deploy | `ingest v17` ตอบ POST 200 จริงเวลา 15:05 UTC ทั้งชุด; BTCUSDT primary ยังได้ signal ใช้งาน และ NQU6 seq 2709 ถูกเก็บเป็น `muted=true`, `suppression_reason=shadow_instrument` ตาม policy |
+| ATAS DLL | REV **1.3.0** build Release ผ่าน 0 warning; ยังต้อง Import ใน ATAS จึงยังไม่อ้างว่ามี marker ปรากฏบนกราฟจริง |
+
+### 0B.1 พฤติกรรมที่เปลี่ยน
+
+1. Telegram แสดง trailing เป็น `เมื่อราคาถึง <trigger> ให้เลื่อน SL เป็น <ราคาใหม่>` สำหรับ **ทุก
+   instrument และทั้ง Long/Short**. เป็นการแสดงราคาให้วางคำสั่งได้ตรง; **ไม่เปลี่ยน** plan, trail
+   calculation, scorer หรือ backtest.
+2. ทุก asset ใช้กติกาเดียวกันเรื่อง overlay: แสดงเฉพาะ signal ที่ใช้งานได้จริง (`primary` +
+   `muted=false`) พร้อม Entry / SL / TP / Exit. ค่าเริ่มต้นที่ production คือ BTCUSDT, GC และ MNQU6
+   5m เป็น `primary`.
+3. NQU6 เป็น `shadow` โดยเจตนา: ยังรับ bar, สร้าง signal, เก็บ outcome และเพิ่มหลักฐาน แต่ไม่ Telegram
+   และไม่วาด trade marker. จึงไม่เกิดกรณี NQ/MNQ ออกคำสั่งสวนกันให้ตัดสินใจ. นี่ **ไม่ใช่การลบ NQ**;
+   เปลี่ยน role ต้องมีผลวัดและ owner approval ก่อน เพราะอาจขยาย alert จริง.
+4. ถ้า Long และ Short ต่างก็ผ่าน gate ใน instrument/timeframe/**bar เดียวกัน** pipeline จะ mute ทั้งคู่
+   และตั้ง `suppression_reason=opposite_direction_same_bar`; ไม่เลือกด้านหนึ่งจากสถิติที่ยังไม่พอ.
+   Unit test ครอบคลุมกติกานี้แล้ว; ณ เวลาตรวจยังไม่มี collision ใหม่หลัง v17 ให้ยืนยันจาก live data.
+5. `exit_bar_id` ทำให้ marker Exit วางตรงแท่งจริงสำหรับ TP / SL / trail / timeout. Outcomes เก่าก่อน
+   migration เป็น `null` อย่างซื่อสัตย์ จึงอาจมี Entry/SL/TP แต่ไม่มี Exit marker จนกว่าจะเป็น trade ใหม่.
+6. `chart-annotations` แยกจาก ingest แบบ read-only; endpoint หรือ overlay ล้มเหลวต้องไม่หยุดรับ data
+   และไม่เปลี่ยนการคำนวณสัญญาณ.
+
+### 0B.2 หลักฐานการปล่อย
+
+- C# Release build ของ `AtasSignalBridge` REV 1.3.0 ผ่าน 0 warning.
+- Deno format check ของไฟล์ที่แก้, `deno check` ทั้ง `ingest` และ `chart-annotations`, และ targeted
+  tests **38/38** ผ่าน รวมการ format Telegram Long/Short, policy, conflict suppression และ mapping
+  overlay.
+- Full Deno suite ยังติด fixture เดิม `confidence_v2_test.ts` (`sweep: bullish`/`structure: BOS` ไม่ตรง
+  union ปัจจุบัน) ตาม §0A.3; ไม่ใช่ regression ของงานนี้.
+- Edge logs ยืนยัน `ingest v17` POST 200 เวลา 15:05:06 และ 15:05:20 UTC. แถว NQU6 หลัง deploy
+  ยืนยัน shadow จริง; ไม่ได้อ้างจาก unit test อย่างเดียว.
+- ยังไม่มี ATAS GET หลัง Import จึงยังไม่อ้างว่า marker วาดผ่านจริง. ให้ตรวจข้อนี้หลังขั้นตอนด้านล่าง
+  แล้วบันทึกต่อในหัวข้อนี้.
+
+### 0B.3 ขั้นตอนที่เจ้าของต้องทำบน ATAS (เหลือเพียงนี้)
+
+1. ใช้ DLL Release REV 1.3.0 จาก branch/PR นี้ตาม `docs/SETUP.md`: ปิด ATAS → Import → ลบ Signal
+   Bridge เก่าออกจากกราฟ → Add ใหม่. **ไม่ต้องติดตั้ง dependency เพิ่ม**.
+2. เปิดกราฟ 5m ของ BTCUSDT, GC หรือ MNQU6 ที่ bridge ตั้ง symbol ตรงกับ ingest แล้วคงค่า
+   `Show trade overlay=true`, refresh 30 วินาที, lookback 200 bars. Marker จะมีเฉพาะ signal ที่ผ่าน gate;
+   การไม่มี marker ไม่ใช่ error หากช่วงนั้นไม่มี primary/unmuted signal.
+3. เปิด NQU6 เพื่อยืนยันว่าไม่มี marker/alert แต่ feed ยังคงเก็บข้อมูล. จากนั้นตรวจ edge log ว่ามี GET
+   `chart-annotations` 200 และแนบ screenshot/เวลาไว้ใน Handoff เมื่อเห็น marker อย่างน้อยหนึ่งรายการ.
+
+### 0B.4 Rollback และข้อห้าม
+
+- หยุดภาพบน ATAS ได้ทันทีด้วย `Show trade overlay=false`; ไม่กระทบ ingest, Telegram หรือข้อมูล.
+- หยุด alert อย่างปลอดภัยด้วย `telegram_enabled=false`; signals/outcomes ยังคงเก็บ. อย่าเปลี่ยน NQU6
+  เป็น primary เพียงเพื่อให้เห็น marker.
+- หากต้องย้อน logic ให้ redeploy ingest v16 ก่อนหน้าได้; migration 0031 เป็น additive **ห้าม drop หรือ
+  rollback schema**. `chart-annotations` ปิดหรือไม่ถูกเรียกก็ไม่กระทบ feed.
+- ตาราง `instrument_signal_policies` เปิด RLS โดยตั้งใจและไม่มี public policy: เปลี่ยนผ่าน service role/
+  migration ที่ review แล้วเท่านั้น. ห้ามเปิด anon write เพื่อแก้ role จากหน้าเว็บ.
 
 ---
 
@@ -2467,9 +2535,10 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0029
+supabase/migrations/                0001–0031
 supabase/functions/
   ingest/index.ts       HTTP shell ของ pipeline สด
+  chart-annotations/index.ts  read-only data สำหรับ marker บน ATAS (primary/unmuted เท่านั้น)
   outcome-notify/index.ts  endpoint สำรอง (v4 ตรงกับ repo แล้ว ดู 7.3)
   backtest/index.ts     ตัวรันการทดลอง — ไม่ import telegram.ts โดยตั้งใจ
   feed-watch/index.ts   เตือนเมื่อ feed เงียบ/กลับมา (pg_cron ทุก 5 นาที)

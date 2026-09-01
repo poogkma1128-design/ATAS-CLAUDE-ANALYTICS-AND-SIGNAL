@@ -78,6 +78,32 @@ Deno.test("telegram: a legacy threshold score is never presented as confidence",
   assertEquals(text.includes("ความมั่นใจ"), false);
 });
 
+Deno.test("telegram: a long trail says the trigger and the exact new stop", () => {
+  const text = formatSignal(signal());
+
+  // Entry 77570.1, risk 30, trigger 30 and offset 15.
+  assertStringIncludes(text, "เมื่อราคาถึง 77600.1 ให้เลื่อน SL เป็น <b>77585.1</b>");
+  assertEquals(text.includes("ตามห่าง"), false);
+});
+
+Deno.test("telegram: a short trail says the exact stop above its trigger", () => {
+  const text = formatSignal(signal({
+    direction: "short",
+    plan: {
+      entry: 100,
+      stop: 110,
+      target: 80,
+      riskTicks: 10,
+      rewardTicks: 20,
+      trailTriggerTicks: 5,
+      trailOffsetTicks: 2,
+      holdBars: 10,
+    },
+  }));
+
+  assertStringIncludes(text, "เมื่อราคาถึง 95 ให้เลื่อน SL เป็น <b>97</b>");
+});
+
 Deno.test("telegram: the result carries the same number as its alert", () => {
   // The whole point: a reply rendered under a later alert still says which
   // trade it settled.

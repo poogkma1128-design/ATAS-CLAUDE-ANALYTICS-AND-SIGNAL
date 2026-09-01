@@ -31,7 +31,7 @@
       MAJOR: the ingest contract changes. MINOR: something new the owner sees.
       PATCH: fixes and wording.
     -->
-    <Version>1.2.1</Version>
+    <Version>1.3.0</Version>
 
     <RootNamespace>AtasSignalBridge</RootNamespace>
     <AssemblyName>AtasSignalBridge</AssemblyName>

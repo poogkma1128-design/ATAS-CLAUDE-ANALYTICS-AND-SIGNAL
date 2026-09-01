@@ -251,6 +251,27 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 ถ้ายังไม่ใส่ URL หรือ token indicator จะไม่ทำอะไรและขึ้นข้อความเตือนใน log ของ ATAS
 
+### Overlay จุดเข้า–ออกบน ATAS (REV 1.3.0 ขึ้นไป)
+
+ไม่ต้องใส่ URL หรือ token เพิ่ม: Indicator ใช้ Endpoint URL และ Ingest token ชุดเดิม แล้วเปลี่ยน
+ปลายทางจาก `ingest` เป็น `chart-annotations` เอง. เปิดใช้ได้บนทุกกราฟที่ส่งเข้าระบบ เช่น
+BTCUSDT, GC และ MNQU6.
+
+| ช่อง | ค่าแนะนำ | ความหมาย |
+|---|---:|---|
+| Show trade overlay | เปิด | วาดเฉพาะ signal ที่ server อนุญาตให้ใช้งาน |
+| Overlay refresh (seconds) | 30 | ดึง annotation แบบ background; ไม่ block กราฟ |
+| Overlay lookback bars | 200 | จำกัดจำนวนแท่งที่วาดเพื่อไม่ให้กราฟหนาแน่น |
+
+สิ่งที่เห็นคือ ลูกศรเข้า Long/Short, เส้น Entry/SL/TP และ marker จุดออก `TP`, `SL`, `TRAIL`
+หรือ `TIME`. กราฟ NQU6 ถูกเก็บข้อมูลและ outcome ต่อ แต่ถูกตั้งเป็น **shadow** จึงไม่วาดเป็น
+คำสั่งใช้งาน. หากแท่งเดียวกันมี Long และ Short ที่ผ่านเกณฑ์ ระบบจะไม่วาดหรือแจ้งทั้งคู่ และเก็บ
+เหตุผล `opposite_direction_same_bar` ไว้ตรวจย้อนหลัง.
+
+ถ้า endpoint overlay ตอบ error ให้ดู ATAS log คำว่า `Signal Bridge overlay`; feed เข้า ingest และ
+Telegram จะไม่หยุดเพราะปัญหานี้. หากเพิ่ง deploy function แต่ยังไม่มี marker ให้รอหนึ่งรอบ refresh
+แล้วตรวจว่า DLL ใน About ขึ้น REV 1.3.0 หรือใหม่กว่า.
+
 ---
 
 ## 4. จูนกฎ
