@@ -1816,6 +1816,56 @@ history และ price-action context (sweep/zone/structure). `rule` ใช้ 
 - อย่าตรึง threshold จาก win rate อย่างเดียว: เป้าหมายคือ R หลัง horizon และต้องดู drawdown/
   sample size/instrument เสมอ.
 
+### 5.21 นโยบายแบ่งงาน GPT / Claude และสิทธิ์แย้งคำสั่ง AI
+
+**หลักตั้งต้น:** GPT/Claude ไม่ใช่แหล่งความจริงของการคำนวณหรือ edge ของตลาด. ค่า R,
+win rate, drawdown, fill rate, sample size และ calibration ต้องมาจาก SQL/TypeScript ที่ทำซ้ำได้
+พร้อม test/query ที่ตรวจย้อนกลับได้เสมอ. คำตอบที่ไพเราะของ AI ไม่ใช่หลักฐาน และ AI ต้องตอบ
+`ข้อมูลไม่พอ` เมื่อยังพิสูจน์ไม่ได้.
+
+| ความรับผิดชอบ | เจ้าภาพ | สิ่งที่ต้องส่งมอบ / ข้อจำกัด |
+|---|---|---|
+| คำนวณผลตลาดและสถิติ | SQL + deterministic code | query, input version, test และผลที่ทำซ้ำได้; **ห้าม**คำนวณจากการอ่านตารางหรือ prompt |
+| โค้ด, schema/migration, ingest, dashboard, test, deploy, Handoff | GPT/Codex | diff ที่ review ได้, build/test, deploy verification 3 ชั้น และ rollback path |
+| ตั้ง hypothesis และหา feature/กลไกที่เป็นไปได้ | Claude | ไม่เกิน 3 ข้อต่อรอบ; ระบุ entry/exit/invalidation, failure mode และเกณฑ์ที่ทำให้ hypothesis แพ้ |
+| ท้าทายผลและหาความลำเอียง | Claude (อิสระจากผู้เสนอ) | ตรวจ look-ahead, leakage, selection bias, data-snooping, regime/instrument dependence; ห้ามอนุมัติเพราะคำอธิบายดูน่าเชื่อ |
+| แปลง hypothesis ที่อนุมัติเป็น experiment | GPT/Codex | frozen feature ณ signal time, immutable parameter/model version, chronological train → holdout → forward test |
+| อนุมัติให้กระทบ Telegram/filter/เงินจริง | เจ้าของจากหลักฐาน | AI ไม่มีสิทธิ์อนุมัติเอง; ต้องผ่าน gate ด้านล่างและมีคำสั่งชัดเจน |
+
+#### Gate ที่ใช้ตัดสินแทนความเห็นของ AI
+
+1. hypothesis และเกณฑ์ผ่าน/แพ้ถูกบันทึก **ก่อน**เห็นผล; ห้ามปรับแล้ววัดชุดเดิมซ้ำจนดูดี.
+2. signal-time feature ต้องไม่มี outcome, future bar หรือ state ที่ประกาศภายหลังปนอยู่.
+3. แยกตามเวลาเป็น train → holdout → forward; ห้ามเลือก threshold จาก holdout แล้วเรียกผลนั้นว่า holdout.
+4. รายงานเทียบ baseline เสมอ: R/ไม้, drawdown, fill rate, จำนวนไม้, rule×direction,
+   instrument และ calibration (Brier/log loss เมื่ออ้างว่าเป็น probability).
+5. `confidence_v2` ต้องอยู่ shadow ต่อไปจนโมเดลที่ตรึง version แล้วชนะ baseline บนข้อมูล
+   forward ที่โมเดลไม่เคยเห็น และเจ้าของอนุมัติเป็นลายลักษณ์อักษร.
+
+#### ระดับการแย้งคำสั่ง — AI ต้องแจ้งก่อนทำ ไม่ใช่ทำตามเงียบ ๆ
+
+| ระดับ | เมื่อพบการสั่งงานผิดบทบาท / ข้ามหลักฐาน | การกระทำของ AI | ผลเสียหากฝืนทำ |
+|---|---|---|---|
+| **L1 — แจ้งเตือน** | ขอให้ AI สรุปผลหรือคำนวณจากข้อมูลที่ query ได้อยู่แล้ว แต่ไม่มี citation/query แนบ | ทำได้เฉพาะหลังแนบ query/source และบอกข้อจำกัด | รายงานคลาดเคลื่อน; ใช้ประกอบการตัดสินใจผิดได้ แต่ยังไม่เปลี่ยนระบบ |
+| **L2 — ต้องทบทวน** | ให้ GPT ยืนยัน edge จาก narrative หรือให้ Claude ออกแบบ/เลือก parameter แล้วเชื่อผล backtest รอบเดียว | หยุดไว้ที่ draft/experiment; ขอ hypothesis, baseline และ holdout plan | overfitting และ data-snooping; เสียเวลา เกิดความมั่นใจปลอม และทำให้การทดลองถัดไปตีความยาก |
+| **L3 — ห้ามดำเนินการจนมีหลักฐาน** | เปิด rule/filter/Telegram จาก backtest หรือ confidence ที่ยังไม่ผ่าน forward, ปรับ threshold ระหว่างดูผล, หรือมอบ deploy/migration โดยไม่มี verification owner | ปฏิเสธการเปลี่ยน production; เสนอขั้นตอน shadow/peer review/rollback | ขาดทุนหรือพลาดโอกาสจริง, spam Telegram, ทำลาย baseline และปนเปื้อนข้อมูลทดลองจนใช้ตัดสินต่อไม่ได้ |
+| **L4 — หยุดและขออนุมัติชัดเจน** | สั่งให้ AI ส่งคำสั่งซื้อขายจริง, ปิด safety/telemetry, ลบหรือแก้ข้อมูล history, rotate secret โดยไม่มีแผน, หรือข้าม test/deploy verification | ไม่ทำ; สรุป impact, rollback และสิทธิ์ที่ต้องใช้ให้เจ้าของตัดสินใจ | ความเสียหายเงินจริง/การควบคุมความเสี่ยง, สูญเสียประวัติพิสูจน์ผล, credential exposure หรือระบบรับสัญญาณหยุดทำงาน |
+
+**รูปแบบการแย้งที่ต้องตอบทุกครั้ง:** `คำสั่งที่ขอ` → `ระดับ L1–L4` → `อะไรที่พิสูจน์ไม่ได้`
+→ `ผลเสียที่เป็นไปได้` → `ผู้รับผิดชอบที่ถูกต้อง` → `หลักฐาน/approval ที่ต้องมี`.
+ผู้ใช้ยัง override ได้ แต่ L3/L4 ต้องบันทึกเหตุผล, scope, owner, rollback และคำยืนยันชัดเจนใน
+PR/Handoff ก่อนทำ. ไม่มีคำว่า “user ขอแล้ว” ที่ทำให้ผลทดลองซึ่งเสียความน่าเชื่อถือกลับมาเชื่อถือได้.
+
+#### ตัวอย่างการจับคู่คำสั่งให้ถูก AI
+
+- “คิด feature ที่อาจแยก long/short ได้ และเขียนว่ามันแพ้อย่างไร” → **Claude**, ผลเป็น hypothesis
+  ไม่ใช่กฎใหม่.
+- “ทำ query/feature snapshot/test/migration และตรวจ ingest ที่ production” → **GPT/Codex**,
+  พร้อม verification ตาม §5.20 และ §7.4.
+- “คะแนนนี้แม่นไหม/เปิด Telegram ได้ไหม” → **SQL + forward result + เจ้าของ**; Claude ตรวจ bias,
+  GPT ตรวจ implementation. หากยังไม่มี cohort ปิดผล คำตอบเดียวคือ **ยังตัดสินไม่ได้**.
+- “คำนวณผลกำไร/ความเสี่ยง” → **database evaluator เท่านั้น**; AI อธิบาย query ได้ แต่ห้ามแทนที่มัน.
+
 ---
 
 ## 6. ค่า params ปัจจุบัน (แก้ได้ที่ `/rules` ไม่ต้อง deploy)
