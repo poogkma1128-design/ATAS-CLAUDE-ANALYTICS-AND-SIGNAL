@@ -7,6 +7,7 @@ import { PnlBar, WinRateMeter } from "@/components/StatBars";
 import { num, percent, signed, signedTicks } from "@/lib/format";
 import type {
   ForwardTestRow,
+  ConfidenceV2ProgressRow,
   PriceActionEdgeRow,
   RuleRow,
   SettingsEffectRow,
@@ -25,6 +26,7 @@ export default async function StatsPage() {
     { data: settings },
     { data: priceAction },
     { data: forward },
+    { data: confidenceV2 },
   ] = await Promise.all([
     supabase.from("setup_stats").select("*"),
     supabase.from("rules").select("key, name"),
@@ -35,6 +37,7 @@ export default async function StatsPage() {
     supabase.from("settings_effect").select("*"),
     supabase.from("price_action_edge").select("*"),
     supabase.from("forward_test").select("*"),
+    supabase.from("confidence_v2_progress").select("*"),
   ]);
 
   const rows = ((stats ?? []) as SetupStatRow[])
@@ -50,6 +53,9 @@ export default async function StatsPage() {
 
   const settingsRows = ((settings ?? []) as SettingsEffectRow[])
     .sort((a, b) => (b.last_fired ?? "").localeCompare(a.last_fired ?? ""));
+
+  const confidenceV2Rows = ((confidenceV2 ?? []) as ConfidenceV2ProgressRow[])
+    .sort((a, b) => b.captured_signals - a.captured_signals);
 
   // Cells this thin cannot say anything either way, and two dozen of them bury
   // the ones that might. They are counted below the table rather than dropped
@@ -87,6 +93,66 @@ export default async function StatsPage() {
           />
           <Tile label="กำลังรอผล" value={String(pending ?? 0)} />
         </div>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">Confidence v2 — Shadow mode</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            เก็บ feature ของสัญญาณ ณ เวลายิงเพื่อสร้างโมเดลที่สอบเทียบได้ภายหลัง
+            ตารางนี้บอกความพร้อมของข้อมูลเท่านั้น ไม่ใช่คะแนนพยากรณ์ และยังไม่เปลี่ยน Telegram
+          </p>
+
+          {confidenceV2Rows.length === 0
+            ? <Empty>เริ่มเก็บ feature แล้ว — รอสัญญาณ v2 ชุดแรกปิดผล</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["กฎ", "left"],
+                        ["ทิศทาง", "left"],
+                        ["เก็บแล้ว", "right"],
+                        ["ปิดผลแล้ว", "right"],
+                        ["สินทรัพย์", "right"],
+                        ["เซสชัน", "right"],
+                        ["R/ไม้", "right"],
+                        ["สถานะ", "left"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {confidenceV2Rows.map((row) => (
+                      <tr
+                        key={`${row.model_version}-${row.rule_key}-${row.direction}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5 font-medium">
+                          {ruleNames[row.rule_key] ?? row.rule_key}
+                        </td>
+                        <td className="px-4 py-2.5"><DirectionTag direction={row.direction} /></td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.captured_signals}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.resolved_signals}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.symbols}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.sessions}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {row.r_per_trade === null ? "–" : signed(num(row.r_per_trade), 3)}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                          {confidenceV2Verdict(row)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+            “พร้อมสอบเทียบ” หมายถึงมีข้อมูลพอเริ่มสร้างโมเดล offline เท่านั้น; ก่อนใช้กรอง
+            ต้องตรึง model version แล้วพิสูจน์กับสัญญาณที่เกิดหลังจากนั้น (forward test)
+          </p>
+        </section>
 
         {rows.length === 0
           ? (
@@ -402,6 +468,15 @@ function priceActionVerdict(row: PriceActionEdgeRow): string {
     return `ยังตอบไม่ได้ · ขาดอีก ${3 - row.sessions} เซสชัน`;
   }
   return row.verdict === "separates" ? "แยกตัวชัด" : "ไม่ต่างจากค่าเฉลี่ย";
+}
+
+function confidenceV2Verdict(row: ConfidenceV2ProgressRow): string {
+  if (row.verdict === "collecting: need more trades") {
+    return `กำลังเก็บ · ขาดอีก ${30 - row.resolved_signals} ไม้`;
+  }
+  if (row.verdict === "collecting: need more symbols") return "กำลังเก็บ · ยังมีสินทรัพย์เดียว";
+  if (row.verdict === "collecting: need more sessions") return "กำลังเก็บ · ยังไม่ครบ 3 เซสชัน";
+  return "พร้อมสร้างโมเดล offline";
 }
 
 function Verdict({ text, settled }: { text: string; settled: boolean }) {

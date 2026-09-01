@@ -199,3 +199,20 @@ export interface ForwardTestRow {
   win_rate: number | null;
   verdict: "need more trades" | "need more symbols" | "readable";
 }
+
+/** A rule/direction cell of the feature-complete confidence v2 shadow cohort. */
+export interface ConfidenceV2ProgressRow {
+  model_version: string;
+  rule_key: string;
+  direction: Direction;
+  captured_signals: number;
+  resolved_signals: number;
+  symbols: number;
+  sessions: number;
+  wins: number;
+  win_rate: number | null;
+  r_per_trade: number | null;
+  first_captured_at: string | null;
+  last_captured_at: string | null;
+  verdict: string;
+}
