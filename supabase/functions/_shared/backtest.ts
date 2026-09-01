@@ -54,6 +54,9 @@ export interface SimulatedTrade {
   exitReason: "target" | "stop" | "trail" | "timeout";
   exitPrice: number;
   barsUsed: number;
+  /** True when one OHLC bar crossed both active stop and target. Stop-first
+   * scoring is retained, but this marks the path as unknowable at bar level. */
+  ambiguousPath: boolean;
   pnlTicks: number;
   mfeTicks: number;
   maeTicks: number;
@@ -229,6 +232,7 @@ export function scorePlan(
   let exitReason: SimulatedTrade["exitReason"] | null = null;
   let barsUsed = 0;
   let lastClose = entry;
+  let ambiguousPath = false;
 
   for (const bar of forward) {
     barsUsed++;
@@ -236,10 +240,14 @@ export function scorePlan(
     low = Math.min(low, bar.low);
     lastClose = bar.close;
 
-    if (long ? bar.low <= stop : bar.high >= stop) {
+    const stopHit = long ? bar.low <= stop : bar.high >= stop;
+    const targetHit = long ? bar.high >= plan.target : bar.low <= plan.target;
+    if (stopHit && targetHit) ambiguousPath = true;
+
+    if (stopHit) {
       exitPrice = stop;
       exitReason = trailing ? "trail" : "stop";
-    } else if (long ? bar.high >= plan.target : bar.low <= plan.target) {
+    } else if (targetHit) {
       exitPrice = plan.target;
       exitReason = "target";
     }
@@ -254,9 +262,7 @@ export function scorePlan(
 
       if (trailing) {
         const follow = plan.trailOffsetTicks * tickSize;
-        stop = long
-          ? Math.max(stop, best - follow)
-          : Math.min(stop, best + follow);
+        stop = long ? Math.max(stop, best - follow) : Math.min(stop, best + follow);
       }
     }
   }
@@ -274,6 +280,7 @@ export function scorePlan(
     exitReason: exitReason!,
     exitPrice,
     barsUsed,
+    ambiguousPath,
     pnlTicks: round2(pnlTicks),
     mfeTicks: round2(mfeTicks),
     maeTicks: round2(maeTicks),

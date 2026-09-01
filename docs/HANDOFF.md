@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-01 (เพิ่ม Confidence v2 แบบ Shadow)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-01 (Evidence-first signal quality)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -9,6 +9,97 @@
 > งานค้าง, owner/approval ที่ต้องมี และวิธี rollback เมื่อเกี่ยวข้อง. ห้ามข้ามขั้นนี้แม้งาน
 > จะเล็ก, ถูก merge แล้ว หรือเป็นเพียงการทดลอง. ถ้าไม่มีเอกสารที่ต้องเพิ่ม ให้บันทึกใน
 > Handoff ว่า “ไม่มีเอกสารเพิ่ม” พร้อมเหตุผล.
+
+---
+
+## 0A. สถานะปัจจุบันที่มีผลบังคับ — Evidence-first (2026-09-01 10:43 UTC)
+
+> **ให้อ่านหัวข้อนี้ก่อนส่วนประวัติทั้งหมดด้านล่าง** เพราะบางบรรทัดก่อน §0A อธิบายสถานะ
+> ก่อน migration 0030 และไม่ใช่สถานะปัจจุบันแล้ว. ประวัติยังเก็บไว้เพื่อ audit ไม่ใช่คำสั่งทำงาน.
+
+| อะไร | สถานะที่ตรวจแล้ว |
+|---|---|
+| source branch | `codex/evidence-first-signal-quality`, แตกจาก `claude/form-signal-telegram-rz8am1` ที่ merge PR #47 แล้ว; push ถึง `origin` แล้ว และยังรอสร้าง PR/merge |
+| migration production | `20260901104315 evidence_first_signal_quality` สำเร็จ |
+| Edge Functions | `ingest` **v16 Active**, `backtest` **v7 Active**; `outcome-notify` v5 และ `feed-watch` v1 ไม่ถูกแก้ |
+| policy ของ rules | ทั้ง **8 rules** เป็น `announcement_mode = evidence_first` |
+| เว็บ Dashboard | โค้ดอยู่บน branch นี้; **ยังต้อง merge PR** จึงจะขึ้น Vercel production |
+| เอกสารเพิ่ม | ไม่มีเอกสาร runbook แยก: migration comments + หัวข้อนี้เป็น specification และ runbook ของการรับช่วงงานนี้ |
+
+### 0A.1 สิ่งที่เปลี่ยนจริง และสิ่งที่ตั้งใจไม่เปลี่ยน
+
+1. `ingest v16` โหลด `setup_stability` หนึ่งครั้งต่อ batch แล้วประกาศ Telegram **เฉพาะ** cell
+   ที่ตรงทุกมิติ `symbol + timeframe + rule_key + direction` และมี
+   `verdict = 'proposable'` กับ `proposal = 'keep'`.
+2. Cell ที่ไม่ผ่าน, ไม่มีแถว, หรือ query หลักฐานล้มเหลวจะถูกเขียนเป็น `signals.muted = true`.
+   Signal **ยังถูกเก็บ, มี outcome, และอยู่ในสถิติ**; นี่คือ fail closed เฉพาะการส่งเสียง ไม่ใช่
+   fail closed ของ ingest. จึงไม่ทำลายข้อมูลที่ต้องใช้พิสูจน์ให้กลับมาส่งได้ภายหลัง.
+3. `telegram_enabled` ยังคงเป็น master switch ต่อ rule. `announcement_mode = 'manual'` เป็น
+   owner override เท่านั้น; ถ้าคอลัมน์หาย/อ่านไม่ได้ code จะถือเป็น evidence-first ไม่ใช่ manual.
+   การเปลี่ยนเป็น manual คือ **L3**: ข้ามหลักฐานและอาจ spam/ทำให้ตัดสินเงินจริงจาก cell ที่ยังไม่พิสูจน์
+   ต้องมีคำสั่งเจ้าของชัดเจนพร้อมเหตุผลและบันทึกใน Handoff/PR.
+4. Telegram ไม่แสดง `% confidence` เดิมอีกแล้ว; ข้อความบอกว่าเป็น “สัญญาณเชิงกฎ
+   (ยังไม่สอบเทียบเป็นคะแนน)”. Dashboard feed/detail ก็ไม่ใช้ค่าดังกล่าวเป็นคะแนน. ค่า
+   `signals.confidence` **ยังเก็บ** เป็น threshold-excess telemetry เพื่อ audit/สร้าง v2 ต่อไป,
+   แต่ห้ามเรียกว่าความน่าจะเป็นหรือเอาไปกรอง.
+5. outcome scorer และ backtest ยังนับ **stop-first** เหมือนเดิม (ไม่ทำให้ series ประวัติเปลี่ยน)
+   แต่ผลลัพธ์ใหม่มี `signal_outcomes.ambiguous_path = true` เมื่อ OHLC แท่งเดียวแตะ active SL และ TP
+   ทั้งคู่. แถวก่อน migration เป็น `null` อย่างซื่อสัตย์ ไม่อนุมานย้อนหลัง.
+6. เพิ่ม `price_action_edge_by_setup` ซึ่งเทียบ price action ภายใน exact
+   `rule + symbol + timeframe + direction` ก่อน; เป็น report เท่านั้น **ยังไม่มี filter ใหม่**.
+   เพิ่ม `outcome_path_quality` สำหรับ coverage/สัดส่วน path ที่กำกวม.
+
+### 0A.2 Cell ที่อนุญาตให้ประกาศ ณ เวลาตรวจ
+
+จำนวนนี้เป็นผล query ณ 10:43 UTC และเปลี่ยนได้เองเมื่อ outcome ใหม่ปิดผล — อย่าคัดลอกเป็น
+allow-list ถาวรใน code:
+
+| symbol · TF | rule | direction | หลักฐาน |
+|---|---|---|---|
+| BTCUSDT · 5m | absorption | long / short | 97 / 87 ไม้, 3 sessions |
+| BTCUSDT · 5m | poc_shift | short | 54 ไม้, 3 sessions |
+| GC · 5m | poc_shift | long / short | 38 / 54 ไม้, 3 sessions |
+| MNQU6 · 5m | poc_shift | long | 72 ไม้, 4 sessions |
+| MNQU6 · 5m | stacked_imbalance | long / short | 109 / 114 ไม้, 4 sessions |
+| NQU6 · 5m | poc_shift | short | 36 ไม้, 3 sessions |
+
+รวม 9 cells. Cell อื่น รวมถึงทิศทางตรงข้ามของ rule/symbol ข้างต้น ยังคงเก็บและวัดผลแต่ไม่ส่ง Telegram.
+
+### 0A.3 หลักฐานการปล่อยและการทดสอบ
+
+- Migration อยู่ใน production แล้วและ `pg_get_functiondef(evaluate_pending_outcomes)` มี
+  `ambiguous_path`. มี 235 cells ใน report price-action ใหม่; outcome เก่า 55 กลุ่มยังมี
+  `audited_signals = 0` ตามที่ควรเป็น จนกว่าผลลัพธ์หลัง deployment จะปิด.
+- ณ 10:50 UTC ยังไม่มี POST เข้า `ingest v16`: ingest log ล่าสุดคือ 10:00 UTC บน v15
+  (3 symbols, `error = null`) ก่อน deploy; `feed-watch` ยังตอบ 200. สถานะ Active ยืนยันว่า
+  deploy สำเร็จ แต่ **ยังไม่ใช่หลักฐาน live payload ของ v16**. เมื่อ ATAS ส่งแท่งถัดไปให้ตรวจ
+  `ingest_log`/Edge log ว่า version 16 ตอบ 200 และไม่มี `announcement evidence load failed`.
+- Typecheck + production build ของ `web` ผ่าน. Deno check ของ entrypoints `ingest`,
+  `outcome-notify`, `backtest` ผ่าน. Deno runtime test ผ่าน **137 tests**.
+- `deno test` แบบ typecheck ทั้ง suite ยังสะดุด fixture เดิม `confidence_v2_test.ts` ที่ใช้
+  `sweep: 'bullish'`/`structure: 'BOS'` ไม่ตรง union ปัจจุบัน (ก่อนงานนี้); รันจริงด้วย
+  `--no-check` ผ่าน 138/138. อย่าอ้างว่า suite typecheck ทั้งก้อนเขียวจนกว่าจะแก้ fixture นั้น
+  ใน PR แยก.
+- Supabase Advisor ก่อน deploy พบข้อเดิมนอกขอบเขต: RLS policy ของ `feed_alerts`/`runner_tokens`,
+  mutable search path ของ `claim_outcome_notifications`, `pg_net` ใน `public`, และ index/policy
+  warnings ของ `rule_overrides`/`rule_snapshots`. งานนี้ไม่สร้าง policy/table permissive ใหม่.
+
+### 0A.4 วิธีรับช่วง, rollback, และงานที่ยังต้องทำ
+
+1. **ก่อน merge PR:** review migration 0030, policy tests และหน้าสถิติ. PR นี้ทำให้ Dashboard
+   รู้จัก column/view ใหม่; production ingest ทำงานอยู่แล้วแม้เว็บยังเก่า.
+2. **หลัง merge:** ตรวจ Vercel production หน้า `/`, `/stats`, `/rules`, และ signal detail.
+   `/rules` ต้องบอก Evidence-first; `/stats` ต้องแสดง report path audit/price action stratified.
+3. **หลังมี outcome ใหม่ครบ horizon:** query
+   `select * from public.outcome_path_quality order by audited_signals desc;` ก่อนตีความผล score.
+   `ambiguous_path` ไม่ใช่เหตุให้เลือก TP — มันเป็นป้ายความไม่แน่นอนของ OHLC เท่านั้น.
+4. **Rollback แบบปลอดภัย:** หากต้องหยุดความเสี่ยงทันที ตั้ง `telegram_enabled = false` (เฉพาะ rule
+   หรือทั้งหมด) แล้ว signals ยังถูกเก็บ. หากต้องย้อน logic ให้ deploy source ก่อน v16 (v15) อีกครั้ง;
+   migration 0030 เป็น additive จึงไม่ต้องและไม่ควร rollback schema. Dashboard ย้อนด้วย Vercel deployment
+   ก่อนหน้าได้. ห้ามตั้ง `manual` เป็น rollback อัตโนมัติ เพราะทำให้ alert กว้างขึ้น.
+5. Confidence v2 ยังเป็น shadow (`score: null`): evidence-first นี้เป็น **rule-cell gate**, ไม่ใช่
+   model-confidence filter. ห้ามเปิด filter/model/Telegram จาก v2 ก่อน offline calibration + frozen
+   model version + forward test + owner approval.
 
 ---
 
@@ -1883,21 +1974,21 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 
 | ส่วน | ต้องมีเพื่อสร้าง/รับ signal สดไหม | ต้องทำเมื่อมีการเปลี่ยนส่วนนี้ | สถานะปัจจุบัน |
 |---|---|---|---|
-| ATAS indicator ที่ส่ง payload พร้อม `INGEST_TOKEN` | **ต้องมี** | build/install indicator และตั้ง endpoint/token ให้ตรง; ไม่ใช่ Git push อย่างเดียว | ใช้งานอยู่ — feed จริงเข้า 3 POST หลัง `ingest v15` |
-| Supabase `ingest` + shared rules ที่มัน import | **ต้องมี** สำหรับ logic, การเขียน `signals`, และ Telegram path | push เพื่อเก็บ source แล้ว deploy Edge Function **พร้อมไฟล์ dependency ครบชุด**; ตรวจ 405 → 401 → feed จริง | **v15 production แล้ว**; v2 snapshot ถูกเก็บจริง |
-| `rule_overrides` (`enabled`, `telegram_enabled`, params) | **ต้องมี** ในการกำหนดว่าจะสร้าง/ประกาศ rule ไหน | ปรับผ่าน `/rules`/DB ได้; ปกติไม่ต้อง deploy | ค่าเดิมยังทำงาน; v2 ไม่ได้เปลี่ยน rule หรือ Telegram |
-| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` และการเปิด `telegram_enabled` | ต้องมีเฉพาะเมื่ออยาก **รับข้อความ Telegram**; ไม่จำเป็นต่อการบันทึก signal | ตั้ง secret และเปิด rule ที่ผ่านหลักฐาน; ไม่ต้อง merge เว็บ | มีอยู่เดิม; ห้ามเปิด rule/Confidence v2 ใหม่โดยไม่มี forward evidence |
-| migration schema ที่ code ใหม่จำเป็นต้องอ่าน/เขียน | ต้องมีเมื่อ logic ต้องพึ่ง table/column/view/function ใหม่นั้น | apply migration ก่อน/พร้อม deploy ที่อ้างถึงมัน และตรวจ query | 0029 production แล้ว; เป็น view วัด cohort ไม่ใช่เงื่อนไขให้ `ingest` สร้าง signal |
-| `outcome-notify`/outcome evaluator | ไม่จำเป็นต่อการ **ส่ง signal แรก** แต่จำเป็นต่อการปิดผลและวัดว่า signal ใช้ได้จริง | deploy เฉพาะเมื่อแก้ logic outcome/notification แล้วตรวจผลลัพธ์ | แยกจาก ingest; อย่าแก้ในงาน dashboard/confidence แบบไม่มีเหตุผล |
-| `backtest` | ไม่จำเป็นต่อ signal สด | deploy เฉพาะเมื่อแก้ตัวรันการทดลอง; ห้ามมี Telegram import | v6 ใช้ยืนยัน/ทดลอง ไม่ใช่เส้นทาง live |
-| Vercel `web`/Dashboard | **ไม่จำเป็น** ต่อ signal หรือ Telegram | merge branch เข้า production branch เพื่อให้ Vercel deploy หน้า UI; ตรวจเว็บหลัง deploy | UI Confidence v2 รอ PR/merge; live ingest ไม่ต้องรอ |
+| ATAS indicator ที่ส่ง payload พร้อม `INGEST_TOKEN` | **ต้องมี** | build/install indicator และตั้ง endpoint/token ให้ตรง; ไม่ใช่ Git push อย่างเดียว | ใช้งานอยู่; `ingest v16` รับ feed เดิมได้ |
+| Supabase `ingest` + shared rules ที่มัน import | **ต้องมี** สำหรับ logic, การเขียน `signals`, และ Telegram path | push เพื่อเก็บ source แล้ว deploy Edge Function **พร้อมไฟล์ dependency ครบชุด**; ตรวจ 405 → 401 → feed จริง | **v16 production แล้ว**; v2 snapshot ถูกเก็บจริง และ Telegram เป็น Evidence-first |
+| `rule_overrides`, `telegram_enabled`, `announcement_mode`, params | **ต้องมี** ในการกำหนดว่าจะสร้าง/ประกาศ rule ไหน | ปรับผ่าน `/rules`/DB ได้; `manual` ต้องมี owner approval + Handoff/PR | ทั้ง 8 rules เป็น evidence_first; muted row ยังถูกวัดผล |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` และการเปิด `telegram_enabled` | ต้องมีเฉพาะเมื่ออยาก **รับข้อความ Telegram**; ไม่จำเป็นต่อการบันทึก signal | ตั้ง secret และเปิด rule ที่ผ่านหลักฐาน; ไม่ต้อง merge เว็บ | มีอยู่เดิม; `setup_stability` เป็น gate เพิ่มอีกชั้น ไม่ใช่ permission ให้ v2 model |
+| migration schema ที่ code ใหม่จำเป็นต้องอ่าน/เขียน | ต้องมีเมื่อ logic ต้องพึ่ง table/column/view/function ใหม่นั้น | apply migration ก่อน/พร้อม deploy ที่อ้างถึงมัน และตรวจ query | **0030 production แล้ว**: announcement_mode, ambiguous_path, 2 reports, outcome scorer ใหม่ |
+| `outcome-notify`/outcome evaluator | ไม่จำเป็นต่อการ **ส่ง signal แรก** แต่จำเป็นต่อการปิดผลและวัดว่า signal ใช้ได้จริง | deploy Edge Function เฉพาะเมื่อแก้ notification; scorer SQL เปลี่ยนต้องผ่าน migration | `outcome-notify` v5 ไม่ถูกแก้; `evaluate_pending_outcomes()` ใหม่บันทึก path audit |
+| `backtest` | ไม่จำเป็นต่อ signal สด | deploy เฉพาะเมื่อแก้ตัวรันการทดลอง; ห้ามมี Telegram import | **v7 production แล้ว**; mirror stop-first + ambiguous_path ของ scorer |
+| Vercel `web`/Dashboard | **ไม่จำเป็น** ต่อ signal หรือ Telegram | merge branch เข้า production branch เพื่อให้ Vercel deploy หน้า UI; ตรวจเว็บหลัง deploy | UI Evidence-first/path-audit/price-action stratified รอ PR/merge; live ingest ไม่ต้องรอ |
 | Confidence v2 model/filter | **ไม่จำเป็น และยังห้ามใช้** | รอ cohort → offline model → shadow prediction → forward evidence → owner approval | snapshot กำลังเก็บ, `score: null` |
 | Handoff, PR, README/เอกสาร | ไม่จำเป็นต่อ runtime แต่ **บังคับสำหรับงานถือว่าจบ** | push/merge เพื่อ audit และส่งต่องาน | Handoff/PR guidance อยู่บน branch นี้ |
 
 #### สรุปการตัดสินใจแบบเร็ว
 
-- **วันนี้ต้องการให้ signal เดิมเข้าระบบและ Telegram ต่อ:** ไม่ต้อง push/merge/deploy เพิ่ม —
-  `ingest v15` production รับ feed และเก็บ v2 อยู่แล้ว.
+- **วันนี้ต้องการให้ signal เดิมเข้าระบบและ Telegram ต่อ:** `ingest v16` production รับ feed,
+  เก็บ v2 และส่งเฉพาะ cells ที่ผ่าน Evidence-first อยู่แล้ว; Dashboard merge ไม่กระทบเส้นทางนี้.
 - **ต้องการเพิ่มหรือแก้ logic ของ rule:** ต้องทำทั้ง Git commit/push **และ** deploy `ingest`
   ที่ bundle dependency ครบ; migration เพิ่มเฉพาะเมื่อ schema ใหม่จำเป็น. จากนั้นตรวจ 3 ชั้นก่อน
   เปิด Telegram.

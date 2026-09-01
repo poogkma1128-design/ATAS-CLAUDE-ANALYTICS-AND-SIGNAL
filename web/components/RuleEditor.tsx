@@ -54,6 +54,11 @@ export function RuleEditor({ rule }: { rule: RuleRow }) {
           <code className="mt-1 block text-[11px]" style={{ color: "var(--text-muted)" }}>
             {rule.key}
           </code>
+          <p className="mt-1 text-xs" style={{ color: "var(--text-muted)" }}>
+            {rule.announcement_mode === "manual"
+              ? "Telegram: owner override — ไม่รอหลักฐาน"
+              : "Telegram: Evidence-first — ส่งเฉพาะ rule / สินทรัพย์ / ทิศทางที่ผ่านหลักฐาน"}
+          </p>
         </div>
 
         <div className="flex flex-col gap-1.5 text-xs">
@@ -71,7 +76,7 @@ export function RuleEditor({ rule }: { rule: RuleRow }) {
               checked={telegram}
               onChange={(e) => setTelegram(e.target.checked)}
             />
-            แจ้ง Telegram
+            เปิดช่อง Telegram
           </label>
         </div>
       </div>

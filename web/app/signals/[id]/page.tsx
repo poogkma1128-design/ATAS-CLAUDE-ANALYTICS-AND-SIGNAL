@@ -6,7 +6,7 @@ import { DirectionTag } from "@/components/DirectionTag";
 import { OutcomeTag } from "@/components/OutcomeTag";
 import { FootprintLadder } from "@/components/FootprintLadder";
 import { ConfidenceV2Status } from "@/components/ConfidenceV2Status";
-import { num, percent, shortTime, signedTicks } from "@/lib/format";
+import { num, shortTime, signedTicks } from "@/lib/format";
 import type { ClusterLevelRow } from "@/lib/types";
 
 export const dynamic = "force-dynamic";
@@ -43,7 +43,7 @@ export default async function SignalDetailPage(
   const { data: signal } = await supabase
     .from("signals")
     .select(
-      "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, bar_id, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol, tick_size), rules(name, description), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, bars_used, horizon_bars, exit_reason)",
+      "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, bar_id, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol, tick_size), rules(name, description), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, bars_used, horizon_bars, exit_reason, ambiguous_path)",
     )
     .eq("id", id)
     .maybeSingle();
@@ -73,6 +73,7 @@ export default async function SignalDetailPage(
       bars_used: number | null;
       horizon_bars: number;
       exit_reason: string | null;
+      ambiguous_path: boolean | null;
     }
     | null;
   const payload = (signal.payload ?? {}) as Record<string, unknown>;
@@ -103,7 +104,7 @@ export default async function SignalDetailPage(
 
         {/* Headline numbers: single values, so they are stat tiles, not a chart. */}
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Tile label="ความแรงเดิม (ยังไม่สอบเทียบ)" value={percent(num(signal.confidence))} />
+          <Tile label="คะแนนเดิม" value="ไม่ใช้เป็นคะแนน" />
           <Tile
             label="ผลลัพธ์"
             value={<OutcomeTag status={outcome?.status} pnlTicks={num(outcome?.pnl_ticks)}
@@ -143,6 +144,14 @@ export default async function SignalDetailPage(
               <Field label="ถือไม่เกิน" value={`${signal.hold_bars ?? "-"} แท่ง`} />
               <Field label="จบเพราะ" value={EXIT_LABEL[outcome?.exit_reason ?? ""] ?? "ยังไม่จบ"} />
               <Field label="ถือจริง" value={outcome?.bars_used != null ? `${outcome.bars_used} แท่ง` : "-"} />
+              <Field
+                label="ลำดับราคาในแท่ง"
+                value={outcome?.ambiguous_path === true
+                  ? "กำกวม · นับ SL ก่อน"
+                  : outcome?.ambiguous_path === false
+                  ? "ตรวจแล้ว · ไม่ชน"
+                  : "ยังไม่มี audit"}
+              />
             </dl>
           </div>
         )}

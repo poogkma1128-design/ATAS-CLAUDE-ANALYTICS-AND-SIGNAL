@@ -31,7 +31,7 @@ export type Direction = "long" | "short";
  * cannot be assembled by concatenation (HANDOFF 3.6).
  */
 export const SIGNAL_SELECT =
-  "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, exit_reason, bars_used)";
+  "id, fired_at, direction, price, confidence, rule_key, timeframe, payload, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars, instruments(symbol), rules(name), signal_outcomes(status, pnl_ticks, mfe_ticks, mae_ticks, exit_reason, ambiguous_path, bars_used)";
 
 export interface SignalRow {
   id: string;
@@ -59,6 +59,7 @@ export interface SignalRow {
       mfe_ticks: number | null;
       mae_ticks: number | null;
       exit_reason: string | null;
+      ambiguous_path: boolean | null;
       bars_used: number | null;
     }
     | null;
@@ -91,6 +92,7 @@ export interface RuleRow {
   description: string | null;
   enabled: boolean;
   telegram_enabled: boolean;
+  announcement_mode: "manual" | "evidence_first";
   horizon_bars: number;
   params: Record<string, number>;
   updated_at: string;
@@ -170,6 +172,9 @@ export interface SettingsEffectRow {
 
 /** One price action cell, and whether it has earned the right to be read yet. */
 export interface PriceActionEdgeRow {
+  rule_key: string;
+  symbol: string;
+  timeframe: string;
   sweep: string | null;
   zone: string | null;
   direction: Direction;
@@ -181,6 +186,18 @@ export interface PriceActionEdgeRow {
   r_per_trade: number | null;
   overall_r_per_trade: number | null;
   verdict: "need more trades" | "need more sessions" | "separates" | "no different";
+}
+
+/** Intrabar ambiguity coverage: OHLC can prove a range, not path order. */
+export interface OutcomePathQualityRow {
+  rule_key: string;
+  symbol: string;
+  timeframe: string;
+  direction: Direction;
+  resolved_signals: number;
+  audited_signals: number;
+  ambiguous_paths: number;
+  ambiguous_share: number | null;
 }
 
 /** One settings arrangement, scored only on trades that fired after it went live. */

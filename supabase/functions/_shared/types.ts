@@ -68,6 +68,12 @@ export interface RuleRow {
   name: string;
   enabled: boolean;
   telegram_enabled: boolean;
+  /**
+   * Whether a Telegram alert needs a proven rule/instrument/direction cell.
+   * Undefined is deliberately treated as evidence_first by the ingest path:
+   * a schema/read drift must make alerts quieter, never wider.
+   */
+  announcement_mode?: "manual" | "evidence_first";
   horizon_bars: number;
   params: Record<string, unknown>;
 }

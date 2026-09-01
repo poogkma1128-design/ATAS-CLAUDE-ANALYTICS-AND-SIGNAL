@@ -12,7 +12,8 @@ import { runRules } from "./rules/index.ts";
 import { describeEvidence } from "./evidence.ts";
 import { buildPlan } from "./plan.ts";
 import { sendSignal, telegramConfig } from "./telegram.ts";
-import { Overrides, type OverrideRow } from "./overrides.ts";
+import { type OverrideRow, Overrides } from "./overrides.ts";
+import { AnnouncementEligibility } from "./announcement_policy.ts";
 
 /** Enough history for every rule's lookback, with room to spare. */
 const HISTORY_BARS = 50;
@@ -88,6 +89,12 @@ export async function ingest(
   const instrumentId = await upsertInstrument(supabase, payload);
   const rules = await loadRules(supabase);
   const overrides = await loadOverrides(supabase, instrumentId, payload.timeframe);
+  const announcementEligibility = await loadAnnouncementEligibility(
+    supabase,
+    payload.symbol.trim(),
+    payload.timeframe,
+    rules,
+  );
   const tickSize = payload.tickSize;
 
   // Oldest first, so a request carrying several bars builds history in order.
@@ -116,6 +123,7 @@ export async function ingest(
     { instrumentId, timeframe: payload.timeframe },
     rules,
     overrides,
+    announcementEligibility,
     prepared,
     barIds,
     tickSize,
@@ -178,7 +186,9 @@ async function upsertInstrument(
 async function loadRules(supabase: SupabaseClient): Promise<RuleRow[]> {
   const { data, error } = await supabase
     .from("rules")
-    .select("key, name, enabled, telegram_enabled, horizon_bars, params")
+    .select(
+      "key, name, enabled, telegram_enabled, announcement_mode, horizon_bars, params",
+    )
     .eq("enabled", true);
 
   if (error) throw new Error(`rules load failed: ${error.message}`);
@@ -298,6 +308,7 @@ async function evaluateBars(
   scope: { instrumentId: string; timeframe: string },
   rules: RuleRow[],
   overrides: Overrides,
+  announcementEligibility: AnnouncementEligibility,
   prepared: PreparedBar[],
   barIds: number[],
   tickSize: number,
@@ -365,7 +376,18 @@ async function evaluateBars(
         hold_bars: plan.holdBars,
         // Recorded on the row rather than looked up when announcing, so the
         // history says what was actually taken even after the setting changes.
-        muted: overrides.isMuted(signal.ruleKey, signal.direction),
+        muted: overrides.isMuted(signal.ruleKey, signal.direction) ||
+          !announcementEligibility.allows(
+            rule ?? {
+              key: signal.ruleKey,
+              name: signal.ruleKey,
+              enabled: true,
+              telegram_enabled: false,
+              horizon_bars: 10,
+              params: {},
+            },
+            signal.direction,
+          ),
       });
     }
 
@@ -374,6 +396,47 @@ async function evaluateBars(
   }
 
   return rows;
+}
+
+/**
+ * Reads the standing evidence gate once per ingest batch. A failed read must
+ * never discard market data, but it must make evidence-first alerts quiet: a
+ * temporary database error is not evidence that a setup is ready to announce.
+ */
+async function loadAnnouncementEligibility(
+  supabase: SupabaseClient,
+  symbol: string,
+  timeframe: string,
+  rules: RuleRow[],
+): Promise<AnnouncementEligibility> {
+  if (!rules.some((rule) => rule.announcement_mode !== "manual")) {
+    return AnnouncementEligibility.fromProven([]);
+  }
+
+  const { data, error } = await supabase
+    .from("setup_stability")
+    .select("rule_key, direction")
+    .eq("symbol", symbol)
+    .eq("timeframe", timeframe)
+    .eq("verdict", "proposable")
+    .eq("proposal", "keep");
+
+  if (error) {
+    console.error(
+      "announcement evidence load failed; evidence-first alerts muted:",
+      error.message,
+    );
+    return AnnouncementEligibility.unavailable();
+  }
+
+  return AnnouncementEligibility.fromProven(
+    (data ?? []).filter((row) =>
+      row.direction === "long" || row.direction === "short"
+    ) as {
+      rule_key: string;
+      direction: "long" | "short";
+    }[],
+  );
 }
 
 function asHistoryBar({ bar, pocPrice }: PreparedBar): HistoryBar {
@@ -446,7 +509,9 @@ async function persistSignals(
       onConflict: "bar_id,rule_key,direction",
       ignoreDuplicates: true,
     })
-    .select("id, seq, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
+    .select(
+      "id, seq, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars",
+    );
 
   if (error) throw new Error(`signal insert failed: ${error.message}`);
 
@@ -483,9 +548,7 @@ async function announce(
 
     const messageId = await sendSignal(cfg, {
       signalId: signal.id as string,
-      seq: signal.seq === null || signal.seq === undefined
-        ? null
-        : Number(signal.seq),
+      seq: signal.seq === null || signal.seq === undefined ? null : Number(signal.seq),
       ruleName: rule.name,
       ruleKey: rule.key,
       direction: signal.direction as "long" | "short",
