@@ -18,9 +18,9 @@
 
 | อะไร | ค่า |
 |---|---|
-| branch ที่ทำงานอยู่ | `codex/confidence-v2-shadow` (push ขึ้น GitHub แล้ว; GitHub connector ของเซสชันนี้ไม่มีสิทธิ์สร้าง PR) |
+| branch ที่ทำงานอยู่ | `codex/confidence-v2-shadow` (push ถึง `ab02dd7` แล้ว; GitHub connector ของเซสชันนี้ไม่มีสิทธิ์สร้าง PR) |
 | แตกจาก / merge กลับเข้า | `claude/form-signal-telegram-rz8am1` (branch หลักของ repo นี้) |
-| งานถัดไป | deploy `ingest` ที่มี v2 snapshot แล้วตรวจสัญญาณใหม่/ผลลัพธ์ตาม §5.20; **ห้าม**เปิดเป็นตัวกรองหรือเรียกคะแนนเป็น % |
+| งานถัดไป | รอ cohort v2 ปิดผลตาม §5.20; merge PR เพื่อขึ้น Dashboard/เอกสารเท่านั้น — `ingest v15` เก็บ snapshot จริงอยู่แล้ว; **ห้าม**เปิดเป็นตัวกรองหรือเรียกคะแนนเป็น % |
 | PR ล่าสุดที่ merge แล้ว | #44 (`claude/prop-trading-signals-priority-gtwenb` → branch หลัก); #41/#42 คือประวัติของ Speed of Tape/backtest v6 |
 
 **ของที่ deploy ก่อนงานนี้** ตรงกับ repo (`ingest` v14 · `backtest` **v6** · migration ถึง 0028)
@@ -29,8 +29,9 @@
 **อัปเดต Confidence v2 — อ่าน §5.20 ก่อนทำเรื่อง confidence ต่อ:** migration **0029**
 (`confidence_v2_progress` view) และ `ingest` **v15** ขึ้น production แล้ว. Endpoint ผ่าน 405/401
 และ feed จริงเวลา **09:10 UTC** สร้าง v2 snapshot 4 แถวโดย `error = null`. โค้ด/หน้า Dashboard v2
-อยู่ใน local commit นี้และยังต้อง push/merge เพื่อขึ้นเว็บ. Telegram และค่า `signals.confidence` เดิม
-**ยังไม่เปลี่ยน**.
+และเอกสารอยู่บน remote branch `codex/confidence-v2-shadow` แล้ว แต่ยังต้องสร้าง/merge PR เพื่อขึ้น
+Vercel production; การ merge นี้ **ไม่กระทบการสร้าง signal สด**. Telegram และค่า
+`signals.confidence` เดิม **ยังไม่เปลี่ยน**.
 
 **สิ่งที่ยังไม่ได้ทำคือการกวาดค่าเอง** (§8.6 ขั้น 4–5) อ่าน **§8.6** ก่อนอย่างอื่น
 มันมีแผนครบทั้งหมด: ตัวติดที่แก้ไปแล้ว · เหตุผลที่ยังไม่กวาด `delta_flip` ·
@@ -1872,6 +1873,38 @@ PR/Handoff ก่อนทำ. ไม่มีคำว่า “user ขอแ�
 - “คะแนนนี้แม่นไหม/เปิด Telegram ได้ไหม” → **SQL + forward result + เจ้าของ**; Claude ตรวจ bias,
   GPT ตรวจ implementation. หากยังไม่มี cohort ปิดผล คำตอบเดียวคือ **ยังตัดสินไม่ได้**.
 - “คำนวณผลกำไร/ความเสี่ยง” → **database evaluator เท่านั้น**; AI อธิบาย query ได้ แต่ห้ามแทนที่มัน.
+
+### 5.22 อะไรต้อง push/deploy เพื่อให้สัญญาณทำงานจริง และอะไรทำทีหลังได้
+
+**คำสำคัญ:** `git push` เก็บ source และเปิดทางให้ review/merge; มัน **ไม่**เปลี่ยน Supabase
+Edge Function ที่รับ signal อยู่. การเปลี่ยน logic สัญญาณจริงต้อง deploy `ingest` แยกต่างหาก.
+ส่วน merge เข้า `claude/form-signal-telegram-rz8am1` จะทำให้ Vercel สร้าง **หน้าเว็บ** ใหม่เท่านั้น
+ไม่ใช่ตัวประมวลผล signal.
+
+| ส่วน | ต้องมีเพื่อสร้าง/รับ signal สดไหม | ต้องทำเมื่อมีการเปลี่ยนส่วนนี้ | สถานะปัจจุบัน |
+|---|---|---|---|
+| ATAS indicator ที่ส่ง payload พร้อม `INGEST_TOKEN` | **ต้องมี** | build/install indicator และตั้ง endpoint/token ให้ตรง; ไม่ใช่ Git push อย่างเดียว | ใช้งานอยู่ — feed จริงเข้า 3 POST หลัง `ingest v15` |
+| Supabase `ingest` + shared rules ที่มัน import | **ต้องมี** สำหรับ logic, การเขียน `signals`, และ Telegram path | push เพื่อเก็บ source แล้ว deploy Edge Function **พร้อมไฟล์ dependency ครบชุด**; ตรวจ 405 → 401 → feed จริง | **v15 production แล้ว**; v2 snapshot ถูกเก็บจริง |
+| `rule_overrides` (`enabled`, `telegram_enabled`, params) | **ต้องมี** ในการกำหนดว่าจะสร้าง/ประกาศ rule ไหน | ปรับผ่าน `/rules`/DB ได้; ปกติไม่ต้อง deploy | ค่าเดิมยังทำงาน; v2 ไม่ได้เปลี่ยน rule หรือ Telegram |
+| `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` และการเปิด `telegram_enabled` | ต้องมีเฉพาะเมื่ออยาก **รับข้อความ Telegram**; ไม่จำเป็นต่อการบันทึก signal | ตั้ง secret และเปิด rule ที่ผ่านหลักฐาน; ไม่ต้อง merge เว็บ | มีอยู่เดิม; ห้ามเปิด rule/Confidence v2 ใหม่โดยไม่มี forward evidence |
+| migration schema ที่ code ใหม่จำเป็นต้องอ่าน/เขียน | ต้องมีเมื่อ logic ต้องพึ่ง table/column/view/function ใหม่นั้น | apply migration ก่อน/พร้อม deploy ที่อ้างถึงมัน และตรวจ query | 0029 production แล้ว; เป็น view วัด cohort ไม่ใช่เงื่อนไขให้ `ingest` สร้าง signal |
+| `outcome-notify`/outcome evaluator | ไม่จำเป็นต่อการ **ส่ง signal แรก** แต่จำเป็นต่อการปิดผลและวัดว่า signal ใช้ได้จริง | deploy เฉพาะเมื่อแก้ logic outcome/notification แล้วตรวจผลลัพธ์ | แยกจาก ingest; อย่าแก้ในงาน dashboard/confidence แบบไม่มีเหตุผล |
+| `backtest` | ไม่จำเป็นต่อ signal สด | deploy เฉพาะเมื่อแก้ตัวรันการทดลอง; ห้ามมี Telegram import | v6 ใช้ยืนยัน/ทดลอง ไม่ใช่เส้นทาง live |
+| Vercel `web`/Dashboard | **ไม่จำเป็น** ต่อ signal หรือ Telegram | merge branch เข้า production branch เพื่อให้ Vercel deploy หน้า UI; ตรวจเว็บหลัง deploy | UI Confidence v2 รอ PR/merge; live ingest ไม่ต้องรอ |
+| Confidence v2 model/filter | **ไม่จำเป็น และยังห้ามใช้** | รอ cohort → offline model → shadow prediction → forward evidence → owner approval | snapshot กำลังเก็บ, `score: null` |
+| Handoff, PR, README/เอกสาร | ไม่จำเป็นต่อ runtime แต่ **บังคับสำหรับงานถือว่าจบ** | push/merge เพื่อ audit และส่งต่องาน | Handoff/PR guidance อยู่บน branch นี้ |
+
+#### สรุปการตัดสินใจแบบเร็ว
+
+- **วันนี้ต้องการให้ signal เดิมเข้าระบบและ Telegram ต่อ:** ไม่ต้อง push/merge/deploy เพิ่ม —
+  `ingest v15` production รับ feed และเก็บ v2 อยู่แล้ว.
+- **ต้องการเพิ่มหรือแก้ logic ของ rule:** ต้องทำทั้ง Git commit/push **และ** deploy `ingest`
+  ที่ bundle dependency ครบ; migration เพิ่มเฉพาะเมื่อ schema ใหม่จำเป็น. จากนั้นตรวจ 3 ชั้นก่อน
+  เปิด Telegram.
+- **ต้องการดู Dashboard v2:** สร้างและ merge PR ไป `claude/form-signal-telegram-rz8am1` เพื่อ
+  ให้ Vercel deploy; เป็นงาน visibility/audit เท่านั้น ไม่ได้เปิดสัญญาณ.
+- **ต้องการพิสูจน์คุณภาพหรือสร้าง confidence:** ยังไม่ deploy model/filter; รอ outcome ของ
+  snapshot ที่กำลังเก็บ แล้วเดินตาม §5.20.
 
 ---
 
