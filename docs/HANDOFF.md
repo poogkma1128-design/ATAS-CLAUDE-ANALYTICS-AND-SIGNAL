@@ -12,6 +12,47 @@
 
 ---
 
+## 0C. ATAS overlay visibility hotfix — REV 1.3.1 (ตรวจ: 2026-09-01 16:58 UTC)
+
+> **ให้อ่านหัวข้อนี้ก่อน §0B เมื่อติดตั้ง DLL:** แก้ปัญหาป้าย Entry/Exit เล็กจนต้องซูมและ
+> เส้น Entry/SL/TP ของหลายสัญญาณพาดเต็มกราฟ. ไม่เปลี่ยน signal logic, ingest, Telegram,
+> policy, outcome หรือ Edge Function ใด ๆ.
+
+| อะไร | สถานะ |
+|---|---|
+| Source | แก้จาก default branch commit `c7e537c`; รวมอยู่ในชุดแก้ไข REV 1.3.1 นี้ |
+| ATAS DLL | REV **1.3.1** build Release สำเร็จ 0 warning / 0 error; file/product version `1.3.1` |
+| ค่าเริ่มต้นใหม่ | `Show Entry / SL / TP lines = false`, `Overlay marker font size = 14` |
+| Production/server | ไม่ต้อง deploy และไม่มี server/database change |
+| การตรวจบนกราฟจริง | ยังต้อง Import DLL บน ATAS แล้วแนบภาพยืนยัน; session build ตรวจได้เฉพาะ compile และ runtime defaults |
+| เอกสารเพิ่ม | อัปเดต `docs/SETUP.md`; ไม่ต้องมี runbook แยกเพราะขั้นติดตั้ง/rollback อยู่ในหัวข้อนี้ |
+
+### 0C.1 สิ่งที่แก้และความหมายของเส้น
+
+1. เส้นที่มาพร้อม REV 1.3.0 คือ plan levels ของทุก signal: Entry สีเทา, SL สีแดง และ TP สีเขียว.
+   Signal ที่ยังไม่ปิดใช้ `TrendLine.IsRay = true` จึงยืดไปทางขวาและสะสมจนกราฟรก.
+2. REV 1.3.1 ยังเก็บความสามารถเดิม แต่ปิดเส้นเป็นค่าเริ่มต้น. ผู้ใช้เปิดกลับได้ด้วย
+   `Show Entry / SL / TP lines`; การเปิด/ปิดนี้เป็น presentation เท่านั้น.
+3. ป้าย Entry/Exit เพิ่มจาก 9px โปร่งใสเป็น 14px, ตัวอักษรขาว, พื้นหลังเข้มทึบ, ขอบสีตาม
+   direction/result, จัดกึ่งกลางและ offset 8px จากราคา. ข้อความระบุ `ENTRY LONG/SHORT` หรือ
+   `EXIT TP/SL/TRAIL/TIME`, sequence และราคา จึงเห็นได้โดยไม่ต้องซูมเข้า.
+4. เพิ่ม setting `Overlay marker font size` ช่วง 10–24px สำหรับจอ DPI/zoom ต่างกัน.
+
+### 0C.2 หลักฐาน, ขั้นติดตั้ง และ rollback
+
+- `dotnet build -c Release --no-restore` ผ่าน 0 warning / 0 error กับ ATAS Platform บนเครื่องนี้.
+  Reflection จาก DLL ยืนยัน `ShowOverlayPlanLines=False`, `OverlayMarkerFontSize=14` และ Revision
+  `REV 1.3.1`.
+- ติดตั้ง: ปิด ATAS → Import DLL 1.3.1 → ลบ Signal Bridge เดิมออกจากกราฟ → Add ใหม่ → ตรวจ
+  About/Revision เป็น 1.3.1. ตั้ง `Show trade overlay=true`, `Show Entry / SL / TP lines=false`,
+  marker size 14 (เพิ่มเป็น 16–18 ได้ถ้าจอความละเอียดสูง) แล้วรอ refresh หนึ่งรอบ.
+- Acceptance: ซูมออกระดับใช้งานปกติแล้วยังอ่าน ENTRY/EXIT ได้, ไม่มีเส้นแผนแนวนอนจาก indicator,
+  และ feed/Telegram ยังเดินเหมือนเดิม. ต้องเก็บ screenshot และเวลาตรวจเพิ่มในหัวข้อนี้หลังใช้จริง.
+- Rollback: ปิด `Show trade overlay` ได้ทันที หรือ Import DLL 1.3.0 กลับ. ไม่มี schema/function/web
+  ให้ rollback. หากต้องการเส้นเดิมเพียงเปิด setting plan lines โดยไม่ต้องเปลี่ยน DLL.
+
+---
+
 ## 0A. สถานะประวัติ — Evidence-first หลัง PR #48 (ตรวจ: 2026-09-01 13:45 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อนส่วนประวัติทั้งหมดด้านล่าง** เพราะบางบรรทัดก่อน §0A อธิบายสถานะ

@@ -103,6 +103,15 @@ namespace AtasSignalBridge
         [Range(20, 1000)]
         public int OverlayLookbackBars { get; set; } = 200;
 
+        [Display(Name = "Show Entry / SL / TP lines", GroupName = "Overlay", Order = 110,
+            Description = "Draw horizontal plan lines for each signal. Disabled by default to keep the chart uncluttered.")]
+        public bool ShowOverlayPlanLines { get; set; }
+
+        [Display(Name = "Overlay marker font size", GroupName = "Overlay", Order = 120,
+            Description = "Pixel size of the high-contrast Entry and Exit labels. Increase this if the labels are still too small.")]
+        [Range(10, 24)]
+        public int OverlayMarkerFontSize { get; set; } = 14;
+
         #endregion
 
         protected override void OnInitialize()
@@ -329,18 +338,22 @@ namespace AtasSignalBridge
                 var longTrade = string.Equals(item.Direction, "long", StringComparison.OrdinalIgnoreCase);
                 var tag = string.IsNullOrWhiteSpace(item.Seq?.ToString()) ? item.Id : "S" + item.Seq;
 
-                AddPlanLine(entryBar, endBar, item.Entry, Color.DimGray, 1, ray);
-                AddPlanLine(entryBar, endBar, item.Stop, Color.IndianRed, 1, ray);
-                AddPlanLine(entryBar, endBar, item.Target, Color.SeaGreen, 1, ray);
+                if (ShowOverlayPlanLines)
+                {
+                    AddPlanLine(entryBar, endBar, item.Entry, Color.DimGray, 1, ray);
+                    AddPlanLine(entryBar, endBar, item.Stop, Color.IndianRed, 1, ray);
+                    AddPlanLine(entryBar, endBar, item.Target, Color.SeaGreen, 1, ray);
+                }
+
                 AddLabel("entry-" + item.Id, entryBar, item.Entry,
-                    (longTrade ? "▲ LONG #" : "▼ SHORT #") + tag,
+                    (longTrade ? "▲ ENTRY LONG #" : "▼ ENTRY SHORT #") + tag + " @ " + item.Entry,
                     longTrade ? Color.LimeGreen : Color.IndianRed, !longTrade, tickSize);
 
                 if (hasExit && item.ExitPrice.HasValue)
                 {
                     var reason = ExitLabel(item.ExitReason);
                     AddLabel("exit-" + item.Id, exitBar, item.ExitPrice.Value,
-                        "✓ " + reason + " " + item.ExitPrice.Value,
+                        "● EXIT " + reason + " #" + tag + " @ " + item.ExitPrice.Value,
                         ExitColor(item.ExitReason), longTrade, tickSize);
                 }
             }
@@ -361,11 +374,13 @@ namespace AtasSignalBridge
                 TextPrice = price,
                 Text = text,
                 IsAbovePrice = above,
-                Textcolor = color,
-                Outlinecolor = Color.Transparent,
-                FillColor = Color.Transparent,
-                FontSize = 9,
-                AutoSize = true
+                Textcolor = Color.White,
+                Outlinecolor = color,
+                FillColor = Color.FromArgb(225, 24, 24, 24),
+                FontSize = OverlayMarkerFontSize,
+                AutoSize = true,
+                Align = DrawingText.TextAlign.Center,
+                YOffset = above ? -8 : 8
             };
         }
 
