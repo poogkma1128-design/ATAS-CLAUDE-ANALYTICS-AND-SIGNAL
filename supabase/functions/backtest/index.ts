@@ -468,12 +468,20 @@ interface ResultRow {
 }
 
 /**
- * Breaks one variant's trades down three ways.
+ * Breaks one variant's trades down four ways.
  *
  * The total is what decides whether a change is worth adopting. The per-symbol
  * split is what says whether it is a real effect or one instrument carrying it,
  * and the per-setup split is what says which rule the change actually moved —
  * a threshold can help overall while quietly ruining one setup.
+ *
+ * The fourth split crosses the last two, and exists because the other three
+ * cannot answer forbidden item 18 for a rule-level change. "No instrument may
+ * get worse" was read off the per-symbol rows, which works only while the rule
+ * being swept owns most of the trades. It no longer does: in `deploy check
+ * 0028` delta_flip was 24 of 2,398 trades, so moving its threshold and watching
+ * BTCUSDT's overall figure is looking for a one-percent change in a number the
+ * other ninety-nine percent holds still.
  */
 function resultRows(
   label: string,
@@ -530,6 +538,26 @@ function resultRows(
       row(
         { symbol: null, rule_key: ruleKey, direction },
         trades.filter((t) => t.ruleKey === ruleKey && t.direction === direction),
+      ),
+    );
+  }
+
+  // Only combinations that actually traded get a row, so a rule that never
+  // fired on one instrument stays absent rather than arriving as a row of
+  // zeros that a reader could mistake for a measured result.
+  for (
+    const key of unique(
+      trades.map((t) => `${t.symbol}|${t.ruleKey}|${t.direction}`),
+    )
+  ) {
+    const [symbol, ruleKey, direction] = key.split("|");
+    rows.push(
+      row(
+        { symbol, rule_key: ruleKey, direction },
+        trades.filter((t) =>
+          t.symbol === symbol && t.ruleKey === ruleKey &&
+          t.direction === direction
+        ),
       ),
     );
   }
