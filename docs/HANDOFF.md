@@ -130,7 +130,7 @@ allow-list ถาวรใน code:
 
 | อะไร | สถานะที่ตรวจแล้ว |
 |---|---|
-| Git source | branch `codex/cross-asset-atas-overlay`, commit `97e65a3`; push แล้วและรอเปิด/merge PR |
+| Git source | branch `codex/cross-asset-atas-overlay` push แล้วและรอเปิด/merge PR. DLL ที่ build แล้วถูกเก็บเป็น `atas-indicator/releases/AtasSignalBridge-REV-1.3.0.dll` เพื่อให้ดาวน์โหลด/import จาก GitHub ได้โดยไม่ต้อง build เอง |
 | Production schema | migration `0031_cross_asset_chart_annotations.sql` สำเร็จ: policy table, `signals.suppression_reason`, `signal_outcomes.exit_bar_id`, และ scorer ที่บันทึกแท่ง exit |
 | Edge Functions | `ingest` **v17 Active** และ `chart-annotations` **v1 Active** (custom `INGEST_TOKEN`, ไม่ใช้ public endpoint) |
 | Live path หลัง deploy | `ingest v17` ตอบ POST 200 จริงเวลา 15:05 UTC ทั้งชุด; BTCUSDT primary ยังได้ signal ใช้งาน และ NQU6 seq 2709 ถูกเก็บเป็น `muted=true`, `suppression_reason=shadow_instrument` ตาม policy |

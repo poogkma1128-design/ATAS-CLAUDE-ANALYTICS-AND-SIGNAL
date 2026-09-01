@@ -209,6 +209,13 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 (ไม่มีโฟลเดอร์ย่อยตามชื่อ .NET เพราะโปรเจกต์ตั้ง `AppendTargetFrameworkToOutputPath`
 เป็น false ไว้)
 
+### ดาวน์โหลด DLL ที่ build แล้ว
+
+ถ้าไม่ต้องการ build เอง ให้ดาวน์โหลดไฟล์ release ที่ตรวจจาก build นี้โดยตรง:
+[`AtasSignalBridge-REV-1.3.0.dll`](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/raw/refs/heads/codex/cross-asset-atas-overlay/atas-indicator/releases/AtasSignalBridge-REV-1.3.0.dll).
+หลัง Import ต้องตรวจแท็บ **About** ให้เป็น REV 1.3.0 หรือใหม่กว่าเสมอ; URL นี้ชี้ branch
+ที่รอ merge จึงอย่าใช้แทนการตรวจ revision.
+
 **อย่าก็อปไฟล์ไปวางใน `Documents\ATAS\Indicators\` — ATAS ไม่ได้อ่านโฟลเดอร์นั้น**
 ให้ใช้ปุ่ม Import ในโปรแกรมแทน:
 
