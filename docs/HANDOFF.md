@@ -11,7 +11,7 @@
 
 | อะไร | ค่า |
 |---|---|
-| branch ที่ทำงานอยู่ | `codex/confidence-v2-shadow` (local commit; GitHub app ของเซสชันนี้ถูกปฏิเสธสิทธิ์สร้าง remote ref) |
+| branch ที่ทำงานอยู่ | `codex/confidence-v2-shadow` (push ขึ้น GitHub แล้ว; GitHub connector ของเซสชันนี้ไม่มีสิทธิ์สร้าง PR) |
 | แตกจาก / merge กลับเข้า | `claude/form-signal-telegram-rz8am1` (branch หลักของ repo นี้) |
 | งานถัดไป | deploy `ingest` ที่มี v2 snapshot แล้วตรวจสัญญาณใหม่/ผลลัพธ์ตาม §5.20; **ห้าม**เปิดเป็นตัวกรองหรือเรียกคะแนนเป็น % |
 | PR ล่าสุดที่ merge แล้ว | #44 (`claude/prop-trading-signals-priority-gtwenb` → branch หลัก); #41/#42 คือประวัติของ Speed of Tape/backtest v6 |
@@ -1718,7 +1718,7 @@ Telegram ตามพฤติกรรมเดิม. งานนี้จึ
 |---|---|---|
 | migration 0029 `confidence_v2_progress` | ✅ production แล้ว | เป็น view อ่านอย่างเดียว; ไม่แตะข้อมูลเดิม/RLS/security policy |
 | `ingest` ที่เขียน snapshot v2 | ✅ production `v15` + feed จริงผ่าน | 3 POST เวลา 09:10 UTC ไม่มี error; เกิด v2 snapshot 4 แถว |
-| Dashboard REV 1.3.1 | อยู่ใน local commit นี้ | แสดงสถานะ Shadow ใน `/signals/[id]` และ `/stats`; ต้อง push/merge ก่อนจะเห็นบน production |
+| Dashboard REV 1.3.1 | อยู่บน remote branch นี้ | แสดงสถานะ Shadow ใน `/signals/[id]` และ `/stats`; ต้องสร้าง/merge PR ก่อนจะเห็นบน production |
 | Telegram / rule params / filter | **ไม่เปลี่ยน** | นี่คือขอบเขตตั้งใจของ v2 ระยะนี้ |
 
 #### contract ของ snapshot (ห้ามเปลี่ยนเงียบ ๆ)
