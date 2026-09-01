@@ -5,6 +5,7 @@ import { Nav } from "@/components/Nav";
 import { DirectionTag } from "@/components/DirectionTag";
 import { OutcomeTag } from "@/components/OutcomeTag";
 import { FootprintLadder } from "@/components/FootprintLadder";
+import { ConfidenceV2Status } from "@/components/ConfidenceV2Status";
 import { num, percent, shortTime, signedTicks } from "@/lib/format";
 import type { ClusterLevelRow } from "@/lib/types";
 
@@ -102,7 +103,7 @@ export default async function SignalDetailPage(
 
         {/* Headline numbers: single values, so they are stat tiles, not a chart. */}
         <div className="mt-5 grid grid-cols-2 gap-3 sm:grid-cols-4">
-          <Tile label="ความมั่นใจ" value={percent(num(signal.confidence))} />
+          <Tile label="ความแรงเดิม (ยังไม่สอบเทียบ)" value={percent(num(signal.confidence))} />
           <Tile
             label="ผลลัพธ์"
             value={<OutcomeTag status={outcome?.status} pnlTicks={num(outcome?.pnl_ticks)}
@@ -111,6 +112,8 @@ export default async function SignalDetailPage(
           <Tile label="ไปได้ไกลสุด" value={`${signedTicks(num(outcome?.mfe_ticks))} ticks`} />
           <Tile label="สวนไปสุด" value={`-${num(outcome?.mae_ticks)} ticks`} />
         </div>
+
+        <ConfidenceV2Status payload={payload} />
 
         {signal.stop_price !== null && (
           <div className="card mt-5 p-4">

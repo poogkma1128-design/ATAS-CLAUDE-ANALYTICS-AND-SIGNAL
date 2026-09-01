@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-08-31 (อัปเดตหลังเพิ่มกฎ prop trading 3 ตัวแบบปิดเสียง)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-01 (เพิ่ม Confidence v2 แบบ Shadow)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -11,13 +11,19 @@
 
 | อะไร | ค่า |
 |---|---|
-| branch ที่ทำงานอยู่ | `claude/prop-trading-signals-priority-gtwenb` |
+| branch ที่ทำงานอยู่ | `codex/confidence-v2-shadow` (local commit; GitHub app ของเซสชันนี้ถูกปฏิเสธสิทธิ์สร้าง remote ref) |
 | แตกจาก / merge กลับเข้า | `claude/form-signal-telegram-rz8am1` (branch หลักของ repo นี้) |
-| งานถัดไป | ตัดสินสองเรื่องที่หลักฐานครบแล้ว: ปิดฝั่ง long ของ `speed_of_tape` (§5.18) และ confidence (§5.19) |
-| PR ล่าสุดที่ merge แล้ว | #41 (Speed of Tape + §5.16/§5.17) · #42 (เตรียมกวาดค่า + `backtest` v6) |
+| งานถัดไป | deploy `ingest` ที่มี v2 snapshot แล้วตรวจสัญญาณใหม่/ผลลัพธ์ตาม §5.20; **ห้าม**เปิดเป็นตัวกรองหรือเรียกคะแนนเป็น % |
+| PR ล่าสุดที่ merge แล้ว | #44 (`claude/prop-trading-signals-priority-gtwenb` → branch หลัก); #41/#42 คือประวัติของ Speed of Tape/backtest v6 |
 
-**ของที่ deploy แล้วทั้งหมดตรงกับ repo** (`ingest` v14 · `backtest` **v6** · migration ถึง 0028)
-**และงานทั้งหมดถึง §8.6 ขั้น 3 merge เข้า branch หลักแล้ว** ไม่มีอะไรค้างอยู่ใน PR
+**ของที่ deploy ก่อนงานนี้** ตรงกับ repo (`ingest` v14 · `backtest` **v6** · migration ถึง 0028)
+และงานทั้งหมดถึง §8.6 ขั้น 3 merge เข้า branch หลักแล้ว ไม่มีอะไรค้างอยู่ใน PR
+
+**อัปเดต Confidence v2 — อ่าน §5.20 ก่อนทำเรื่อง confidence ต่อ:** migration **0029**
+(`confidence_v2_progress` view) และ `ingest` **v15** ขึ้น production แล้ว. Endpoint ผ่าน 405/401
+และ feed จริงเวลา **09:10 UTC** สร้าง v2 snapshot 4 แถวโดย `error = null`. โค้ด/หน้า Dashboard v2
+อยู่ใน local commit นี้และยังต้อง push/merge เพื่อขึ้นเว็บ. Telegram และค่า `signals.confidence` เดิม
+**ยังไม่เปลี่ยน**.
 
 **สิ่งที่ยังไม่ได้ทำคือการกวาดค่าเอง** (§8.6 ขั้น 4–5) อ่าน **§8.6** ก่อนอย่างอื่น
 มันมีแผนครบทั้งหมด: ตัวติดที่แก้ไปแล้ว · เหตุผลที่ยังไม่กวาด `delta_flip` ·
@@ -1696,6 +1702,122 @@ WR ตกเป็นเส้นตรง 57.5% → 49.1% เมื่อ confi
 
 ---
 
+### 5.20 Confidence v2 — เริ่มเก็บหลักฐานแบบ Shadow แล้ว (ยังไม่ใช่คะแนน)
+
+#### สถานะที่ต้องรู้ก่อนทำต่อ
+
+`signals.confidence` เดิมยังเป็น **ความแรงจากสูตรเขียนมือ** ไม่ใช่ probability และยังถูกส่ง
+Telegram ตามพฤติกรรมเดิม. งานนี้จึงไม่สร้างสูตร 2.0 ที่เดาใหม่ แต่เพิ่ม snapshot ที่ตรึงข้อมูล
+**ณ เวลาที่ signal เกิด** ไว้ใต้ `signals.payload.confidenceV2` เพื่อให้โมเดลรุ่นต่อไปตรวจสอบ
+ย้อนกลับได้. ข้อมูลเก่า 1,313 แถวไม่มี snapshot นี้และ **ไม่ backfill** เพราะไม่มีทางพิสูจน์ได้
+ว่าฟีเจอร์ทุกตัวเป็นค่าที่รู้ได้ก่อนผลลัพธ์จริง.
+
+สถานะ deploy ณ เวลาที่เขียน Handoff:
+
+| ส่วน | สถานะ | ความหมาย |
+|---|---|---|
+| migration 0029 `confidence_v2_progress` | ✅ production แล้ว | เป็น view อ่านอย่างเดียว; ไม่แตะข้อมูลเดิม/RLS/security policy |
+| `ingest` ที่เขียน snapshot v2 | ✅ production `v15` + feed จริงผ่าน | 3 POST เวลา 09:10 UTC ไม่มี error; เกิด v2 snapshot 4 แถว |
+| Dashboard REV 1.3.1 | อยู่ใน local commit นี้ | แสดงสถานะ Shadow ใน `/signals/[id]` และ `/stats`; ต้อง push/merge ก่อนจะเห็นบน production |
+| Telegram / rule params / filter | **ไม่เปลี่ยน** | นี่คือขอบเขตตั้งใจของ v2 ระยะนี้ |
+
+#### contract ของ snapshot (ห้ามเปลี่ยนเงียบ ๆ)
+
+ทุก signal ใหม่ที่ผ่าน `runRules()` หลัง deploy จะได้โครงสร้างนี้:
+
+```json
+{
+  "modelVersion": "v2-shadow-1",
+  "mode": "shadow",
+  "target": "positive_r_after_horizon",
+  "score": null,
+  "scoreReason": "no_calibrated_model",
+  "features": { "shared": { "...": "..." }, "rule": { "...": "..." } }
+}
+```
+
+`score: null` เป็นข้อป้องกัน ไม่ใช่ค่าที่ขาดหาย: ไม่มีโมเดลที่สอบเทียบแล้วจึงห้าม UI,
+Telegram หรือ downstream ใดตีความเป็นเปอร์เซ็นต์. `modelVersion` ระบุ **schema ของ feature**
+ให้ผู้สร้างโมเดลในอนาคตอ้างอิงได้; หากเพิ่ม/ลบ/เปลี่ยนความหมาย feature ต้องสร้าง version ใหม่
+เช่น `v2-shadow-2` ไม่ฝืนรวมกับ cohort เดิม.
+
+`shared` เก็บเฉพาะข้อมูล ณ signal time: legacy score, range/body/ตำแหน่ง close, volume และ
+อัตราเทียบ median ของ history, ticks และอัตราเทียบ median, delta/absolute delta, จำนวนแท่ง
+history และ price-action context (sweep/zone/structure). `rule` ใช้ whitelist เท่านั้น:
+
+| rule | features ของ rule |
+|---|---|
+| `absorption` | `observedMultiple`, `rejectionTicks`, `level.delta` |
+| `stacked_imbalance` | `stackLength`, `avgRatio` |
+| `delta_divergence` | `delta`, `minDelta`, `maxDelta` |
+| `poc_shift` | `totalShiftTicks`, `pocVolumeShare`, `isHvn` |
+| `delta_flip` | `delta`, `minDelta`, `maxDelta`, `level.ageBars`, `levelDistanceShare` |
+| `lvn` | `observedShare`, `closeDistanceShare`, `levelsInProfile` |
+| `naked_poc` | `level.ageBars`, `closedBackShare`, `nakedInWindow`, `reachedThisBar` |
+| `speed_of_tape` | `observedRatio`, `closeShare`, `tradeSizeRatio`, `trades` |
+
+`history` ที่ใช้ median เป็นแท่ง **ก่อน** signal bar และ `signal_outcomes` ไม่ถูกอ่านใน
+`collectConfidenceV2()` จึงไม่มี look-ahead. ห้ามใส่ prose, outcome, announced state หรือ field
+ใหม่จาก payload เข้าโมเดลโดยไม่แก้ contract และ version.
+
+#### Dashboard และ view วัดอะไร
+
+- `/signals/[id]` เปลี่ยนป้ายเลขเดิมเป็น **“ความแรงเดิม (ยังไม่สอบเทียบ)”** และแสดง card
+  `Confidence v2 · Shadow` พร้อมจำนวน features; signal เก่าจะแจ้งตรง ๆ ว่าเกิดก่อน v2.
+- `/stats` เพิ่มตาราง cohort ต่อ `model_version × rule × direction` จาก
+  `public.confidence_v2_progress`: เก็บแล้ว, ปิดผลแล้ว, จำนวน symbol/session, R ต่อไม้, win rate
+  และ verdict. View นับเฉพาะ signal ที่มี snapshot v2 และ outcome ที่ resolve แล้ว.
+- verdict `ready for offline calibration` แปลเพียง **>=30 outcome, >=2 symbol, >=3 session**
+  ใน cell นั้นพอให้ *เริ่มทดลอง offline*; ไม่ใช่เกณฑ์อนุมัติ filter. <30/2/3 จะแสดงว่าขาดอะไร.
+
+#### Verification ณ จุดส่งต่อ
+
+- `web` REV 1.3.1: `npm run typecheck` และ `npm run build` **ผ่าน**. Build เตือนว่าเครื่องมี
+  lockfile นอก repo อีกตัว จึงเดา workspace root ได้ไม่ตรง; เป็น warning ของเครื่อง build ไม่ใช่
+  TypeScript/Next error.
+- source `confidence_v2.ts` และ `rules/index.ts` ผ่าน TypeScript compile check แบบ local.
+  เพิ่ม test `supabase/functions/_shared/confidence_v2_test.ts` แล้ว แต่เครื่องที่ส่งต่องานนี้
+  **ไม่มี Deno** จึงยังไม่ได้รัน `deno task test/check/rev:check`; ต้องรันสามคำสั่งนั้นใน CI
+  หรือเครื่องที่ติดตั้ง Deno ก่อน merge/deploy.
+- migration ปรากฏใน production เป็น `20260901082918 confidence_v2_shadow`; `ingest v15` Active,
+  `verify_jwt: false` เท่าเดิม และ bundle ยืนยันว่ามี `_shared/confidence_v2.ts`. GET ได้ **405**;
+  POST ที่ไม่มี token ได้ **401**. จากนั้น feed จริงเวลา **2026-09-01 09:10 UTC** เข้า GC/NQU6/MNQU6
+  3 POST (`ingest_log.error = null`) สร้าง signal ใหม่ 4 แถวที่มี `modelVersion: v2-shadow-1`,
+  `mode: shadow`, `score: null`; `confidence_v2_progress` ขึ้น 3 cohort (ยัง `resolved = 0` ตาม horizon).
+- Supabase advisors หลัง DDL ไม่มี finding ที่ชี้มาที่ view ใหม่. Finding เดิมยังค้างอยู่:
+  `feed_alerts`/`runner_tokens` มี RLS แต่ไม่มี policy, mutable search path ของ
+  `claim_outcome_notifications`, `pg_net` อยู่ `public`, leaked-password protection ปิด, และ
+  performance warnings ที่ `rule_overrides`/`rule_snapshots`. อย่าปิดหรือแก้ในงาน confidence
+  แบบเดาสุ่ม — เป็นงาน security แยกที่ต้องตรวจผลกระทบ.
+
+#### ลำดับที่ผู้รับงานต้องทำ — ห้ามข้ามด่าน
+
+1. ✅ Deploy `ingest v15` ด้วยไฟล์ครบชุดรวม `_shared/confidence_v2.ts` และ registry ที่ import มัน
+   (`verify_jwt: false` เหมือน ingest เดิม เพราะ handler ตรวจ `INGEST_TOKEN` เอง). MCP รายงาน 20
+   source files เพราะ `types.ts` เป็น type-only import และ Deno bundler ตัดออก; ไม่ใช่ไฟล์ตกหล่น.
+2. ✅ ตรวจครบ 3 ชั้นแล้ว: token มั่ว → 401, `GET` → 405, feed จริง 3 POST หลัง deploy ไม่มี error
+   และสร้าง v2 snapshot 4 แถว. ตรวจซ้ำได้ด้วย
+   `select * from public.confidence_v2_progress order by captured_signals desc;`.
+3. ปล่อยให้ cohort v2 ปิดผลตาม horizon. **ไม่**เอา 1,313 แถวเก่าที่ไม่มี snapshot มารวม;
+   **ไม่**ยก verdict ว่า `ready` ให้กลายเป็นคะแนนหรือ filter.
+4. เมื่อ cohort พอ: export feature snapshot + R, split ตามเวลา (train ก่อน, holdout หลัง),
+   ตรวจ rule×direction และ instrument แยก, report อย่างน้อย calibration curve, Brier/log loss,
+   R/ไม้, drawdown และจำนวนไม้. รุ่นโมเดลต้องมี `model_version` ที่ immutable.
+5. เก็บโมเดลที่เลือกใน **shadow อีกช่วงหนึ่ง**: บันทึก prediction ของมันแต่ยังไม่เปลี่ยน Telegram,
+   แล้วเทียบเฉพาะ signal ที่เกิด *หลัง* model version นั้น. ผ่าน forward test และเจ้าของอนุมัติ
+   ชัดเจนเท่านั้น จึงพิจารณา filter/ข้อความใหม่ได้.
+
+#### ข้อห้ามเพิ่มสำหรับ confidence
+
+- อย่าเรียก `legacyScore` หรือค่าใดใน snapshot ว่า confidence percentage.
+- อย่า backfill v2 จาก payload เก่าแล้วผสมกับ data ใหม่โดยไม่ทำ reproducible replay ที่พิสูจน์
+  signal time ได้.
+- อย่าเปลี่ยน Telegram เพียงเพราะ Dashboard มีคำว่า “พร้อมสร้างโมเดล offline”.
+- อย่าตรึง threshold จาก win rate อย่างเดียว: เป้าหมายคือ R หลัง horizon และต้องดู drawdown/
+  sample size/instrument เสมอ.
+
+---
+
 ## 6. ค่า params ปัจจุบัน (แก้ได้ที่ `/rules` ไม่ต้อง deploy)
 
 ทุกกฎมีชุดนี้เหมือนกัน:
@@ -1770,7 +1892,7 @@ WR ตกเป็นเส้นตรง 57.5% → 49.1% เมื่อ confi
 | L | **ตรวจ deploy ชั้น 3 ของ `ingest` v14** | ✅ **ผ่านแล้ว 2026-09-01** — feed กลับมา 23:54 · 31 แถวหลัง deploy · error 1 แถวเดียวคือ `JWT issued at future` (ข้อ 3.12 ไม่ใช่ของใหม่) และ NQU6 ส่งสำเร็จต่อทันที 10 แถวรวด · `speed_of_tape` ยิงจริง **15 สัญญาณ ประกาศ 0** = การปิดเสียงพิสูจน์แล้วด้วยสัญญาณจริง ไม่ใช่ผ่านแบบว่างเปล่า |
 | M | **ตัดสินชะตา `speed_of_tape`** | **หลักฐานครบแล้ว รอเจ้าของกด** — กวาดครบสามพารามิเตอร์ **ฝั่ง long ติดลบทั้ง 9 ค่าที่วัด** ไม่มีค่าไหนช่วยได้ (ข้อ 5.18) ข้อเสนอ: ปิดฝั่ง long ด้วย `rule_overrides` เก็บ short ไว้ดูต่อ หรือปิดทั้งกฎ |
 | O | **ทำให้ `backtest` เขียนผลทีละ variant** | ค้างอยู่ — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) |
-| P | **confidence ไม่มีความหมาย** | ค้างอยู่ — วัดแล้ว corr กับ R ≈ 0 ทุกกฎใหญ่ (ข้อ 5.19) **ต้องตัดสินว่าจะถอดออกจากข้อความ Telegram หรือเขียนกำกับว่ายังพิสูจน์ไม่ได้** ห้ามใช้กรอง |
+| P | **confidence ไม่มีความหมาย** | v2 Shadow ถูกสร้างแล้ว (ข้อ 5.20): migration 0029 อยู่ production, snapshot/dashboard อยู่ใน branch นี้ แต่ **ต้อง deploy ingest ก่อนจึงเริ่มเก็บได้**. ค่าเดิม/Telegram ยังอาจทำให้เข้าใจผิด: เจ้าของยังต้องตัดสินว่าจะถอดหรือเขียนกำกับ; ห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
@@ -2112,7 +2234,7 @@ instrument จากผลลัพธ์ที่ตัวรันคืนม
 #   curl -fsSL https://deno.land/install.sh | DENO_INSTALL=/opt/deno sh -s -- -y
 export PATH=/opt/deno/bin:$PATH
 deno task check
-deno task test          # ปัจจุบัน 124 tests ผ่านหมด
+deno task test          # ก่อน change นี้ 124 ผ่าน; เพิ่ม confidence_v2_test.ts แล้ว ต้องรันใหม่ (คาด 125)
 deno task rev:check     # fail ถ้าแก้โค้ดของส่วนไหนแล้วลืมขยับ REV (ดู 3.8)
 
 # เว็บ
@@ -2122,7 +2244,7 @@ cd web && npm run build
 **Deploy edge function:** ใช้ `mcp__Supabase__deploy_edge_function` ต้องส่ง **ทุกไฟล์**
 ที่ `ingest/index.ts` import ถึง (โดย transitive) ไม่งั้นได้ 400 "Entrypoint path does not exist"
 
-รายการไฟล์ของ `ingest`: `ingest/index.ts`, `_shared/{ingest,plan,liquidity,price_action,telegram,outcomes,overrides,types,util,evidence}.ts`,
+รายการไฟล์ของ `ingest` สำหรับ Confidence v2: `ingest/index.ts`, `_shared/{ingest,confidence_v2,plan,liquidity,price_action,telegram,outcomes,overrides,types,util,evidence}.ts`,
 `_shared/rules/{index,stacked_imbalance,delta_divergence,absorption,poc_shift}.ts`
 
 รายการไฟล์ของ `backtest`: `backtest/index.ts`, `_shared/{backtest,plan,liquidity,price_action,types,util}.ts`,
@@ -2145,7 +2267,7 @@ scripts\update-indicator.bat        (ดับเบิลคลิกก็ไ�
 
 ```
 atas-indicator/AtasSignalBridge/    C# indicator (build บน Windows เท่านั้น)
-supabase/migrations/                0001–0026
+supabase/migrations/                0001–0029
 supabase/functions/
   ingest/index.ts       HTTP shell ของ pipeline สด
   outcome-notify/index.ts  endpoint สำรอง (v4 ตรงกับ repo แล้ว ดู 7.3)
@@ -2153,6 +2275,7 @@ supabase/functions/
   feed-watch/index.ts   เตือนเมื่อ feed เงียบ/กลับมา (pg_cron ทุก 5 นาที)
   _shared/
     ingest.ts        pipeline หลัก (batch write)
+    confidence_v2.ts Shadow snapshot ที่ตรึง feature ณ signal time; score เป็น null โดยตั้งใจ (5.20)
     plan.ts          trade plan
     liquidity.ts     volume gate
     price_action.ts  structure/BOS/CHoCH/sweep/zone (เก็บอย่างเดียว)
@@ -2165,6 +2288,7 @@ supabase/functions/
     outcomes.ts      reply ผลลัพธ์
 web/app/experiments/                หน้าแสดงผลทดลอง + ปุ่มย้อนค่า
 web/app/stats/                      สถิติ + settings_effect + price_action_edge (5.9, 8.1)
+web/components/ConfidenceV2Status.tsx  card บอกสถานะ Shadow ของแต่ละ signal (5.20)
 docs/queries/                       คิวรีวิเคราะห์ที่ใช้ซ้ำได้ (ดู 8.3)
 scripts/update-indicator.{ps1,bat}  อัปเดต DLL (พิมพ์ REV + commit ให้เทียบกับแท็บ About)
 scripts/rev-check.ts                ตัวเช็ก REV — deno task rev:check (ดู 3.8)
@@ -2214,3 +2338,6 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
     (pullback หรืออะไรก็ตามที่ต้องรอราคา) จะโชว์ R/ไม้ ที่สวยขึ้นเสมอ เพราะไม้ที่หายไปคือไม้ที่
     วิ่งไปเลยไม่ย้อนกลับมา ซึ่งเป็นไม้ที่กำไร — `pullback 0.50` ทำ R/ไม้ ดีกว่า baseline 7%
     ขณะที่ได้เงินน้อยลง 43% (ข้อ 5.13) · คู่กับข้อ 13 ที่เป็นด้านกลับของเหรียญเดียวกัน
+21. **อย่าใช้ Confidence v2 เป็นคะแนนหรือ filter ก่อนผ่าน forward test** — `v2-shadow-1`
+    เก็บ feature เพื่อสร้างหลักฐานเท่านั้น (`score: null`) และ verdict ของ view คือ permission
+    ให้เริ่มทดลอง offline ไม่ใช่ permission ให้แตะ Telegram/กฎ (ข้อ 5.20)

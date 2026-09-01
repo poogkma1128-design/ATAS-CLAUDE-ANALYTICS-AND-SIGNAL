@@ -2,6 +2,7 @@ import type { RuleContext, RuleEvaluator, RuleRow, RuleSignal } from "../types.t
 import { sortLevels } from "../util.ts";
 import { hasEnoughLiquidity } from "../liquidity.ts";
 import { priceActionContext } from "../price_action.ts";
+import { collectConfidenceV2 } from "../confidence_v2.ts";
 import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 import { evaluate as deltaDivergence } from "./delta_divergence.ts";
 import { evaluate as absorption } from "./absorption.ts";
@@ -67,10 +68,14 @@ export function runRules(
     try {
       const signals = evaluator(ruleCtx);
       for (const signal of signals) {
+        const payload = { ...signal.payload, priceAction };
         out.push({
           ...signal,
           ruleKey: rule.key,
-          payload: { ...signal.payload, priceAction },
+          payload: {
+            ...payload,
+            confidenceV2: collectConfidenceV2(rule.key, ruleCtx, signal, priceAction),
+          },
         });
       }
     } catch (error) {
