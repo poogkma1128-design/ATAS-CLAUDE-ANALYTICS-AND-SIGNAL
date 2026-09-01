@@ -13,12 +13,18 @@
 |---|---|
 | branch ที่ทำงานอยู่ | `claude/prop-trading-signals-priority-gtwenb` |
 | แตกจาก / merge กลับเข้า | `claude/form-signal-telegram-rz8am1` (branch หลักของ repo นี้) |
-| PR ที่ **ยังเปิดค้างอยู่** | **#42** (ร่าง) — commit `6544e2c` · `c7aab59` · `9e5ee6e` |
 | งานถัดไป | **ข้อ 8.6 ขั้นที่ 4** — รันการทดลอง 3 ชุด แล้วเขียน §5.18 |
+| PR ล่าสุดที่ merge แล้ว | #41 (Speed of Tape + §5.16/§5.17) · #42 (เตรียมกวาดค่า + `backtest` v6) |
 
 **ของที่ deploy แล้วทั้งหมดตรงกับ repo** (`ingest` v14 · `backtest` **v6** · migration ถึง 0028)
-**แต่ยังมีงานค้างกลางทาง** — ต่างจากที่หัวข้อนี้เคยเขียนไว้: PR #42 ยังไม่ merge
-และการกวาดค่าตาม §8.6 ยังไม่ได้รัน อ่าน **§8.6** ก่อนอย่างอื่น มันมีแผนครบทั้งหมด
+**และงานทั้งหมดถึง §8.6 ขั้น 3 merge เข้า branch หลักแล้ว** ไม่มีอะไรค้างอยู่ใน PR
+
+**สิ่งที่ยังไม่ได้ทำคือการกวาดค่าเอง** (§8.6 ขั้น 4–5) อ่าน **§8.6** ก่อนอย่างอื่น
+มันมีแผนครบทั้งหมด: ตัวติดที่แก้ไปแล้ว · เหตุผลที่ยังไม่กวาด `delta_flip` ·
+ค่าที่จะกวาดทั้ง 3 รัน · และเกณฑ์ตัดสินที่ยืมมาจาก §5.11
+
+⚠️ **ถ้าจะเขียนอะไรลงหัวข้อนี้ อย่าอ้างเลข PR ที่ยังเปิดอยู่** — มันจะกลายเป็นข้อมูลผิด
+ทันทีที่ PR ถูก merge ซึ่งเกิดมาแล้วสองรอบ ให้เขียนสถานะที่ยังจริงหลัง merge แทน
 
 **เปลี่ยนล่าสุด — เตรียมกวาดค่า params ของกฎใหม่ (ข้อ 8.6 · `backtest` v6):**
 กฎใหม่ 4 ตัวยังไม่เคยถูกกวาดค่าเลยสักตัว ระหว่างวางแผนเจอว่า `experiment_results`
@@ -191,7 +197,7 @@ ATAS (Windows)
 | Vercel production branch | **`claude/form-signal-telegram-rz8am1`** (ไม่ใช่ `main` — ตั้งไว้แบบนี้) |
 | Repo | `poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL` |
 | branch ที่ใช้พัฒนา (ฐาน / production ของ Vercel) | `claude/form-signal-telegram-rz8am1` |
-| branch งานที่ยังเปิดค้างอยู่ | `claude/prop-trading-signals-priority-gtwenb` → **PR #42 (ร่าง)** |
+| branch ที่งานล่าสุดใช้ | `claude/prop-trading-signals-priority-gtwenb` (merge เข้า branch ข้างบนแล้ว · ใช้ชื่อเดิมซ้ำได้ ให้แตกใหม่จาก branch หลักทุกครั้ง) |
 | Instruments ที่มีข้อมูล | `BTCUSDT` 5m (สด) · `MNQU6` 5m · `NQU6` 5m · `GC` 5m (สามตัวหลังหยุดที่ 2026-08-28) |
 | pg_cron | `evaluate-outcomes` ทุกนาที · `feed-health-watch` ทุก 5 นาที · `nightly-standing-experiment` 21:00 UTC (04:00 ไทย) |
 
