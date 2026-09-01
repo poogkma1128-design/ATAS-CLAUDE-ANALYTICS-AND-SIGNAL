@@ -70,6 +70,14 @@ Deno.test("telegram: the alert leads with its number", () => {
   assertStringIncludes(formatSignal(signal()), "<b>#S226</b>");
 });
 
+Deno.test("telegram: a legacy threshold score is never presented as confidence", () => {
+  const text = formatSignal(signal({ confidence: 0.99 }));
+
+  assertStringIncludes(text, "ยังไม่สอบเทียบเป็นคะแนน");
+  assertEquals(text.includes("99%"), false);
+  assertEquals(text.includes("ความมั่นใจ"), false);
+});
+
 Deno.test("telegram: the result carries the same number as its alert", () => {
   // The whole point: a reply rendered under a later alert still says which
   // trade it settled.

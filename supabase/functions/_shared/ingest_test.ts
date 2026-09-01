@@ -28,14 +28,30 @@ class StubBuilder implements PromiseLike<StubResult> {
     return this;
   }
 
-  upsert(...a: unknown[]) { return this.push("upsert", a); }
-  insert(...a: unknown[]) { return this.push("insert", a); }
-  update(...a: unknown[]) { return this.push("update", a); }
-  select(...a: unknown[]) { return this.push("select", a); }
-  eq(...a: unknown[]) { return this.push("eq", a); }
-  lt(...a: unknown[]) { return this.push("lt", a); }
-  order(...a: unknown[]) { return this.push("order", a); }
-  limit(...a: unknown[]) { return this.push("limit", a); }
+  upsert(...a: unknown[]) {
+    return this.push("upsert", a);
+  }
+  insert(...a: unknown[]) {
+    return this.push("insert", a);
+  }
+  update(...a: unknown[]) {
+    return this.push("update", a);
+  }
+  select(...a: unknown[]) {
+    return this.push("select", a);
+  }
+  eq(...a: unknown[]) {
+    return this.push("eq", a);
+  }
+  lt(...a: unknown[]) {
+    return this.push("lt", a);
+  }
+  order(...a: unknown[]) {
+    return this.push("order", a);
+  }
+  limit(...a: unknown[]) {
+    return this.push("limit", a);
+  }
 
   single(): Promise<StubResult> {
     return this.settle({ data: {}, error: null });
@@ -96,6 +112,9 @@ const STACKED_RULE = {
   name: "Stacked Imbalance",
   enabled: true,
   telegram_enabled: true,
+  // Existing ingest tests exercise the explicit owner-override path. The
+  // evidence-first integration case below covers the default production mode.
+  announcement_mode: "manual" as const,
   horizon_bars: 10,
   params: {
     ratio: 3,
@@ -156,10 +175,10 @@ function payload(overrides: Partial<IngestPayload> = {}): IngestPayload {
   };
 }
 
-function readyClient(): StubClient {
+function readyClient(rules = [STACKED_RULE]): StubClient {
   return new StubClient()
     .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
-    .queue("rules.select", { data: [STACKED_RULE], error: null })
+    .queue("rules.select", { data: rules, error: null })
     .queue("bars.upsert", {
       data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
       error: null,
@@ -471,6 +490,25 @@ Deno.test("ingest: a single closed bar is the live case and may be announced", a
   // Telegram is unconfigured in tests, so announce returns before sending; the
   // point here is that the single-bar path is not short-circuited as history.
   assertEquals(client.callsFor("signals", "upsert").length, 1);
+});
+
+Deno.test("ingest: evidence-first snapshots an unproven signal as muted", async () => {
+  const evidenceFirst = { ...STACKED_RULE, announcement_mode: "evidence_first" as const };
+  const client = readyClient([evidenceFirst])
+    .queue("setup_stability.select", { data: [], error: null })
+    .queue("signals.upsert", { data: [], error: null });
+
+  await ingest(client.asClient(), payload());
+
+  const gate = client.callsFor("setup_stability", "select")[0];
+  assertEquals(gate.ops.map((op) => op.args), [
+    ["rule_key, direction"],
+    ["symbol", "ES"],
+    ["timeframe", "5m"],
+    ["verdict", "proposable"],
+    ["proposal", "keep"],
+  ]);
+  assertEquals(client.rowsFor("signals", "upsert")[0].muted, true);
 });
 
 Deno.test("ingest: the signal carries the whole trade, not just a direction", async () => {

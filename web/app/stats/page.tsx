@@ -8,6 +8,7 @@ import { num, percent, signed, signedTicks } from "@/lib/format";
 import type {
   ForwardTestRow,
   ConfidenceV2ProgressRow,
+  OutcomePathQualityRow,
   PriceActionEdgeRow,
   RuleRow,
   SettingsEffectRow,
@@ -27,6 +28,7 @@ export default async function StatsPage() {
     { data: priceAction },
     { data: forward },
     { data: confidenceV2 },
+    { data: outcomePathQuality },
   ] = await Promise.all([
     supabase.from("setup_stats").select("*"),
     supabase.from("rules").select("key, name"),
@@ -35,9 +37,10 @@ export default async function StatsPage() {
       .select("signal_id", { count: "exact", head: true })
       .eq("status", "pending"),
     supabase.from("settings_effect").select("*"),
-    supabase.from("price_action_edge").select("*"),
+    supabase.from("price_action_edge_by_setup").select("*"),
     supabase.from("forward_test").select("*"),
     supabase.from("confidence_v2_progress").select("*"),
+    supabase.from("outcome_path_quality").select("*"),
   ]);
 
   const rows = ((stats ?? []) as SetupStatRow[])
@@ -66,6 +69,10 @@ export default async function StatsPage() {
     .sort((a, b) => b.trades - a.trades);
   const thinCells = allPriceAction.length - priceActionRows.length;
 
+  const pathQualityRows = ((outcomePathQuality ?? []) as OutcomePathQualityRow[])
+    .filter((row) => row.audited_signals > 0)
+    .sort((a, b) => b.audited_signals - a.audited_signals);
+
   const totalTrades = rows.reduce((sum, r) => sum + r.trades, 0);
   const totalWins = rows.reduce((sum, r) => sum + r.wins, 0);
   const totalTicks = rows.reduce((sum, r) => sum + num(r.total_pnl_ticks), 0);
@@ -93,6 +100,53 @@ export default async function StatsPage() {
           />
           <Tile label="กำลังรอผล" value={String(pending ?? 0)} />
         </div>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">ตรวจเส้นทางราคาในแท่ง</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            OHLC บอกได้แค่ว่าราคาวิ่งถึงไหน ไม่บอกว่าโดน SL หรือ TP ก่อนเมื่อทั้งคู่เกิดในแท่งเดียว
+            ระบบยังนับ SL ก่อนแบบระวังความเสี่ยง แต่บันทึกกรณีนั้นให้ตรวจสอบได้แล้ว
+          </p>
+
+          {pathQualityRows.length === 0
+            ? <Empty>เริ่ม audit กับผลลัพธ์ที่ปิดหลังการอัปเดตนี้</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["กฎ", "left"],
+                        ["สินทรัพย์", "left"],
+                        ["ทิศทาง", "left"],
+                        ["ตรวจแล้ว", "right"],
+                        ["กำกวม", "right"],
+                        ["สัดส่วน", "right"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {pathQualityRows.map((row) => (
+                      <tr
+                        key={`${row.rule_key}-${row.symbol}-${row.timeframe}-${row.direction}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5 font-medium">{ruleNames[row.rule_key] ?? row.rule_key}</td>
+                        <td className="px-4 py-2.5 tabular">{row.symbol} · {row.timeframe}</td>
+                        <td className="px-4 py-2.5"><DirectionTag direction={row.direction} /></td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.audited_signals}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.ambiguous_paths}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {row.ambiguous_share === null ? "–" : percent(num(row.ambiguous_share), 1)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </section>
 
         <section className="mt-10">
           <h2 className="text-base font-semibold">Confidence v2 — Shadow mode</h2>
@@ -367,18 +421,20 @@ export default async function StatsPage() {
         <section className="mt-10">
           <h2 className="text-base font-semibold">price action flags คุ้มจะเอามากรองไหม</h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            เก็บอย่างเดียวมาตลอด ยังไม่เคยกรองอะไร — วัดก่อน แล้วค่อยกรอง
-            วิธีเดียวกับที่ตัดสิน volume gate มา
+            เก็บอย่างเดียวมาตลอด ยังไม่เคยกรองอะไร — ตารางนี้เทียบภายในกฎ / สินทรัพย์ /
+            ทิศทางเดียวกันก่อน จึงไม่เอาผลของกลุ่มอื่นมาหลอกตา
           </p>
 
           {priceActionRows.length === 0
             ? <Empty>ยังไม่มีช่องไหนที่มีไม้ถึง 5 ไม้</Empty>
             : (
               <div className="card mt-4 overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
+                <table className="w-full min-w-[1080px] text-sm">
                   <thead>
                     <Head
                       cells={[
+                        ["กฎ", "left"],
+                        ["สินทรัพย์", "left"],
                         ["sweep", "left"],
                         ["zone", "left"],
                         ["ทิศทาง", "left"],
@@ -394,10 +450,12 @@ export default async function StatsPage() {
                   <tbody>
                     {priceActionRows.map((row) => (
                       <tr
-                        key={`${row.sweep}-${row.zone}-${row.direction}`}
+                        key={`${row.rule_key}-${row.symbol}-${row.timeframe}-${row.sweep}-${row.zone}-${row.direction}`}
                         className="border-b last:border-0"
                         style={{ borderColor: "var(--border-hairline)" }}
                       >
+                        <td className="px-4 py-2.5 font-medium">{ruleNames[row.rule_key] ?? row.rule_key}</td>
+                        <td className="px-4 py-2.5 tabular">{row.symbol} · {row.timeframe}</td>
                         <td className="px-4 py-2.5" style={{ color: row.sweep ? undefined : "var(--text-muted)" }}>
                           {row.sweep ?? "ไม่มี"}
                         </td>
@@ -431,10 +489,7 @@ export default async function StatsPage() {
 
           <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
             เกณฑ์: ≥ 30 ไม้ และ ≥ 3 เซสชัน ถึงจะอ่านผลได้ · ช่องที่แยกตัวชัดค่อยเลื่อนขึ้นเป็นตัวกรอง
-            ช่องที่ไม่ต่างลบทิ้งได้โดยไม่เสียอะไร · เทียบกับค่าเฉลี่ยทุกช่อง{" "}
-            <span className="tabular">
-              {signed(num(allPriceAction[0]?.overall_r_per_trade), 3)} R/ไม้
-            </span>
+            ช่องที่ไม่ต่างลบทิ้งได้โดยไม่เสียอะไร · เทียบกับค่าเฉลี่ยของ setup เดียวกันเท่านั้น
             {thinCells > 0 && ` · อีก ${thinCells} ช่องมีไม้ไม่ถึง 5 ไม้ จึงยังไม่แสดง`}
           </p>
         </section>

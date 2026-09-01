@@ -128,7 +128,6 @@ function tag(seq: number | null): string | null {
 
 export function formatSignal(msg: SignalMessage): string {
   const arrow = msg.direction === "long" ? "🟢 LONG" : "🔴 SHORT";
-  const confidence = Math.round(msg.confidence * 100);
 
   const label = tag(msg.seq);
 
@@ -145,7 +144,7 @@ export function formatSignal(msg: SignalMessage): string {
       `<code>${escapeHtml(msg.symbol)}</code> ${escapeHtml(msg.timeframe)}`,
       `<b>${arrow}</b>`,
     ].filter((part): part is string => part !== null).join(" · "),
-    `${escapeHtml(msg.ruleName)} · ความมั่นใจ ${confidence}%`,
+    `${escapeHtml(msg.ruleName)} · สัญญาณเชิงกฎ (ยังไม่สอบเทียบเป็นคะแนน)`,
   ];
 
   if (msg.plan) {
