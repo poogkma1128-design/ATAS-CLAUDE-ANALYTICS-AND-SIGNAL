@@ -122,6 +122,40 @@ allow-list ถาวรใน code:
 
 ---
 
+## 0B. งานกำลังรอ deploy — Cross-asset ATAS overlay (2026-09-01)
+
+> **สถานะ ณ ตอนเขียน:** source และ DLL REV 1.3.0 build/test ผ่านใน branch
+> `codex/cross-asset-atas-overlay` แต่ migration/function/DLL **ยังไม่ถูก deploy/import**. อ่าน
+> หัวข้อนี้ก่อนทำ deployment หรือวินิจฉัย marker บน ATAS.
+
+1. Telegram จะเปลี่ยนข้อความ trailing จากการบอก “ระยะห่าง” เป็น
+   `เมื่อราคาถึง <trigger> ให้เลื่อน SL เป็น <ราคาใหม่>` สำหรับทั้ง Long และ Short. เป็นการแสดง
+   ราคาให้วางคำสั่งได้ตรง; **ไม่เปลี่ยน** plan, trail logic, scorer หรือ backtest.
+2. `instrument_signal_policies` แยก “สัญญาณเก็บข้อมูล” ออกจาก “สัญญาณใช้งาน”: BTCUSDT, GC และ
+   MNQU6 · 5m เป็น `primary`; NQU6 · 5m เป็น `shadow`. Shadow ยังเขียน `signals` และ outcome
+   เพื่อให้หลักฐานเติบโต แต่ไม่ Telegram/ไม่วาดเป็น trade. ไม่ลบ data ของ NQU6.
+3. สัญญาณ Long และ Short ที่ทั้งคู่ผ่าน Evidence-first ใน instrument/timeframe/bar เดียวกันถูก
+   mute ทั้งคู่พร้อม `signals.suppression_reason = 'opposite_direction_same_bar'`. ห้ามเลือกฝั่งชนะ
+   ด้วย statistic จากตัวอย่างน้อย. เหตุผลอื่น: `shadow_instrument`, `rule_override`,
+   `evidence_unproven`.
+4. migration 0031 เพิ่ม `signal_outcomes.exit_bar_id` เพื่อให้ Overlay วาด exit ตรงแท่งจริงสำหรับ
+   TP / SL / trail / timeout. ผลลัพธ์เก่ายังคง `null` อย่างซื่อสัตย์ ไม่เดาแท่งย้อนหลัง.
+5. Edge Function `chart-annotations` เป็น GET ที่ใช้ `INGEST_TOKEN` แบบ constant-time เดิม; คืน
+   เฉพาะ primary + unmuted ของ symbol/timeframe นั้น. Failure ของ endpoint นี้ต้องไม่หยุด ingest.
+6. DLL REV 1.3.0 ดึง annotation ทุก 30 วินาทีแบบ background และวาด Entry/SL/TP/Exit ในทุกกราฟ
+   primary. หลัง deploy ต้องปิด ATAS, Import DLL ใหม่, ลบ Signal Bridge เก่าแล้ว Add ใหม่ตาม
+   `docs/SETUP.md`; ไม่ต้องติดตั้งโปรแกรมเพิ่ม.
+7. หลักฐาน source ก่อน deploy: C# build REV 1.3.0 ผ่าน 0 warning; Deno tests ที่เปลี่ยนผ่าน
+   38/38 และ `deno check ingest + chart-annotations` ผ่าน. Full typecheck suite ยังติด fixture
+   confidence_v2 เดิมตาม §0A.3; ไม่ใช่ regression ของงานนี้.
+8. ลำดับ deploy ที่ห้ามสลับ: apply migration 0031 → deploy `ingest` พร้อม `_shared/auth.ts` →
+   deploy `chart-annotations` พร้อม `_shared/auth.ts`/`chart_annotations.ts` → ตรวจ endpoint →
+   Import DLL. Rollback: ปิด `Show trade overlay` หรือ deploy ingest v16 เดิมเพื่อหยุดผลใหม่; schema
+   เป็น additive จึงห้าม drop/rollback. หากต้องปิดเสียงทันที ใช้ policy NQU6 `shadow` หรือ
+   `telegram_enabled = false` โดย data ยังเก็บ.
+
+---
+
 ## 0. เริ่มที่นี่ — สถานะ ณ 2026-09-01
 
 ### 🔴 เซสชันใหม่เริ่มตรงนี้

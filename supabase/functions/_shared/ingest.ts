@@ -75,6 +75,12 @@ export interface IngestResult {
   signalsCreated: number;
 }
 
+type InstrumentSignalRole = "primary" | "shadow";
+
+interface InstrumentSignalPolicy {
+  role: InstrumentSignalRole;
+}
+
 /** A bar with the derived values every later step needs, computed once. */
 interface PreparedBar {
   bar: BarInput;
@@ -89,6 +95,11 @@ export async function ingest(
   const instrumentId = await upsertInstrument(supabase, payload);
   const rules = await loadRules(supabase);
   const overrides = await loadOverrides(supabase, instrumentId, payload.timeframe);
+  const instrumentPolicy = await loadInstrumentSignalPolicy(
+    supabase,
+    instrumentId,
+    payload.timeframe,
+  );
   const announcementEligibility = await loadAnnouncementEligibility(
     supabase,
     payload.symbol.trim(),
@@ -118,16 +129,18 @@ export async function ingest(
   const barIds = await upsertBars(supabase, instrumentId, payload.timeframe, prepared);
   const levelsWritten = await upsertLevels(supabase, prepared, barIds);
 
-  const signalRows = await evaluateBars(
+  const evaluatedRows = await evaluateBars(
     supabase,
     { instrumentId, timeframe: payload.timeframe },
     rules,
     overrides,
     announcementEligibility,
+    instrumentPolicy,
     prepared,
     barIds,
     tickSize,
   );
+  const signalRows = suppressOpposingSignals(evaluatedRows);
 
   const signalsCreated = await persistSignals(
     supabase,
@@ -296,6 +309,7 @@ interface SignalRow {
   trail_offset_ticks: number;
   hold_bars: number;
   muted: boolean;
+  suppression_reason: string | null;
 }
 
 /**
@@ -309,6 +323,7 @@ async function evaluateBars(
   rules: RuleRow[],
   overrides: Overrides,
   announcementEligibility: AnnouncementEligibility,
+  instrumentPolicy: InstrumentSignalPolicy,
   prepared: PreparedBar[],
   barIds: number[],
   tickSize: number,
@@ -357,6 +372,26 @@ async function evaluateBars(
         recent,
       );
 
+      const overrideMuted = overrides.isMuted(signal.ruleKey, signal.direction);
+      const evidenceAllowed = announcementEligibility.allows(
+        rule ?? {
+          key: signal.ruleKey,
+          name: signal.ruleKey,
+          enabled: true,
+          telegram_enabled: false,
+          horizon_bars: 10,
+          params: {},
+        },
+        signal.direction,
+      );
+      const suppressionReason = instrumentPolicy.role === "shadow"
+        ? "shadow_instrument"
+        : overrideMuted
+        ? "rule_override"
+        : !evidenceAllowed
+        ? "evidence_unproven"
+        : null;
+
       rows.push({
         bar_id: barIds[index],
         instrument_id: scope.instrumentId,
@@ -376,18 +411,8 @@ async function evaluateBars(
         hold_bars: plan.holdBars,
         // Recorded on the row rather than looked up when announcing, so the
         // history says what was actually taken even after the setting changes.
-        muted: overrides.isMuted(signal.ruleKey, signal.direction) ||
-          !announcementEligibility.allows(
-            rule ?? {
-              key: signal.ruleKey,
-              name: signal.ruleKey,
-              enabled: true,
-              telegram_enabled: false,
-              horizon_bars: 10,
-              params: {},
-            },
-            signal.direction,
-          ),
+        muted: suppressionReason !== null,
+        suppression_reason: suppressionReason,
       });
     }
 
@@ -396,6 +421,41 @@ async function evaluateBars(
   }
 
   return rows;
+}
+
+/**
+ * A long and a short from the same instrument/bar are mutually exclusive as a
+ * trade instruction. Preserve both rows for analysis, but never make either
+ * look actionable by choosing an arbitrary rule or direction.
+ */
+function suppressOpposingSignals(rows: SignalRow[]): SignalRow[] {
+  const conflictedBars = conflictedActionableBars(rows);
+  if (conflictedBars.size === 0) return rows;
+  return rows.map((row) =>
+    !row.muted && conflictedBars.has(row.bar_id)
+      ? { ...row, muted: true, suppression_reason: "opposite_direction_same_bar" }
+      : row
+  );
+}
+
+export function conflictedActionableBars(
+  rows: ReadonlyArray<{ bar_id: number; direction: string; muted: boolean }>,
+): Set<number> {
+  const directionsByBar = new Map<number, Set<string>>();
+  for (const row of rows) {
+    if (row.muted) continue;
+    const directions = directionsByBar.get(row.bar_id) ?? new Set<string>();
+    directions.add(row.direction);
+    directionsByBar.set(row.bar_id, directions);
+  }
+
+  const conflictedBars = new Set(
+    [...directionsByBar.entries()]
+      .filter(([, directions]) => directions.size > 1)
+      .map(([barId]) => barId),
+  );
+
+  return conflictedBars;
 }
 
 /**
@@ -523,6 +583,38 @@ async function persistSignals(
   }
 
   return created.length;
+}
+
+/**
+ * A missing policy row deliberately means primary. That keeps a newly added
+ * instrument observable immediately, while an explicit shadow row can keep a
+ * correlated contract collecting outcomes without creating trade instructions.
+ */
+async function loadInstrumentSignalPolicy(
+  supabase: SupabaseClient,
+  instrumentId: string,
+  timeframe: string,
+): Promise<InstrumentSignalPolicy> {
+  const { data, error } = await supabase
+    .from("instrument_signal_policies")
+    .select("role")
+    .eq("instrument_id", instrumentId)
+    .eq("timeframe", timeframe)
+    .limit(1);
+
+  // The policy is a safety refinement, never a reason to drop raw market
+  // observations. This also makes an interrupted migration/deploy recover to
+  // the pre-policy behaviour instead of stopping ATAS ingest.
+  if (error) {
+    console.error(
+      "instrument signal policy load failed; defaulting primary:",
+      error.message,
+    );
+    return { role: "primary" };
+  }
+
+  const row = Array.isArray(data) ? data[0] : null;
+  return { role: row?.role === "shadow" ? "shadow" : "primary" };
 }
 
 async function announce(

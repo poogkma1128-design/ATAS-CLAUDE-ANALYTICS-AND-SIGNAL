@@ -1,7 +1,7 @@
 {
   "tasks": {
     "test": "deno test --allow-env supabase/functions/",
-    "check": "deno check supabase/functions/ingest/index.ts supabase/functions/outcome-notify/index.ts supabase/functions/backtest/index.ts",
+    "check": "deno check supabase/functions/ingest/index.ts supabase/functions/outcome-notify/index.ts supabase/functions/backtest/index.ts supabase/functions/chart-annotations/index.ts",
     "rev:check": "deno run --allow-run=git --allow-read scripts/rev-check.ts"
   },
   "fmt": {

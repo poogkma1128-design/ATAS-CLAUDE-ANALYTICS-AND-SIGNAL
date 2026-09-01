@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import type { BarInput, ClusterLevel, IngestPayload } from "./types.ts";
-import { ingest, validate } from "./ingest.ts";
+import type { BarInput, ClusterLevel, IngestPayload, RuleRow } from "./types.ts";
+import { conflictedActionableBars, ingest, validate } from "./ingest.ts";
 
 // ---------------------------------------------------------------- stub client
 //
@@ -175,7 +175,7 @@ function payload(overrides: Partial<IngestPayload> = {}): IngestPayload {
   };
 }
 
-function readyClient(rules = [STACKED_RULE]): StubClient {
+function readyClient(rules: RuleRow[] = [STACKED_RULE]): StubClient {
   return new StubClient()
     .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
     .queue("rules.select", { data: rules, error: null })
@@ -509,6 +509,32 @@ Deno.test("ingest: evidence-first snapshots an unproven signal as muted", async 
     ["proposal", "keep"],
   ]);
   assertEquals(client.rowsFor("signals", "upsert")[0].muted, true);
+});
+
+Deno.test("ingest: a shadow instrument remains measured but cannot announce", async () => {
+  const client = readyClient()
+    .queue("instrument_signal_policies.select", {
+      data: [{ role: "shadow" }],
+      error: null,
+    })
+    .queue("signals.upsert", { data: [], error: null });
+
+  await ingest(client.asClient(), payload({ symbol: "NQU6" }));
+
+  const row = client.rowsFor("signals", "upsert")[0];
+  assertEquals(row.muted, true);
+  assertEquals(row.suppression_reason, "shadow_instrument");
+});
+
+Deno.test("ingest: identifies opposite actionable directions on one bar", () => {
+  const conflicted = conflictedActionableBars([
+    { bar_id: 101, direction: "long", muted: false },
+    { bar_id: 101, direction: "short", muted: false },
+    { bar_id: 102, direction: "long", muted: false },
+    { bar_id: 102, direction: "short", muted: true },
+  ]);
+
+  assertEquals([...conflicted], [101]);
 });
 
 Deno.test("ingest: the signal carries the whole trade, not just a direction", async () => {

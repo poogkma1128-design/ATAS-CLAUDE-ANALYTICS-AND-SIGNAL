@@ -44,4 +44,26 @@ namespace AtasSignalBridge
         [JsonPropertyName("volume")] public decimal Volume { get; set; }
         [JsonPropertyName("ticks")] public int Ticks { get; set; }
     }
+
+    internal sealed class ChartAnnotationEnvelope
+    {
+        [JsonPropertyName("ok")] public bool Ok { get; set; }
+        [JsonPropertyName("annotations")] public List<ChartAnnotationDto> Annotations { get; set; } = new List<ChartAnnotationDto>();
+    }
+
+    internal sealed class ChartAnnotationDto
+    {
+        [JsonPropertyName("id")] public string Id { get; set; }
+        [JsonPropertyName("seq")] public int? Seq { get; set; }
+        [JsonPropertyName("ruleKey")] public string RuleKey { get; set; }
+        [JsonPropertyName("direction")] public string Direction { get; set; }
+        [JsonPropertyName("entryOpenedAt")] public string EntryOpenedAt { get; set; }
+        [JsonPropertyName("entry")] public decimal Entry { get; set; }
+        [JsonPropertyName("stop")] public decimal Stop { get; set; }
+        [JsonPropertyName("target")] public decimal Target { get; set; }
+        [JsonPropertyName("status")] public string Status { get; set; }
+        [JsonPropertyName("exitOpenedAt")] public string ExitOpenedAt { get; set; }
+        [JsonPropertyName("exitPrice")] public decimal? ExitPrice { get; set; }
+        [JsonPropertyName("exitReason")] public string ExitReason { get; set; }
+    }
 }
