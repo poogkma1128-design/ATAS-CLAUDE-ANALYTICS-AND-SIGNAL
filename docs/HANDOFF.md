@@ -12,19 +12,20 @@
 
 ---
 
-## 0A. สถานะปัจจุบันที่มีผลบังคับ — Evidence-first (2026-09-01 10:43 UTC)
+## 0A. สถานะปัจจุบันที่มีผลบังคับ — Evidence-first (ตรวจหลัง merge: 2026-09-01 13:45 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อนส่วนประวัติทั้งหมดด้านล่าง** เพราะบางบรรทัดก่อน §0A อธิบายสถานะ
 > ก่อน migration 0030 และไม่ใช่สถานะปัจจุบันแล้ว. ประวัติยังเก็บไว้เพื่อ audit ไม่ใช่คำสั่งทำงาน.
 
 | อะไร | สถานะที่ตรวจแล้ว |
 |---|---|
-| source branch | `codex/evidence-first-signal-quality`, แตกจาก `claude/form-signal-telegram-rz8am1` ที่ merge PR #47 แล้ว; push ถึง `origin` แล้ว และยังรอสร้าง PR/merge |
+| Git / PR | **PR #48 merge แล้ว** เข้า `claude/form-signal-telegram-rz8am1` เวลา 11:47 UTC; merge commit `b86f2e8` มีทั้ง code, migration specification และ Handoff |
 | migration production | `20260901104315 evidence_first_signal_quality` สำเร็จ |
 | Edge Functions | `ingest` **v16 Active**, `backtest` **v7 Active**; `outcome-notify` v5 และ `feed-watch` v1 ไม่ถูกแก้ |
 | policy ของ rules | ทั้ง **8 rules** เป็น `announcement_mode = evidence_first` |
-| เว็บ Dashboard | โค้ดอยู่บน branch นี้; **ยังต้อง merge PR** จึงจะขึ้น Vercel production |
-| เอกสารเพิ่ม | ไม่มีเอกสาร runbook แยก: migration comments + หัวข้อนี้เป็น specification และ runbook ของการรับช่วงงานนี้ |
+| เว็บ Dashboard | Vercel check ของ merge commit **success** แล้ว ([deployment evidence](https://vercel.com/poogkma1128-5812s-projects/atas-signal-board/EAmsVbqEonyEoiToiLUxK5d9ZUdb)); UI production ได้ code ชุดเดียวกับ PR #48 |
+| Live feed | ATAS กลับมาส่งครบ BTCUSDT / GC / MNQU6 / NQU6 ที่ 5m; `ingest v16` ตอบ 200 กับ POST ล่าสุดทุกตัว |
+| เอกสารเพิ่ม | ไม่มี runbook แยก: migration comments + หัวข้อนี้เป็น specification และ runbook. การตรวจหลัง merge ถูกบันทึกเพิ่มใน §0A.4 |
 
 ### 0A.1 สิ่งที่เปลี่ยนจริง และสิ่งที่ตั้งใจไม่เปลี่ยน
 
@@ -70,12 +71,15 @@ allow-list ถาวรใน code:
 - Migration อยู่ใน production แล้วและ `pg_get_functiondef(evaluate_pending_outcomes)` มี
   `ambiguous_path`. มี 235 cells ใน report price-action ใหม่; outcome เก่า 55 กลุ่มยังมี
   `audited_signals = 0` ตามที่ควรเป็น จนกว่าผลลัพธ์หลัง deployment จะปิด.
-- ณ 10:50 UTC ยังไม่มี POST เข้า `ingest v16`: ingest log ล่าสุดคือ 10:00 UTC บน v15
-  (3 symbols, `error = null`) ก่อน deploy; `feed-watch` ยังตอบ 200. สถานะ Active ยืนยันว่า
-  deploy สำเร็จ แต่ **ยังไม่ใช่หลักฐาน live payload ของ v16**. เมื่อ ATAS ส่งแท่งถัดไปให้ตรวจ
-  `ingest_log`/Edge log ว่า version 16 ตอบ 200 และไม่มี `announcement evidence load failed`.
+- **หลักฐาน live v16 ครบแล้ว:** ATAS ส่ง backfill 100 แท่งเริ่ม 13:24 UTC และแท่งสดต่อเนื่องถึง
+  13:45 UTC. Edge logs ของ `ingest v16` บันทึก POST 200 สำหรับ BTCUSDT / GC / MNQU6 / NQU6;
+  `ingest_log` ล่าสุดมี 1 bar ต่อ symbol, `error = null`. `feed-watch` เห็นทั้งสี่เป็น `live`
+  (quiet 4 นาที) และ cron `feed-health-watch` ยัง active ทุก 5 นาที.
+- เส้นทางประกาศผ่านจริง: GC · 5m · `poc_shift` long เวลา 13:40 UTC เป็น `muted = false` และ
+  เก็บ Telegram message id `1235`; setup ที่ไม่ผ่านหลักฐานใน batch เดียวกันถูกเก็บเป็น
+  `muted = true`. จึงยืนยันได้ทั้ง allow และ fail-closed โดยไม่อ้างจากค่าจำลอง.
 - Typecheck + production build ของ `web` ผ่าน. Deno check ของ entrypoints `ingest`,
-  `outcome-notify`, `backtest` ผ่าน. Deno runtime test ผ่าน **137 tests**.
+  `outcome-notify`, `backtest` ผ่าน. Deno runtime test ผ่าน **138 tests**.
 - `deno test` แบบ typecheck ทั้ง suite ยังสะดุด fixture เดิม `confidence_v2_test.ts` ที่ใช้
   `sweep: 'bullish'`/`structure: 'BOS'` ไม่ตรง union ปัจจุบัน (ก่อนงานนี้); รันจริงด้วย
   `--no-check` ผ่าน 138/138. อย่าอ้างว่า suite typecheck ทั้งก้อนเขียวจนกว่าจะแก้ fixture นั้น
@@ -84,20 +88,35 @@ allow-list ถาวรใน code:
   mutable search path ของ `claim_outcome_notifications`, `pg_net` ใน `public`, และ index/policy
   warnings ของ `rule_overrides`/`rule_snapshots`. งานนี้ไม่สร้าง policy/table permissive ใหม่.
 
-### 0A.4 วิธีรับช่วง, rollback, และงานที่ยังต้องทำ
+### 0A.4 การตรวจหลัง merge, ความเสี่ยงคงค้าง, และการรับช่วง
 
-1. **ก่อน merge PR:** review migration 0030, policy tests และหน้าสถิติ. PR นี้ทำให้ Dashboard
-   รู้จัก column/view ใหม่; production ingest ทำงานอยู่แล้วแม้เว็บยังเก่า.
-2. **หลัง merge:** ตรวจ Vercel production หน้า `/`, `/stats`, `/rules`, และ signal detail.
-   `/rules` ต้องบอก Evidence-first; `/stats` ต้องแสดง report path audit/price action stratified.
-3. **หลังมี outcome ใหม่ครบ horizon:** query
-   `select * from public.outcome_path_quality order by audited_signals desc;` ก่อนตีความผล score.
-   `ambiguous_path` ไม่ใช่เหตุให้เลือก TP — มันเป็นป้ายความไม่แน่นอนของ OHLC เท่านั้น.
-4. **Rollback แบบปลอดภัย:** หากต้องหยุดความเสี่ยงทันที ตั้ง `telegram_enabled = false` (เฉพาะ rule
+1. **ผลหลัง merge ที่พิสูจน์แล้ว:** PR #48 merge แล้ว, Vercel check success, migration 0030 อยู่
+   production, `ingest v16` / `backtest v7` Active, และ feed สดเดินผ่าน v16 จริง. ตั้งแต่ deployment
+   มี 234 signals: 167 ถูก mute ตามหลักฐาน, 67 ผ่าน evidence gate, และ 4 แถวบันทึกว่า Telegram ส่ง
+   สำเร็จ. ห้ามเปรียบ 67 กับ 4 แล้วสรุปว่าส่งล้มเหลว: backfill 100 แท่งตั้งใจไม่ประกาศ; ใช้หลักฐาน
+   live row พร้อม message id ข้างบนเป็นตัวพิสูจน์เส้นทาง announcement.
+2. **ขอบเขตหลักฐาน UI:** ตรวจ Vercel deployment ผ่าน GitHub status ได้ แต่ session นี้เปิดหน้า
+   production โดยตรงไม่ได้ (Vercel connector ไม่มีสิทธิ์อ่าน deployment และ browser CLI ไม่พร้อม).
+   จึง **ยังไม่อ้างว่า visual UI ผ่าน**; เมื่อสิทธิ์กลับมาให้เปิด `/`, `/stats`, `/rules` และ signal detail
+   จริงแล้วค่อยบันทึกผล. ข้อนี้ไม่ขัดกับหลักฐาน ingest/Telegram ที่ตรวจจาก production data แล้ว.
+3. **Outcome audit เริ่มมีข้อมูลใหม่แล้ว:** 216 outcomes หลัง deploy resolve โดย audit path ครบ
+   (208 ไม่กำกวม, 8 `ambiguous_path = true`) และ 18 ยัง pending. ก่อนใช้ผลมาปรับกฎ ให้ query
+   `select * from public.outcome_path_quality order by audited_signals desc;` และแยก path ที่กำกวม;
+   `ambiguous_path` ไม่ใช่เหตุให้เลือก TP.
+4. **ข้อผิดพลาดที่ยังเปิดอยู่ (L2):** มี 1 POST ของ NQU6 เวลา 13:35 UTC ล้มเหลวด้วย
+   `instrument upsert failed: JWT issued at future` (HTTP 500). นี่เป็นอาการเดิมของ service-role/
+   clock path ไม่ใช่ evidence gate; NQU6 POST ถัดไปเวลา 13:40 UTC สำเร็จ. ห้ามแก้ด้วยการปิด auth
+   หรือหมุน secret เดา ๆ. หากเกิดซ้ำมากกว่า 1% ของ POST หรือเกิดต่อเนื่อง 2 แท่ง ให้หยุดสรุปผล
+   cohort นั้น, เก็บ timestamp/request log และตรวจ clock/secret กับ Supabase ก่อนแก้.
+5. **Check-in ที่ตั้งแล้ว:** automation ใน Codex ชื่อ `ATAS evidence-first live verification` ตรวจ
+   ทุก 15 นาทีใน thread งานนี้: PR merge, Vercel status, edge-function versions, feed freshness,
+   live v16 POST, mute/Telegram path และ outcome audit. มันรายงานเฉพาะเมื่อมีการเปลี่ยนสาระสำคัญ
+   หรือ feed เงียบเกิน 30 นาที และไม่มีสิทธิ์แก้ rule/deploy เอง.
+6. **Rollback แบบปลอดภัย:** หากต้องหยุดความเสี่ยงทันที ตั้ง `telegram_enabled = false` (เฉพาะ rule
    หรือทั้งหมด) แล้ว signals ยังถูกเก็บ. หากต้องย้อน logic ให้ deploy source ก่อน v16 (v15) อีกครั้ง;
    migration 0030 เป็น additive จึงไม่ต้องและไม่ควร rollback schema. Dashboard ย้อนด้วย Vercel deployment
    ก่อนหน้าได้. ห้ามตั้ง `manual` เป็น rollback อัตโนมัติ เพราะทำให้ alert กว้างขึ้น.
-5. Confidence v2 ยังเป็น shadow (`score: null`): evidence-first นี้เป็น **rule-cell gate**, ไม่ใช่
+7. Confidence v2 ยังเป็น shadow (`score: null`): evidence-first นี้เป็น **rule-cell gate**, ไม่ใช่
    model-confidence filter. ห้ามเปิด filter/model/Telegram จาก v2 ก่อน offline calibration + frozen
    model version + forward test + owner approval.
 
