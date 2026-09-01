@@ -70,6 +70,10 @@ allow-list ถาวรใน code:
 - Migration อยู่ใน production แล้วและ `pg_get_functiondef(evaluate_pending_outcomes)` มี
   `ambiguous_path`. มี 235 cells ใน report price-action ใหม่; outcome เก่า 55 กลุ่มยังมี
   `audited_signals = 0` ตามที่ควรเป็น จนกว่าผลลัพธ์หลัง deployment จะปิด.
+- ณ 10:50 UTC ยังไม่มี POST เข้า `ingest v16`: ingest log ล่าสุดคือ 10:00 UTC บน v15
+  (3 symbols, `error = null`) ก่อน deploy; `feed-watch` ยังตอบ 200. สถานะ Active ยืนยันว่า
+  deploy สำเร็จ แต่ **ยังไม่ใช่หลักฐาน live payload ของ v16**. เมื่อ ATAS ส่งแท่งถัดไปให้ตรวจ
+  `ingest_log`/Edge log ว่า version 16 ตอบ 200 และไม่มี `announcement evidence load failed`.
 - Typecheck + production build ของ `web` ผ่าน. Deno check ของ entrypoints `ingest`,
   `outcome-notify`, `backtest` ผ่าน. Deno runtime test ผ่าน **137 tests**.
 - `deno test` แบบ typecheck ทั้ง suite ยังสะดุด fixture เดิม `confidence_v2_test.ts` ที่ใช้
