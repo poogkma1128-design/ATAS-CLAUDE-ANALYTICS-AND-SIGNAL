@@ -251,7 +251,7 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 ถ้ายังไม่ใส่ URL หรือ token indicator จะไม่ทำอะไรและขึ้นข้อความเตือนใน log ของ ATAS
 
-### Overlay จุดเข้า–ออกบน ATAS (REV 1.3.0 ขึ้นไป)
+### Overlay จุดเข้า–ออกบน ATAS (REV 1.3.1 ขึ้นไป)
 
 ไม่ต้องใส่ URL หรือ token เพิ่ม: Indicator ใช้ Endpoint URL และ Ingest token ชุดเดิม แล้วเปลี่ยน
 ปลายทางจาก `ingest` เป็น `chart-annotations` เอง. เปิดใช้ได้บนทุกกราฟที่ส่งเข้าระบบ เช่น
@@ -262,15 +262,21 @@ BTCUSDT, GC และ MNQU6.
 | Show trade overlay | เปิด | วาดเฉพาะ signal ที่ server อนุญาตให้ใช้งาน |
 | Overlay refresh (seconds) | 30 | ดึง annotation แบบ background; ไม่ block กราฟ |
 | Overlay lookback bars | 200 | จำกัดจำนวนแท่งที่วาดเพื่อไม่ให้กราฟหนาแน่น |
+| Show Entry / SL / TP lines | **ปิด** | ซ่อนเส้นแผนแนวนอนเพื่อไม่ให้กราฟรก; เปิดเฉพาะเมื่อต้องการดูระดับแผน |
+| Overlay marker font size | 14 | ขนาดป้าย Entry/Exit แบบ high-contrast; ปรับได้ 10–24 px |
 
-สิ่งที่เห็นคือ ลูกศรเข้า Long/Short, เส้น Entry/SL/TP และ marker จุดออก `TP`, `SL`, `TRAIL`
-หรือ `TIME`. กราฟ NQU6 ถูกเก็บข้อมูลและ outcome ต่อ แต่ถูกตั้งเป็น **shadow** จึงไม่วาดเป็น
-คำสั่งใช้งาน. หากแท่งเดียวกันมี Long และ Short ที่ผ่านเกณฑ์ ระบบจะไม่วาดหรือแจ้งทั้งคู่ และเก็บ
-เหตุผล `opposite_direction_same_bar` ไว้ตรวจย้อนหลัง.
+REV 1.3.1 แสดงป้าย `ENTRY LONG/SHORT` และ `EXIT TP/SL/TRAIL/TIME` ด้วยตัวอักษรสีขาว
+พื้นหลังเข้ม ขอบสี และ offset จากแท่งราคา จึงเห็นได้เมื่อซูมออก. เส้นที่ REV 1.3.0 วาดเต็มกราฟคือ
+ระดับ Entry สีเทา, SL สีแดง และ TP สีเขียวของแต่ละสัญญาณ; สัญญาณที่ยังไม่ปิดถูกยืดเป็น ray ไป
+ทางขวา. REV 1.3.1 ปิดเส้นเหล่านี้เป็นค่าเริ่มต้น แต่ยังเปิดกลับได้จาก setting ข้างบน.
+
+กราฟ NQU6 ถูกเก็บข้อมูลและ outcome ต่อ แต่ถูกตั้งเป็น **shadow** จึงไม่วาดเป็นคำสั่งใช้งาน.
+หากแท่งเดียวกันมี Long และ Short ที่ผ่านเกณฑ์ ระบบจะไม่วาดหรือแจ้งทั้งคู่ และเก็บเหตุผล
+`opposite_direction_same_bar` ไว้ตรวจย้อนหลัง.
 
 ถ้า endpoint overlay ตอบ error ให้ดู ATAS log คำว่า `Signal Bridge overlay`; feed เข้า ingest และ
 Telegram จะไม่หยุดเพราะปัญหานี้. หากเพิ่ง deploy function แต่ยังไม่มี marker ให้รอหนึ่งรอบ refresh
-แล้วตรวจว่า DLL ใน About ขึ้น REV 1.3.0 หรือใหม่กว่า.
+แล้วตรวจว่า DLL ใน About ขึ้น REV 1.3.1 หรือใหม่กว่า.
 
 ---
 
