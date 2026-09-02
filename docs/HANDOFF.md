@@ -30,7 +30,8 @@
 | ATAS overlay | Source REV **1.3.1** merge แล้วและ build/reflection ผ่าน. **production branch ไม่มีไฟล์ DLL สำเร็จรูปที่ track ไว้**; ต้อง build/publish artifact 1.3.1 หรือรับไฟล์จากเครื่อง build ก่อน Import. การเห็น marker บนกราฟจริงยังไม่มี screenshot acceptance |
 | Live feed | **ผิดปกติ/หยุดรับข้อมูล:** แถวล่าสุดของ BTCUSDT / GC / MNQU6 / NQU6 อยู่ราว `2026-09-01 23:40 UTC`; ตรวจ 01:55 UTC เงียบประมาณ 135 นาทีทั้งหมด. แถวล่าสุดทุกตัว `error=null` จึงยังชี้ได้เพียงว่า ATAS/bridge หยุดส่งหรือไปไม่ถึง endpoint ไม่ใช่ Edge Function ตอบ error |
 | Web | Source ของ Confidence v2 / Evidence-first / overlay docs merge แล้ว. รอบนี้ไม่ได้เปิด production UI ตรวจภาพ จึงไม่อ้าง visual acceptance ใหม่ |
-| เอกสารเพิ่ม | แก้ Handoff ให้มี canonical current state; ไม่สร้าง runbook เพิ่ม เพราะ `docs/SETUP.md` มีขั้น build/import/rollback และรายการด้านล่างเป็นลำดับรับช่วงที่เพียงพอ |
+| Repo workflow | เพิ่ม `AGENTS.md` ที่ root เพื่อบังคับ agent ที่รองรับ repository instructions ให้อ่าน Handoff ทั้งไฟล์ก่อนแก้ code/config/schema/deploy และอัปเดต Handoff/เอกสารก่อนจบงาน. กฎนี้ไม่ครอบคลุม AI ที่ไม่ได้เปิด repo, checkout เก่า หรือผลิตภัณฑ์ที่ไม่รองรับ `AGENTS.md` |
+| เอกสารเพิ่ม | เพิ่ม `AGENTS.md` เป็นกฎบังคับระดับ repo และแก้ Handoff ให้มี canonical current state; ไม่สร้าง runbook เพิ่ม เพราะ `docs/SETUP.md` มีขั้น build/import/rollback และรายการด้านล่างเป็นลำดับรับช่วงที่เพียงพอ |
 
 ### 0D.1 งานค้างจริง เรียงตามลำดับ
 
