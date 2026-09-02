@@ -113,9 +113,11 @@ Baseline and variant metrics: R/trade, total R, max drawdown R, fill rate, trade
   claims no probability.
 
 Per-opportunity artifact version:
-  public.opportunity_results, to be created by migration 0032 (HANDOFF §7.2-O2). Does not
-  exist yet. Until it does, protocol §5 forbids claiming that any variant difference is
-  statistically significant.
+  public.opportunity_results, created by migration 0033_what_the_trail_actually_cost.sql
+  (HANDOFF §7.2-O2). The table exists; nothing writes to it yet -- the writer is Phase 3.
+  So the artifact this field names is still empty, and until it is filled protocol §5 forbids
+  claiming that any variant difference is statistically significant.
+  Renumbered from 0032, which was consumed by the cron bar-cap stopgap.
 
 Uncertainty method and resampling unit:
   Block bootstrap resampling whole (session_day, symbol) blocks -- NOT a paired t-test over
@@ -148,8 +150,12 @@ Decision: provisional / rejected / owner-approved:
 
 Runtime change, deploy, rollback:
   None so far. Phase 0 made exactly one production write, recorded below.
-  When Phases 1-3 land: migration 0032 is additive (create table, add column if not exists) --
-  do not drop to roll back; the backtest edge function deploy follows §7.4 three-layer
+  Phase 1 (migration 0033) is additive and carries no data: create table if not exists,
+  add column if not exists, create or replace view, and a policy guarded against re-creation.
+  Do not drop to roll back -- an empty table is inert, and dropping it would take
+  experiments.kind with it. Verified by replaying 0001-0033 in order against a clean
+  Postgres 16, then re-running 0033 to confirm it is idempotent.
+  When Phases 2-3 land: the backtest edge function deploy follows §7.4 three-layer
   verification; rollback is redeploying the previous version. No change to ingest, rules,
   Telegram, or the live scorer at any point.
 ```
