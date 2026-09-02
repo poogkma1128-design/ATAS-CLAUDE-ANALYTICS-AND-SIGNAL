@@ -12,6 +12,51 @@
 
 ---
 
+## 0F. Professional compact ATAS markers — REV 1.3.2 (ตรวจ: 2026-09-02 03:29 UTC)
+
+> **ให้อ่านหัวข้อนี้ก่อน §0E/§0C เมื่อติดตั้งหรือทดสอบ overlay.** Screenshot จาก ATAS จริง
+> พิสูจน์ว่า REV 1.3.1 **ไม่ผ่าน visual acceptance**: ข้อความ audit ยาวทุก Entry/Exit ซ้อนกันมาก
+> และต้อง zoom เข้าเพื่ออ่าน. งานนี้แก้เฉพาะการวาด marker; ไม่แก้ signal logic, ราคา Entry/SL/TP,
+> instrument policy, ingest, Telegram, database หรือ Edge Function.
+
+| อะไร | สถานะปัจจุบัน |
+|---|---|
+| หลักฐานปัญหา | ภาพ ATAS วันที่ 2026-09-02 มีป้าย `ENTRY LONG/SHORT #S... @ price` และ `EXIT ...` หลายสิบป้ายทับแท่ง/กันเอง; จึงยกเลิกคำอ้างเดิมว่า REV 1.3.1 อ่านได้เมื่อซูมออก |
+| Root cause | `DrawingText.AutoSize=true` ทำให้ ATAS ปรับขนาดตาม scale และทุก marker ใส่ direction + sequence + exact price จึงกว้างโดยโครงสร้าง |
+| Source ใหม่ | branch `codex/professional-overlay-markers`; indicator commit `6df20e8`; **PR #56 เปิดแล้ว รอ owner review/merge**; indicator **REV 1.3.2**. ก่อน merge updater ยังจะ build REV 1.3.1 จาก production ตามปกติ |
+| รูปแบบเริ่มต้น | Entry ใช้ `▲ L` สีเขียว / `▼ S` สีแดง; exit ใช้ `TP` เขียว, `SL` แดง, `TR` น้ำเงิน, `TIME` ส้ม หรือ `EXIT`. ขนาด 14px คงที่ (`AutoSize=false`) |
+| ความสะอาด | ปิด `Show marker details` เป็นค่าเริ่มต้น, จุดยัง anchor ที่ exact price เดิม และ marker ที่อยู่ bar/ด้านเดียวกันแยก lane แนวตั้งอัตโนมัติ |
+| Audit mode | เปิด `Show marker details` เพื่อเติม `#S... @ ราคา` ทุก marker ได้; เตือนชัดว่าอาจทำกราฟรก |
+| Verification | `dotnet build -c Release` ผ่าน **0 warning / 0 error**; assembly version `1.3.2`. Reflection ยืนยัน defaults `lines=false`, `details=false`, `font=14` และ text contract `▲ L / ▼ S / TP / SL / TR`. `deno task rev:check` ยังรันไม่ได้บนเครื่องนี้เพราะไม่มี `deno`; visual acceptance ของ DLL 1.3.2 บน ATAS จริงยังรอหลัง merge/import |
+| Deploy/server | **ไม่มี server/database/web deploy** และไม่มี binary track ใน Git; ต้อง merge [PR #56](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/56) แล้วรัน updater เพื่อ build DLL จาก production |
+| เอกสาร | อัปเดต `docs/SETUP.md` และ Handoff นี้; ไม่สร้าง runbook แยกเพราะ build/import/rollback อยู่ใน SETUP/§0F.2 แล้ว |
+
+### 0F.1 เหตุผลเชิงมาตรฐานที่ใช้ตัดสินรูปแบบ
+
+1. ATAS ระบุว่า `DrawingText.AutoSize` ปรับขนาดข้อความตาม chart scale และ overload `AddText`
+   มี default `autoSize=false`; จึงใช้ fixed-size สำหรับ marker ที่ต้องอ่านได้สม่ำเสมอ:
+   <https://docs.atas.net/en/classATAS_1_1Indicators_1_1Drawing_1_1DrawingText.html> และ
+   <https://docs.atas.net/en/md_DataFeedsCore_2Docs_2en_20060__EmbeddedGraphicShapes.html>.
+2. TradingView แนะนำ shape/arrow/label ที่ tether กับ bar สำหรับ event และเตือนให้ลด clutter;
+   NinjaTrader ก็มี arrow/dot/diamond/square/triangle เป็น marker มาตรฐาน. งานนี้จึงใช้คำสั้นกับสี
+   แทน audit sentence ทุกจุด: <https://www.tradingview.com/pine-script-docs/visuals/text-and-shapes/>
+   และ <https://ninjatrader-devel.ninjatrader.com/support/helpguides/nt8/working_with_drawing_tools__ob.htm>.
+
+### 0F.2 ขั้นรับช่วง, acceptance และ rollback
+
+1. หลัง PR merge: ดับเบิลคลิก `scripts\update-indicator.bat`; ต้องเห็น production branch ถูกต้อง,
+   build/version/hash ผ่าน และ REV 1.3.2. ปิด ATAS รวม system tray → Import DLL บน Desktop →
+   ลบ/Add Signal Bridge ใหม่ → About ต้องเป็น REV 1.3.2.
+2. ค่า acceptance: `Show trade overlay=true`, plan lines=false, details=false, font size=14. ที่ zoom
+   ใช้งานปกติต้องแยก `▲ L`, `▼ S`, `TP`, `SL`, `TR` ได้, marker ไม่ย่อตาม zoom และ marker ใน
+   bar/ด้านเดียวกันไม่ทับกัน. เก็บ screenshot จริงเพิ่มในหัวข้อนี้; build ผ่านอย่างเดียวห้ามสรุปว่า UI ผ่าน.
+3. ตรวจ regression: ราคา anchor ของ marker ต้องตรง signal/outcome เดิม, feed/Telegram ต้องไม่เปลี่ยน,
+   NQU6 shadow ต้องยังไม่วาด. เปิด details ชั่วคราวเพื่อเทียบ `#S... @ ราคา` กับ dashboard ได้.
+4. Rollback เร็วสุดคือปิด `Show trade overlay`; หรือ Import DLL REV 1.3.1 กลับ. ไม่มี schema/function
+   ให้ rollback. หากเพียงต้องการ audit text ไม่ต้อง downgrade—เปิด `Show marker details`.
+
+---
+
 ## 0E. แก้ Indicator updater ดึง branch ผิด (ตรวจ: 2026-09-02 02:55 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อนติดตั้ง DLL.** ภาพจากการรันจริงพบว่า updater เดิม checkout
@@ -21,12 +66,12 @@
 | อะไร | สถานะปัจจุบัน |
 |---|---|
 | Root cause | `scripts/update-indicator.ps1` hardcode `git checkout -B main origin/main`; แต่ production branch ของ repo นี้คือ `claude/form-signal-telegram-rz8am1` |
-| Source ที่ยืนยัน | production HEAD `f38267a`; indicator REV `1.3.1`; indicator commit `51e2b3e` |
+| Source ที่ยืนยัน | production HEAD `2581b9b`; indicator REV `1.3.1`; indicator commit `51e2b3e` (REV 1.3.2 อยู่ใน §0F และยังไม่ merge ณ snapshot นี้) |
 | วิธีแก้ | fetch production ด้วย refspec ตรง, build จาก detached worktree ชั่วคราว, ไม่ checkout/reset working tree ของผู้ใช้, ตรวจ assembly version และ SHA-256 หลัง copy |
 | UX/encoding | `.bat` ตั้ง UTF-8 และข้อความ updater ใช้ ASCII English จึงไม่ขึ้นตัวอักษรไทยเป็นสี่เหลี่ยมบน Windows PowerShell 5.1 |
 | Verification | ทดสอบครบ fetch → restore/build → version check → copy/hash check ผ่าน; .NET SDK 10.0.400, build 0 warning / 0 error, DLL version 1.3.1, SHA-256 `5A6276375E58568985F9A5C97370A8CE7C51F9A4CCB417001F1975F92570AA93` |
-| Deploy/server | ไม่มี Edge Function, database, web หรือ signal-logic change; ต้อง merge updater นี้ก่อน checkout อื่นจะได้รับตัวแก้ |
-| Git | branch งาน `codex/fix-indicator-updater`; **PR #54 เปิดแล้ว รอ owner review/merge**; Vercel check ของ snapshot `08687e2` ผ่าน `success` |
+| Deploy/server | ไม่มี Edge Function, database, web หรือ signal-logic change |
+| Git | **PR #54 merge แล้ว** ที่ `cd43d46`; PR #55 อัปเดต current Handoff merge แล้วที่ `2581b9b`. updater ตัวแก้อยู่ production แล้ว |
 
 ### 0E.1 วิธีใช้, acceptance และ rollback
 
@@ -52,14 +97,14 @@
 
 | อะไร | สถานะปัจจุบันที่ตรวจแล้ว |
 |---|---|
-| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `f38267a` |
-| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay), **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1) และ **#53 merge แล้ว** (`f38267a`, บังคับอ่าน/อัปเดต Handoff). ไม่มี PR เหล่านี้ที่ต้องเปิดหรือ merge ซ้ำ |
+| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `2581b9b` ก่อนเปิดงาน REV 1.3.2 |
+| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay), **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1), **#53 merge แล้ว** (`f38267a`, Handoff gate), **#54 merge แล้ว** (`cd43d46`, updater) และ **#55 merge แล้ว** (`2581b9b`, current Handoff) |
 | Database | migrations 0029, 0030 และ **0031 `cross_asset_chart_annotations`** อยู่ production แล้ว; migration ล่าสุดที่ Supabase แสดงคือ `20260901150144` |
 | Edge Functions | Supabase แสดง `ingest` **v17 Active**, `chart-annotations` **v1 Active**, `backtest` v7, `outcome-notify` v5 และ `feed-watch` v1 |
 | Rule switches | ทั้ง 8 rules `enabled=true` และ `announcement_mode=evidence_first`; Telegram เปิด 7 rules และปิดเฉพาะ `lvn`. Evidence gate ยังเป็นตัวตัดสินว่าจะประกาศจริง จึงห้ามตีความ `telegram_enabled=true` ว่าทุก signal จะส่ง |
 | Instrument policy | BTCUSDT / GC / MNQU6 5m = `primary`; NQU6 5m = `shadow`. NQU6 ยังเก็บ signal/outcome แต่ไม่เป็นคำสั่งเทรดและไม่วาด marker |
 | Confidence v2 | ยังเป็น **Shadow**, `score=null`, ห้ามใช้เป็น %/filter. View มี 436 captured, 431 resolved, 16 cohorts ณ เวลาตรวจ; ยังไม่ได้ทำ offline calibration, frozen model หรือ forward acceptance |
-| ATAS overlay | Source REV **1.3.1** merge แล้วและ build/reflection ผ่าน. **production branch ไม่มีไฟล์ DLL สำเร็จรูปที่ track ไว้**; ต้อง build/publish artifact 1.3.1 หรือรับไฟล์จากเครื่อง build ก่อน Import. การเห็น marker บนกราฟจริงยังไม่มี screenshot acceptance |
+| ATAS overlay | REV **1.3.1** อยู่ production แต่ screenshot จริงยืนยันว่า marker รก/เล็กและไม่ผ่าน visual acceptance. ตัวแก้ REV **1.3.2** อยู่ branch/PR ตาม §0F; production ไม่มี DLL สำเร็จรูปที่ track ไว้ |
 | Live feed | **ผิดปกติ/หยุดรับข้อมูล:** แถวล่าสุดของ BTCUSDT / GC / MNQU6 / NQU6 อยู่ราว `2026-09-01 23:40 UTC`; ตรวจ 01:55 UTC เงียบประมาณ 135 นาทีทั้งหมด. แถวล่าสุดทุกตัว `error=null` จึงยังชี้ได้เพียงว่า ATAS/bridge หยุดส่งหรือไปไม่ถึง endpoint ไม่ใช่ Edge Function ตอบ error |
 | Web | Source ของ Confidence v2 / Evidence-first / overlay docs merge แล้ว. รอบนี้ไม่ได้เปิด production UI ตรวจภาพ จึงไม่อ้าง visual acceptance ใหม่ |
 | Repo workflow | เพิ่ม `AGENTS.md` ที่ root เพื่อบังคับ agent ที่รองรับ repository instructions ให้อ่าน Handoff ทั้งไฟล์ก่อนแก้ code/config/schema/deploy และอัปเดต Handoff/เอกสารก่อนจบงาน. กฎนี้ไม่ครอบคลุม AI ที่ไม่ได้เปิด repo, checkout เก่า หรือผลิตภัณฑ์ที่ไม่รองรับ `AGENTS.md` |
@@ -70,9 +115,9 @@
 1. **P0 — ทำให้ feed กลับมาเดิน:** เปิด ATAS และกราฟ 5m ของทั้งสี่ตัว, ตรวจว่า Signal Bridge
    ยังถูก Add และ Endpoint/`INGEST_TOKEN` ถูกต้อง, แล้วรอให้ `ingest_log` มีเวลาใหม่ทุกตัว.
    Acceptance คือ POST ผ่าน v17, latest row `error=null` และ quiet time กลับมาต่ำกว่า 10 นาที.
-2. **P1 — ส่งมอบ indicator ที่ติดตั้งได้:** build/publish DLL REV 1.3.1 จาก source ที่ merge แล้ว,
-   Import ใน ATAS, ลบ indicator เดิมแล้ว Add ใหม่, ตรวจ revision 1.3.1 และแนบ screenshot ที่
-   ENTRY/EXIT อ่านได้โดยไม่เปิด plan lines. ตอนนี้ compile ผ่าน แต่ยังไม่ผ่าน visual acceptance.
+2. **P1 — ส่งมอบ indicator ที่ติดตั้งได้:** merge REV 1.3.2, รัน updater, Import ใน ATAS,
+   ลบ/Add ใหม่, ตรวจ revision 1.3.2 และแนบ screenshot ที่ compact markers อ่านได้โดยไม่เปิด
+   plan lines/details. ตอนนี้ compile ผ่าน แต่ยังไม่ผ่าน visual acceptance บนกราฟจริง.
 3. **P1 — ปิดงาน Confidence v2 ด้วยหลักฐาน:** หลัง feed กลับมา ให้ export cohort แบบ time split,
    ทำ offline calibration และ forward shadow ตาม §5.20. จำนวน resolved ที่เพิ่มขึ้น **ไม่ใช่**สิทธิ์เปิด
    filter/Telegram จนกว่าจะมี frozen model version, metrics แยก rule/direction/instrument และ owner approval.
