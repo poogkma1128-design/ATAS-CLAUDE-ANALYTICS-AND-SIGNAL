@@ -996,7 +996,13 @@ Telegram อยู่ (ดู `supabase/functions/backtest/index.ts` — ไม�
 ⚠️ **ผลข้างเคียงที่อันตรายกว่าตัว error:** worker ถูกฆ่า**ก่อน**โค้ดจะถึง `catch` ของตัวเอง
 ฉะนั้น `finishExperiment(..., 'failed')` **ไม่เคยถูกเรียก** แถวใน `experiments` จึงค้างที่
 `status = 'running'` ตลอดกาล และหน้า `/experiments` จะโชว์ว่า "กำลังรัน" ทั้งที่ตายไปแล้ว
-**เจอแถวแบบนี้ให้เช็ก `net._http_response` ก่อนเสมอ** — `select status_code, content
+**เจอแถวแบบนี้ให้เช็ก `net._http_response` ก่อนเสมอ**
+
+⚠️ **ข้อจำกัดของขั้นตอนนี้ ที่เพิ่งเจอ 2026-09-02:** `net._http_response` **เก็บย้อนหลังแค่ ~6 ชั่วโมง**
+(วัดตอนตรวจ: 72 แถว เก่าสุด 08:10 UTC) แต่แถวที่ค้างมักถูกพบหลังจากนั้นนาน — ตัวที่ปิดไปวันนี้
+อายุ **17 ชม.** แถว response จึงถูกลบไปแล้ว **ตัวตรวจที่ข้อนี้สั่งให้ใช้ มีอายุสั้นกว่าสถานการณ์ที่มันตรวจ**
+⇒ ถ้าเจอช้ากว่า 6 ชม. ให้ปิดด้วย**หลักฐานแวดล้อม**แทน (จำนวน variants × แท่งในหน้าต่าง เทียบกับรันที่
+ยืนยันแล้วว่าตาย) และ**เขียนไว้ใน `error` ว่าจัดประเภทจากอะไร** อย่าเขียนราวกับยืนยันแล้ว — `select status_code, content
 from net._http_response where id = <req_id>` ถ้าได้ 546 คือตายด้วยเรื่องนี้ ให้ปิดแถวเอง
 
 **ทางแก้ระยะยาวที่ยังไม่ได้ทำ:** ให้ตัวรันเขียนผลทีละ variant แทนที่จะสะสมทั้งหมดแล้ว
@@ -2661,7 +2667,7 @@ estimand และเกณฑ์แพ้ถูกบันทึก**ก่อ
 
 | Phase | งาน | ไฟล์ |
 |---|---|---|
-| **0** | กรอก evidence packet ตาม protocol §3 ให้ครบ **ก่อนเห็นตัวเลข** · ปิดแถว experiment ที่ค้าง `96de5127-e16f-40e1-b547-8a56775097eb` (§7.2-O1) | — |
+| **0** | ✅ **เสร็จแล้ว 2026-09-02** — evidence packet กรอกครบทุกช่องที่ `docs/experiments/2026-09-02-trail-counterfactual.md` (เขียน**ก่อน**รัน ตาม protocol §3) · ปิดแถว `96de5127` ที่ค้างแล้ว (`status=running` เหลือ 0) **แต่สาเหตุยังไม่ถูกแก้ — cron 0018 จะยิงซ้ำและตายแบบเดิมทุกคืนจนกว่า O1 จะเสร็จ** | — |
 | **1** | migration สร้าง **`public.opportunity_results`** = **O2** | `supabase/migrations/0032_what_the_trail_actually_cost.sql` |
 | **2** | `rescoreOne()` — **เรียก `scorePlan` ตัวเดิมโดยไม่แก้** แล้ว override `trailTriggerTicks: 0` · **ไม่สร้าง walk ตัวที่ 4** | `supabase/functions/_shared/rescore.ts` + `rescore_test.ts` |
 | **3** | `mode:"rescore"` — โหลด **OHLC เท่านั้น** ไม่แตะ `cluster_levels` · เขียนทีละ batch พร้อม `on conflict do nothing` (= O1 ในขอบเขตแคบ) | `supabase/functions/backtest/index.ts` |
@@ -2810,7 +2816,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | K | **อธิบายว่าทำไม `0.25/0.0625` กับ `0.25/0.03125` ให้ผลเหมือนกันทุกหลัก** | ค้างอยู่ — ไม่ใช่ rounding (ตรวจแล้ว) ต้องรัน `simulate()` ในเครื่องบนบาร์ชุดเดียวกันแล้วไล่ดู `stop_level` ทีละแท่ง **ห้ามรับค่า trail ละเอียดใด ๆ ก่อนตอบข้อนี้** (ข้อ 5.4c) |
 | L | **ตรวจ deploy ชั้น 3 ของ `ingest` v14** | ✅ **ผ่านแล้ว 2026-09-01** — feed กลับมา 23:54 · 31 แถวหลัง deploy · error 1 แถวเดียวคือ `JWT issued at future` (ข้อ 3.12 ไม่ใช่ของใหม่) และ NQU6 ส่งสำเร็จต่อทันที 10 แถวรวด · `speed_of_tape` ยิงจริง **15 สัญญาณ ประกาศ 0** = การปิดเสียงพิสูจน์แล้วด้วยสัญญาณจริง ไม่ใช่ผ่านแบบว่างเปล่า |
 | M | **ตัดสินชะตา `speed_of_tape`** | **ยังค้าง** — กวาดครบสามพารามิเตอร์และฝั่ง long ติดลบทั้ง 9 ค่าที่วัด (ข้อ 5.18), แต่ query ล่าสุดพบ `telegram_enabled=true`. Evidence-first ลดความเสี่ยงการประกาศแต่ไม่ใช่คำตอบเรื่อง edge; ต้องมี owner decision ว่าปิด long/ทั้งกฎหรือเก็บ shadow |
-| O1 | **ทำให้ `backtest` เขียนผลและสถานะทีละ variant** | ค้างอยู่ · **P1** — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) · **กำลังเกิดอยู่จริงตอนนี้:** `standing sweep 2026-09-02` (`96de5127-e16f-40e1-b547-8a56775097eb`) ค้าง `running` โดยมี 0 แถวตั้งแต่ 2026-09-01 21:00 UTC และ `/experiments` แสดงว่ากำลังรัน — ปิดแถวนั้นด้วยมือระหว่างรอ |
+| O1 | **ทำให้ `backtest` เขียนผลและสถานะทีละ variant** | ค้างอยู่ · **P1** — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) · **กำลังเกิดอยู่จริงตอนนี้:** `standing sweep 2026-09-02` (`96de5127-e16f-40e1-b547-8a56775097eb`) ค้าง `running` โดยมี 0 แถวตั้งแต่ 2026-09-01 21:00 UTC และ `/experiments` แสดงว่ากำลังรัน — ปิดแถวนั้นด้วยมือระหว่างรอ · **อัปเดต 2026-09-02:** แถวที่ค้างถูกปิดด้วยมือแล้ว (ดู `docs/experiments/2026-09-02-trail-counterfactual.md`) **แต่เป็นการเก็บกวาด ไม่ใช่การแก้** — cron `0018` ยังยิง sweep หลาย variant ทุก 21:00 UTC และจะตายแบบเดิมเงียบ ๆ ทุกคืน · หน้าต่างแท่งโตขึ้นเรื่อย ๆ (2,892 แท่งฆ่ารันเมื่อ 1 ก.ย. · ตอนนี้ 3,795) **เพดานจึงต่ำลงทุกวัน** |
 | O2 | **เก็บ per-opportunity artifact ต่อ variant** | ค้างอยู่ — ต้องมี stable candidate key, variant, included/excluded **พร้อมเหตุผล**, R, outcome, instrument และ data/evaluator version · **`signal_id` อย่างเดียวไม่พอ** และการจับคู่เฉพาะไม้ที่ซ้ำกันสร้าง selection bias ใหม่ (ข้อ 5.18a) · **เป็นเงื่อนไขก่อนที่ใครจะอ้างว่าความต่างระหว่าง variant มีนัยสำคัญได้อีก** — ดู §5.21 gate ข้อ 5 (block bootstrap ตาม session × instrument) · **schema ออกแบบไว้แล้วใน §5.23** (`opportunity_results` — `candidate_key`, `included`/`exclusion_reason`, `session_day`, `mfe_horizon_ticks`) ยังไม่ implement |
 | P | **ทำ Confidence v2 ให้มีความหมาย** | กำลังทำ — migration 0029 และ snapshot อยู่ production ตั้งแต่ v15, ปัจจุบัน `ingest v17`; มี 436 captured / 431 resolved / 16 cohorts. ยังต้อง offline calibration + frozen model + forward shadow + owner approval; `score:null` และห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
