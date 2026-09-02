@@ -12,6 +12,34 @@
 
 ---
 
+## 0H. รับรองนโยบายแบ่งงานและตรวจหลักฐาน หลัง PR #58 (ตรวจ: 2026-09-02)
+
+> **สถานะ Git ปัจจุบันของเอกสาร:** PR #57 merge แล้วที่ `d52da91`; PR #58 merge แล้วที่
+> `4d6a97e`. งานหัวข้อนี้เป็น follow-up จาก production commit `4d6a97e` และแก้เฉพาะเอกสาร/
+> query อ่านอย่างเดียว — **ไม่แก้ signal logic, parameter, Telegram, database, Edge Function,
+> web หรือ DLL และไม่มี deploy**.
+
+GPT/Codex อ่านและท้าทายร่าง §5.21 ที่ Claude เสนอแล้ว ผลคือ **รับรองหลักการโดยแก้ 2 จุด**:
+
+1. `SQL/DB` เป็นแหล่งหลักฐานตัวเลข ไม่ใช่ “ผู้ตรวจ”. ผู้ตรวจต้องเป็นคน/AI session ที่เป็นอิสระ
+   และต้องรัน SQL/code ซ้ำกับ artifact ดิบด้วยตัวเอง.
+2. ตาราง GPT/Claude เป็น **routing preference** ตามหลักฐานในโปรเจกต์ ไม่ใช่ใบอนุญาตให้รวมบทบาท.
+   ทุก hypothesis ยังต้องแยก `Proposer → Executor/Recorder → Independent Reviewer → Owner`;
+   ผู้เสนอหรือผู้รันห้ามอนุมัติผลตัวเอง แม้ชื่อโมเดลในตารางจะตรงกับงานนั้น.
+
+หลังแก้สองจุดนี้ นโยบายถือว่าได้รับการตรวจจากคนละฝั่งแล้วและใช้เป็นกติกาของ repo ได้. รายละเอียด
+ที่ใช้ลงมือจริงอยู่ใน `docs/EXPERIMENT_REVIEW_PROTOCOL.md`; `AGENTS.md` บังคับให้อ่าน protocol
+ก่อนงานทดลอง/สัญญาณ. §5.21 เก็บตารางเจ้าภาพ จุดอ่อน ระดับ L1–L4 และตัวอย่างส่งงานผิดคน 9 กรณี.
+
+**สิ่งที่ยังไม่รับรอง:** ตัวเลขใน §5.18a ยังเป็นผลที่ผู้เสนอรายงานและยังไม่มี independent raw re-run
+ตาม evidence packet ใหม่. ดังนั้นคำตัดสินที่ปลอดภัยมีเพียง **คง runtime เดิม ไม่รับ threshold ใหม่**
+เพราะหลักฐานไม่พอ; ห้ามยกระดับเป็นคำกล่าวว่า variant ต่างกันอย่างมีนัยสำคัญ หรือใช้เปิด/ปิด Telegram.
+
+**Verification/rollback:** ตรวจ diff และ Markdown/SQL แบบ static ใน PR follow-up นี้. ไม่มี runtime test
+เพราะไม่มี runtime change. Rollback คือ revert commit เอกสาร; ไม่ต้อง rollback schema/function/DLL.
+
+---
+
 ## 0G. ป้ายราคา Entry / SL / TP / Exit และสีที่ปรับได้ — REV 1.4.0 (ตรวจ: 2026-09-02 03:54 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อน §0F เมื่อติดตั้งหรือทดสอบ overlay.** Screenshot จาก ATAS จริงยืนยันว่า
@@ -22,13 +50,14 @@
 | อะไร | สถานะปัจจุบัน |
 |---|---|
 | หลักฐานปัญหา | ภาพ ATAS วันที่ 2026-09-02 แสดง marker compact ชัดขึ้น แต่ต้องไล่อ่านตำแหน่งแกนราคาเองและไม่มีป้ายแผน SL/TP พร้อมตัวเลข |
-| Source ใหม่ | branch `codex/configurable-plan-price-labels`; indicator commit `651d297`; **[PR #57](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/57) เปิดแล้ว รอ owner review/merge**; indicator **REV 1.4.0**; เริ่มจาก production merge commit `a6d74b8` |
+| Source ใหม่ | branch `codex/configurable-plan-price-labels`; indicator commit `651d297`; **[PR #57](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/57) merge แล้ว** ที่ `d52da91`; indicator **REV 1.4.0** |
 | ป้ายราคา | Entry แสดง `▲ L ราคา` หรือ `▼ S ราคา` เสมอ; ที่แท่งเข้าแสดง `SL ราคา` และ `TP ราคา` เป็นค่าเริ่มต้น; resolved exit แสดง `TP/SL/TR/TIME/EXIT ราคา` ตามผลจริง |
 | ลดความรก | `Show SL / TP price labels` ปิดเฉพาะป้ายแผนได้; `Show signal IDs` ปิดเป็นค่าเริ่มต้นและใช้เติม `#S...` เพื่อ audit; plan lines ยังปิดเป็นค่าเริ่มต้น |
 | ปรับหน้าตา | font 8–32px (default 14), opacity 80–255 (default 235), และสีแยก Long, Short, SL, TP, trailing, timeout, other exit, text, border ในกลุ่ม `Overlay Colors` |
 | ความถูกต้อง | ตัวเลขใช้ `item.Entry/Stop/Target/ExitPrice` ที่ endpoint ส่งมาโดยตรงและ format ตาม tick size; Indicator ไม่คำนวณหรือขยับราคาใหม่ |
 | Verification ก่อน push | `dotnet build -c Release` ผ่าน 0 warning / 0 error; assembly version `1.4.0`. Reflection ยืนยัน defaults `priceLabels=true`, `IDs=false`, `font=14`, `opacity=235`, พบ color properties 9 ช่อง และ text examples `▲ L 29069.75 / SL 29055.50 / TP 29112.50 / TR 29075.25` |
-| Deploy | ไม่มี server/database/web deploy และไม่มี DLL track ใน Git. ก่อน PR #57 merge updater ยัง build REV 1.3.2; หลัง merge ต้องรัน updater, Import DLL และตรวจ About/กราฟจริง |
+| Deploy | ไม่มี server/database/web deploy และไม่มี DLL track ใน Git. Updater ดึง source REV 1.4.0 ได้หลัง PR #57 merge; การติดตั้ง DLL ใน ATAS ยังเป็นขั้นของเจ้าของ |
+| Visual acceptance หลัง merge | **ไม่ผ่านด้วยค่าเริ่มต้นที่แสดงป้ายทุกแผน:** screenshot จริงแสดง Entry/SL/TP/exit หลายชุดทับแท่งและทับกันจนรก. ตัวเลขราคาอ่านได้แต่พื้นที่ตัดสินใจถูกบัง; ห้ามเรียกว่า professional/ผ่านเพียงเพราะ build และ PR เขียว |
 | เอกสาร | อัปเดต `docs/SETUP.md` และ Handoff นี้; ไม่เพิ่ม runbook แยกเพราะ SETUP และ §0G.1 ครบขั้นติดตั้ง/acceptance/rollback |
 
 ### 0G.1 ขั้นรับช่วง, acceptance และ rollback
@@ -36,10 +65,10 @@
 1. หลัง PR merge ให้รัน `scripts\update-indicator.bat`; ต้อง build จาก production branch และเห็น
    REV 1.4.0. ปิด ATAS รวม system tray → Import DLL บน Desktop → ลบ/Add Signal Bridge ใหม่ →
    About ต้องเป็น REV 1.4.0.
-2. ตั้ง `Show trade overlay=true`, `Show SL / TP price labels=true`, plan lines=false,
-   `Show signal IDs=false`, font=14. Acceptance บน ATAS จริงคือมองเห็นราคา Entry/SL/TP และราคา
-   exit โดยไม่ต้องเทียบแกนราคา, ไม่หดเมื่อ zoom และ lane ไม่ทับกันเกินอ่าน. ต้องแนบ screenshot;
-   build/reflection ผ่านอย่างเดียวยังไม่ใช่ visual acceptance.
+2. ค่าใช้งานชั่วคราวหลัง screenshot ไม่ผ่าน: `Show trade overlay=true`,
+   `Show SL / TP price labels=false`, plan lines=false, `Show signal IDs=false`, font 10–11 และ
+   ลด lookback เหลือประมาณ 50–80 bars. เปิดป้าย SL/TP เฉพาะตอน audit. Acceptance รอบถัดไปต้องเห็น
+   Entry/exit price ที่จำเป็นโดยไม่บังแท่งหลักและไม่มี lane ซ้อนจนอ่านไม่ได้; ต้องแนบ screenshot.
 3. สุ่มเทียบตัวเลขหนึ่ง Long และหนึ่ง Short กับ dashboard/Telegram: Entry, SL, TP และ resolved exit
    ต้องตรงทุกหลักตาม tick size. ตรวจว่า feed/Telegram ไม่เปลี่ยนและ NQU6 shadow ยังไม่วาด.
 4. ทดสอบ parameter: เปลี่ยน font, opacity และอย่างน้อยสี Long/SL/TP แล้วต้องเห็นผลหลัง recalculate;
@@ -135,14 +164,14 @@
 
 | อะไร | สถานะปัจจุบันที่ตรวจแล้ว |
 |---|---|
-| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `a6d74b8` ก่อนเปิดงาน REV 1.4.0 |
-| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay), **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1), **#53 merge แล้ว** (`f38267a`, Handoff gate), **#54 merge แล้ว** (`cd43d46`, updater), **#55 merge แล้ว** (`2581b9b`, current Handoff) และ **#56 merge แล้ว** (`a6d74b8`, compact marker REV 1.3.2) |
+| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `4d6a97e` หลัง PR #58 |
+| PR ที่ปิดงานแล้ว | **#48** (`b86f2e8`, Evidence-first), **#50** (`c7e537c`, cross-asset overlay), **#51** (`bb6428f`, overlay visibility REV 1.3.1), **#53** (`f38267a`, Handoff gate), **#54** (`cd43d46`, updater), **#55** (`2581b9b`, current Handoff), **#56** (`a6d74b8`, compact marker REV 1.3.2), **#57** (`d52da91`, price labels REV 1.4.0) และ **#58** (`4d6a97e`, §5.18 audit/role policy) merge แล้ว |
 | Database | migrations 0029, 0030 และ **0031 `cross_asset_chart_annotations`** อยู่ production แล้ว; migration ล่าสุดที่ Supabase แสดงคือ `20260901150144` |
 | Edge Functions | Supabase แสดง `ingest` **v17 Active**, `chart-annotations` **v1 Active**, `backtest` v7, `outcome-notify` v5 และ `feed-watch` v1 |
 | Rule switches | ทั้ง 8 rules `enabled=true` และ `announcement_mode=evidence_first`; Telegram เปิด 7 rules และปิดเฉพาะ `lvn`. Evidence gate ยังเป็นตัวตัดสินว่าจะประกาศจริง จึงห้ามตีความ `telegram_enabled=true` ว่าทุก signal จะส่ง |
 | Instrument policy | BTCUSDT / GC / MNQU6 5m = `primary`; NQU6 5m = `shadow`. NQU6 ยังเก็บ signal/outcome แต่ไม่เป็นคำสั่งเทรดและไม่วาด marker |
 | Confidence v2 | ยังเป็น **Shadow**, `score=null`, ห้ามใช้เป็น %/filter. View มี 436 captured, 431 resolved, 16 cohorts ณ เวลาตรวจ; ยังไม่ได้ทำ offline calibration, frozen model หรือ forward acceptance |
-| ATAS overlay | Source REV **1.3.2** อยู่ production และ screenshot ยืนยัน compact marker อ่านง่ายขึ้น แต่ป้ายยังไม่มีราคา. ตัวแก้ REV **1.4.0** อยู่ branch ตาม §0G; production ไม่มี DLL สำเร็จรูปที่ track ไว้ |
+| ATAS overlay | Source REV **1.4.0** อยู่ production. Screenshot หลัง merge ยืนยันว่าป้ายมีราคาแต่ค่าเริ่มต้นที่แสดง Entry/SL/TP/exit หลายชุด **รกและไม่ผ่าน visual acceptance**; ใช้ค่าชั่วคราวใน §0G.1. Production ไม่มี DLL สำเร็จรูปที่ track ไว้ |
 | Live feed | **ผิดปกติ/หยุดรับข้อมูล:** แถวล่าสุดของ BTCUSDT / GC / MNQU6 / NQU6 อยู่ราว `2026-09-01 23:40 UTC`; ตรวจ 01:55 UTC เงียบประมาณ 135 นาทีทั้งหมด. แถวล่าสุดทุกตัว `error=null` จึงยังชี้ได้เพียงว่า ATAS/bridge หยุดส่งหรือไปไม่ถึง endpoint ไม่ใช่ Edge Function ตอบ error |
 | Web | Source ของ Confidence v2 / Evidence-first / overlay docs merge แล้ว. รอบนี้ไม่ได้เปิด production UI ตรวจภาพ จึงไม่อ้าง visual acceptance ใหม่ |
 | Repo workflow | เพิ่ม `AGENTS.md` ที่ root เพื่อบังคับ agent ที่รองรับ repository instructions ให้อ่าน Handoff ทั้งไฟล์ก่อนแก้ code/config/schema/deploy และอัปเดต Handoff/เอกสารก่อนจบงาน. กฎนี้ไม่ครอบคลุม AI ที่ไม่ได้เปิด repo, checkout เก่า หรือผลิตภัณฑ์ที่ไม่รองรับ `AGENTS.md` |
@@ -153,9 +182,10 @@
 1. **P0 — ทำให้ feed กลับมาเดิน:** เปิด ATAS และกราฟ 5m ของทั้งสี่ตัว, ตรวจว่า Signal Bridge
    ยังถูก Add และ Endpoint/`INGEST_TOKEN` ถูกต้อง, แล้วรอให้ `ingest_log` มีเวลาใหม่ทุกตัว.
    Acceptance คือ POST ผ่าน v17, latest row `error=null` และ quiet time กลับมาต่ำกว่า 10 นาที.
-2. **P1 — ส่งมอบ indicator ป้ายราคาที่ติดตั้งได้:** merge REV 1.4.0 ตาม §0G, รัน updater,
-   Import ใน ATAS, ลบ/Add ใหม่, ตรวจ revision 1.4.0 และแนบ screenshot ที่ Entry/SL/TP/Exit
-   มีราคาชัดเจน. จากนั้นเทียบตัวเลขกับ dashboard/Telegram และทดสอบ font/color/opacity.
+2. **P1 — แก้ visual acceptance ของ indicator REV 1.4.0:** source merge แล้วและ screenshot จริง
+   พิสูจน์ว่าราคาแสดงครบ แต่ป้ายหลายชุดบังแท่ง/ทับกันมาก. ใช้ค่าชั่วคราว §0G.1; งาน code ถัดไป
+   ต้องออกแบบ declutter/visibility policy แล้วให้เจ้าของยืนยัน screenshot ใหม่. ห้ามอ้าง PR/build เขียว
+   ว่า UI ผ่าน และยังต้องสุ่มเทียบ Entry/SL/TP/Exit กับ dashboard/Telegram.
 3. **P1 — ปิดงาน Confidence v2 ด้วยหลักฐาน:** หลัง feed กลับมา ให้ export cohort แบบ time split,
    ทำ offline calibration และ forward shadow ตาม §5.20. จำนวน resolved ที่เพิ่มขึ้น **ไม่ใช่**สิทธิ์เปิด
    filter/Telegram จนกว่าจะมี frozen model version, metrics แยก rule/direction/instrument และ owner approval.
@@ -2038,17 +2068,19 @@ experiment `deploy check 0028` variant baseline 1000 บาร์/instrument · 
 
 ---
 
-### 5.18a ตรวจย้อน §5.18 หาความลำเอียง — ข้อสรุปรอด แต่เหตุผลและการรายงานไม่รอด
+### 5.18a ตรวจย้อน §5.18 หาความลำเอียง — คง runtime เดิม แต่ถอนคำรับรองผลเดิม
 
 **สถานะ:** ตรวจ 2026-09-02 · **ยังไม่มีการเปลี่ยนค่าใด ๆ และไม่มีอะไร deploy**
-เพิ่มไฟล์เดียวคือ `docs/queries/gate0_parameter_binding.sql` (อ่านอย่างเดียว) ผ่าน **PR #58 (draft)**
+เพิ่ม query อ่านอย่างเดียวผ่าน **PR #58 ซึ่ง merge แล้วที่ `4d6a97e`**. ขั้นตอนรับรองใหม่อยู่ใน
+`docs/EXPERIMENT_REVIEW_PROTOCOL.md` และ §0H.
 
-**ข้อสรุปของ §5.18 ("ไม่รับอะไรเลย" ทั้งสามกฎ) ยังถูกต้อง** — ตรวจทางเลือกทุกตัวแล้วไม่มีตัวไหน
-ผ่านทั้ง #14 และ #18 พร้อมกัน · และไม่พบ look-ahead หรือ leakage: กฎอ่าน `ctx.history` ย้อนหลังล้วน
-`simulate()` เดินไปข้างหน้า และการกวาดใช้ evaluator ตัวเดียวกับเส้นทางสด
-**แต่เหตุผลที่ใช้ปฏิเสธ การเลือกแสดงผล และคำแนะนำเดียวของหัวข้อนั้น มีปัญหาตามข้อล่าง**
+**คำตัดสินที่ยังปลอดภัยคือ “ไม่รับ threshold ใหม่และคง runtime เดิม”** เพราะหลักฐานยังไม่พอให้
+เปลี่ยน production — ไม่ใช่เพราะพิสูจน์แล้วว่าค่าปัจจุบันดีที่สุด. การตรวจ source รอบนี้ไม่พบ
+look-ahead/leakage ที่ชัดเจน (`ctx.history`, `simulate()`, shared evaluator) แต่ **ไม่ใช่การพิสูจน์ว่า
+ไม่มี leakage ทุกเส้นทาง** และยังขาด independent raw re-run. เหตุผล การเลือกแสดงผล และคำแนะนำเดิม
+มีปัญหาตามข้อล่าง จึงถอนคำว่า “ข้อสรุปรอด” ในความหมายเชิงสถิติ.
 
-#### สิ่งที่พบ (ตัวเลขทุกตัวมาจากไฟล์ query ข้างบน — ยังรอการรันซ้ำโดยผู้อื่น)
+#### สิ่งที่ผู้เสนอพบ (ตัวเลขทุกตัวมาจากไฟล์ query ข้างบน — **provisional จนกว่าผู้ตรวจอิสระจะรันซ้ำ**)
 
 1. **`maxShare` ไม่ได้แปลว่าอย่างเดียวกันทุก instrument** สัดส่วนแถวบางสุด (หลัง trim ขอบ) ของ
    BTCUSDT อยู่ที่ **0.0040** เทียบกับ futures **0.18–0.21** ⇒ ด่านนี้ผ่าน **100% ของบาร์ BTCUSDT
@@ -2104,9 +2136,11 @@ selection bias ใหม่ **สิ่งที่ต้องเทียบ�
 
 #### หลักฐานและการตรวจสอบ
 
-ทุกตัวเลขในหัวข้อนี้มาจาก `docs/queries/gate0_parameter_binding.sql` ซึ่งรันกับ production แล้ว
-**แต่ยังไม่ผ่านการรันซ้ำโดยผู้อื่น** — ตามกติกาที่ตกลงกันรอบนี้ ห้ามอ้างตัวเลขเหล่านี้ต่อจนกว่าจะรันซ้ำเอง
-ไม่มี unit test เพิ่ม เพราะไม่มีโค้ดที่รันได้ถูกเปลี่ยน
+ทุกตัวเลขในหัวข้อนี้มาจาก `docs/queries/gate0_parameter_binding.sql` ซึ่งผู้เสนอรายงานว่ารันกับ
+production แล้ว แต่ **ยังไม่ผ่านการรันซ้ำโดยผู้ตรวจอิสระ**. จึงใช้เพื่อชี้ตำแหน่งที่ต้อง audit ได้
+แต่ห้ามเรียกเป็น canonical fact, อ้างนัยสำคัญ หรือใช้เปลี่ยน runtime. การรันซ้ำต้องบันทึก exact
+experiment IDs, data window, query commit, execution time และผลต่างจากเดิมตาม evidence packet.
+ไม่มี unit test เพิ่ม เพราะ PR #58 ไม่เปลี่ยน runtime code.
 
 #### ความเสี่ยง ระดับ และสิ่งที่เจ้าของต้องตัดสิน
 
@@ -2128,12 +2162,12 @@ selection bias ใหม่ **สิ่งที่ต้องเทียบ�
    artifact ที่มี stable candidate key, variant, included/excluded พร้อมเหตุผล, R, outcome,
    instrument และ data/evaluator version · **`signal_id` อย่างเดียวไม่พอ** · O2 เป็นเงื่อนไขก่อน
    ที่ใครจะอ้างความแตกต่างทางสถิติได้อีก
-4. **แก้ §5.21 ให้แบ่งตามบทบาท ไม่ใช่ชื่อโมเดล** — `Proposer → Executor/Recorder →
-   Independent Reviewer → Owner` · ผู้เสนอห้ามตัดสิน hypothesis ของตัวเอง · ผู้รัน/ผู้เขียนสรุป
-   ห้ามอนุมัติผลตัวเอง · ผู้ตรวจต้อง query artifact ดิบเอง **ไม่ใช่อ่านเฉพาะรายงาน** —
-   ข้อ 3 ข้างบนพิสูจน์ว่าผู้ตรวจที่อ่านแต่รายงานจับ selection bias ไม่ได้ตามนิยาม
-5. **ทุกหัวข้อ §5.x ต่อจากนี้ต้องอ้าง `experiment_id` ครบ รวม failed / omitted / superseded**
-   §5.18 ไม่ได้อ้างสักตัว ซึ่งเป็นเหตุที่การตรวจนี้ใช้เวลานานกว่าที่ควร
+4. ✅ **กติกาแยกบทบาทเขียนแล้ว** — `Proposer → Executor/Recorder → Independent Reviewer →
+   Owner` ใน §5.21 และ protocol. ตาราง GPT/Claude เป็น routing preference เท่านั้น; ห้ามใช้ข้าม
+   การแยกบทบาท.
+5. ✅ **กำหนด evidence packet แล้ว** — ทุกหัวข้อ §5.x ใหม่ต้องอ้าง exact `experiment_id` ครบ
+   รวม failed / omitted / superseded พร้อม code/query commit และ data window. §5.18 เดิมยังเป็น
+   historical report ที่ไม่ผ่านรูปแบบนี้ จึงคงป้าย provisional จนกว่าจะ audit ใหม่.
 
 ---
 
@@ -2316,39 +2350,43 @@ history และ price-action context (sweep/zone/structure). `rule` ใช้ 
 
 ### 5.21 ใครทำอะไร — แบ่งตามความถนัดที่พิสูจน์แล้วในโปรเจกต์นี้
 
-**แก้ครั้งที่ 2 · 2026-09-02** — ฉบับแรกแบ่งด้วยชื่อโมเดลแบบกว้าง ๆ ("GPT ทำโค้ด · Claude ตั้งสมมติฐาน")
-ฉบับที่สองแบ่งด้วยบทบาทนามธรรม ซึ่งถูกแต่ยังตอบไม่ได้ว่า *งานตรงหน้านี้ส่งให้ใคร*
-**ฉบับนี้ระบุเจ้าภาพหลักรายงานจริง โดยอ้างหลักฐานว่าทำไมถึงเป็นคนนั้น**
+**แก้ครั้งที่ 3 · 2026-09-02; GPT/Codex ตรวจร่างของ Claude แล้ว** — ตารางนี้ระบุว่า
+*งานตรงหน้าควรส่งให้ใครก่อน* ตามหลักฐานที่มีจริง แต่แยกจากบทบาทวงจรชีวิต. GPT รับรองร่างโดยแก้ว่า
+`SQL` เป็นแหล่งหลักฐาน ไม่ใช่ผู้ตรวจ และชื่อโมเดลไม่ลบกฎ independence; ดู §0H.
 
 **หลักที่ไม่เปลี่ยนไม่ว่าจะแก้กี่รอบ:** ตัวเลข R, win rate, drawdown, fill rate, sample size และ
 calibration ต้องมาจาก **SQL/TypeScript ที่รันซ้ำได้** เสมอ **ไม่มี AI ตัวไหนเป็นเจ้าภาพของตัวเลข**
 AI อธิบาย query ได้ แต่ห้ามแทนที่มัน · คำตอบที่ไพเราะไม่ใช่หลักฐาน · ตอบ `ข้อมูลไม่พอ` ได้เสมอ
 
-#### ตารางเจ้าภาพหลัก — ส่งงานตามนี้
+#### ตารางเจ้าภาพหลัก — ใช้เพื่อ routing; ห้ามใช้รวมบทบาท
 
 | งาน | **เจ้าภาพหลัก** | **ผู้ตรวจ** | ทำไมถึงเป็นคนนี้ (หลักฐานในเอกสารนี้) |
 |---|---|---|---|
 | C# indicator, ATAS platform, DrawingText/overlay, build & REV | **GPT/Codex** | เจ้าของ (screenshot บนกราฟจริง) | REV 1.3.1 → 1.3.2 → 1.4.0 ทำครบทั้ง build 0 warning, reflection ตรวจ default, อ้าง ATAS docs และมาตรฐาน TradingView/NinjaTrader — §0C, §0F, §0G |
 | Supabase: migration, edge function, deploy, verification 3 ชั้น | **GPT/Codex** | Claude (ตรวจว่าเคลมตรงกับ log จริงไหม) | migration 0029–0031 · ingest v15→v17 · จับ 401/405/ingest_log ครบทุกรอบ — §7.4, §0A.3, §0B.2 |
-| Test suite, CI, typecheck, fixture | **GPT/Codex** | — | รัน 138 tests และ **รายงานตรง ๆ ว่า typecheck ทั้งก้อนยังไม่เขียวเพราะ fixture `confidence_v2_test.ts`** แทนที่จะเคลมว่าผ่าน — §0A.3 |
+| Test suite, CI, typecheck, fixture | **GPT/Codex** | CI และผู้ตรวจอิสระเมื่อผล test รองรับการเปลี่ยน production | รัน 138 tests และ **รายงานตรง ๆ ว่า typecheck ทั้งก้อนยังไม่เขียวเพราะ fixture `confidence_v2_test.ts`** แทนที่จะเคลมว่าผ่าน — §0A.3 |
 | โค้ดตัวรัน backtest, scorer, pipeline | **GPT/Codex** | Claude | `resultRows()` loop ที่สี่ · `ambiguous_path` · evidence gate ที่ fail closed เฉพาะการประกาศ ไม่ใช่ทั้ง ingest — §0A.1 |
 | สคริปต์เครื่องมือ, updater, encoding บน Windows | **GPT/Codex** | เจ้าของ | เจอ root cause ว่า updater hardcode `origin/main` — §0E |
 | **สถิติเชิงรูปนัย**: estimand, bootstrap, holdout, calibration | **GPT/Codex** | Claude | แย้งเรื่อง SE ของ Claude ได้ถูกและรอบคอบกว่า — เห็นทั้ง covariance และ serial/session dependence ขณะที่ Claude เห็นทางเดียว (§5.18a) |
 | เขียน Handoff / §5.x / PR body / runbook | **GPT/Codex** | Claude (ตรวจว่าอะไร*ไม่ได้*ถูกเขียน) | โครงสร้าง acceptance/rollback/evidence สม่ำเสมอทุกหัวข้อ — §0C.2, §0F.2, §0G.1 |
 | **ท้าทายผล หาความลำเอียง** (look-ahead, leakage, selection bias, data-snooping, regime dependence) | **Claude** | เจ้าของ | เจอ selective reporting ของ §5.18 ด้วยการ query ดิบ · เจอ 4 รัน `failed` และ variant ที่ไม่เคยรัน — §5.18a |
-| **ตรวจว่าเกณฑ์ผูกจริงไหม / แปลเหมือนกันทุก instrument** (Gate 0) | **Claude** | SQL | เจอ `maxShare` ผ่าน 100% บน BTCUSDT และ `minLevels` ผูกไม่ได้เลย ซึ่งไม่ใช่บั๊กโค้ดและไม่ใช่ผลลำเอียง — คนละหมวดที่ก่อนหน้านี้ไม่มีเจ้าภาพ — §5.18a ข้อ 1–2 |
-| ตั้ง hypothesis / หา feature / หากลไก | **Claude** | **ห้ามเป็น Claude คนเดิม** | — |
-| อ่านเอกสารยาวแล้วหาสิ่งที่ขัดกันเอง / ที่หายไป | **Claude** | — | จับได้ว่า §2/§9/§10 ค้างเลขเวอร์ชันเก่าขณะที่ §0 อัปเดตแล้ว |
-| เรียบเรียงภาษาไทยในเอกสารและ UI | **Claude** | เจ้าของ | — |
-| **ตัวเลขทุกตัว** | **SQL/DB เท่านั้น** | ผู้ตรวจต้องรันซ้ำเอง | ห้าม AI คำนวณจากการอ่านตารางหรือ prompt |
+| **ตรวจว่าเกณฑ์ผูกจริงไหม / แปลเหมือนกันทุก instrument** (Gate 0) | **Claude** | GPT/Codex หรือผู้ตรวจอิสระรัน SQL ซ้ำ | Claude เจอ `maxShare` อิ่มตัวบน BTCUSDT และ `minLevels` ผูกไม่ได้ — §5.18a ข้อ 1–2. **ตัวเลขยัง provisional จนกว่าจะรันซ้ำ**; SQL เป็น evidence source ไม่ใช่ reviewer |
+| ตั้ง hypothesis / หา feature / หากลไก | **Claude** | GPT/Codex หรือ Claude คนละ session ที่ไม่เคยเสนอ/รัน hypothesis นี้ | Claude เชื่อมอาการ `BTCUSDT ไม่ขยับ` ไปที่ parameter semantics ได้ใน §5.18a; แต่กฎผู้เสนอห้ามตัดสินผลยังอยู่เหนือความถนัดนี้ |
+| อ่านเอกสารยาวแล้วหาสิ่งที่ขัดกันเอง / ที่หายไป | **Claude** | GPT/Codex ตรวจจุดที่นำไปแก้สถานะ | จับได้ว่า §2/§9/§10 ค้างเลขเวอร์ชันเก่าขณะที่ §0 อัปเดตแล้ว; เป็นหลักฐานเฉพาะ repo นี้ ไม่ใช่คำกล่าวว่า Claude ทุก version ดีกว่าเสมอ |
+| เรียบเรียงภาษาไทยในเอกสารและ UI | **Claude** | เจ้าของ | เป็น routing preference ที่เจ้าของกำหนด; **ยังไม่มี benchmark เชิงปริมาณ** จึงห้ามอ้างว่าเป็นความสามารถที่พิสูจน์ทางสถิติ |
+| **ตัวเลขทุกตัว** | **SQL/DB หรือ deterministic code เป็นแหล่งหลักฐาน** | ผู้ตรวจอิสระต้องรันซ้ำเอง | §5.18a พบข้อมูลที่ narrative ไม่ได้รายงาน; ห้าม AI คำนวณจากการอ่านตารางหรือ prompt แล้วใช้แทน query |
 | เปิด/ปิด Telegram, filter, rule, `announcement_mode` | **เจ้าของ** | — | AI ไม่มีสิทธิ์อนุมัติ ทุกกรณี |
 | ATAS GUI, ติดตั้ง DLL, Supabase Auth, revoke/rotate secret | **เจ้าของ** | — | AI ไม่มีสิทธิ์เข้าถึง — §7.1 |
 
-#### กฎเหล็กสองข้อ ที่อยู่เหนือตารางข้างบน
+#### กฎเหล็กสี่ข้อ ที่อยู่เหนือตารางข้างบน
 
 1. **ผู้เสนอไม่ตัดสิน hypothesis ของตัวเอง** ถ้า Claude เสนอ ให้ GPT หรืออีกเซสชันเป็นคนวัดว่าได้ผลไหม
 2. **ผู้รันและผู้เขียนสรุปไม่อนุมัติผลของตัวเอง** และ **ผู้ตรวจต้อง query artifact ดิบเอง**
    (`experiments`, `experiment_results`, `bars`, `cluster_levels`) ไม่ใช่อ่านหัวข้อ §5.x
+3. ทุก hypothesis ต้องบันทึก `Proposer → Executor/Recorder → Independent Reviewer → Owner`.
+   คน/AI เดียวรับหลายบทบาทในวงจรนั้นไม่ได้; CI/SQL เป็นเครื่องมือ ไม่ใช่ผู้ตรวจอิสระ.
+4. ทุกข้อสรุปเชิงตัวเลขต้องมี evidence packet ตาม `docs/EXPERIMENT_REVIEW_PROTOCOL.md`.
+   ถ้าไม่มี exact IDs, data window, variants ที่ fail/omit/supersede และ raw re-run ให้ติดป้าย `provisional`.
 
 เหตุผลของข้อ 2 พิสูจน์แล้วใน §5.18a: มีรันที่ให้ผลดีกว่าค่าปัจจุบันอยู่ในฐานข้อมูลแต่ไม่ขึ้นรายงาน
 **ผู้ตรวจที่อ่านได้แค่รายงานจับ selection bias ไม่ได้ตามนิยาม เพราะสิ่งที่ถูกคัดออกไม่อยู่ในรายงาน**
@@ -2368,8 +2406,9 @@ AI อธิบาย query ได้ แต่ห้ามแทนที่ม
 
 **ตารางนี้มาจากหลักฐาน ไม่ใช่จากศรัทธา** ความสามารถของโมเดลเปลี่ยนได้ ⇒ ทบทวนใหม่เมื่อมี
 หลักฐานสวนทาง และอ้างหัวข้อที่เป็นหลักฐานทุกครั้งที่ย้ายเจ้าภาพ
-*(หมายเหตุถาวร: ฉบับนี้ร่างโดย Claude ซึ่งเป็นผู้เสนอ ⇒ ตามกฎเหล็กข้อ 1 ต้องมีคนอื่นรับรอง
-ก่อนถือว่าตกลง — Claude ไม่รับรองนโยบายที่ตัวเองร่าง)*
+*(provenance ถาวร: Claude ร่างฉบับตั้งต้น จึงไม่รับรองร่างตัวเอง. GPT/Codex ตรวจและรับรองเมื่อ
+2026-09-02 โดยแก้ 2 จุดใน §0H; การรับรองนี้ครอบคลุมนโยบาย ไม่ได้ทำให้ตัวเลข provisional ใน
+§5.18a ผ่าน independent raw re-run.)*
 
 #### Gate ที่ใช้ตัดสินแทนความเห็นของ AI
 
@@ -2419,9 +2458,9 @@ AI อธิบาย query ได้ แต่ห้ามแทนที่ม
 
 #### สรุปสั้นสุดสำหรับเวลาจะสั่งงาน
 
-- **จะแตะโค้ด เครื่อง หรือฐานข้อมูล** → GPT
+- **จะแตะโค้ด เครื่อง หรือเปลี่ยนฐานข้อมูล** → GPT; query อ่านอย่างเดียวให้ผู้ตรวจอิสระรันซ้ำได้
 - **จะถามว่าเชื่อผลนี้ได้ไหม / มีอะไรหายไปหรือเปล่า** → Claude
-- **จะถามว่าตัวเลขเท่าไร** → SQL แล้วให้อีกฝั่งรันซ้ำ
+- **จะถามว่าตัวเลขเท่าไร** → SQL/deterministic code แล้วให้อีกฝั่งรันซ้ำ; ห้ามอ่านตัวเลขด้วยตาแทน query
 - **จะเปิด-ปิดอะไรที่ถึงมือถือหรือถึงเงิน** → เจ้าของเท่านั้น
 
 ### 5.22 อะไรต้อง push/deploy เพื่อให้สัญญาณทำงานจริง และอะไรทำทีหลังได้
@@ -2538,6 +2577,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | O2 | **เก็บ per-opportunity artifact ต่อ variant** | ค้างอยู่ — ต้องมี stable candidate key, variant, included/excluded **พร้อมเหตุผล**, R, outcome, instrument และ data/evaluator version · **`signal_id` อย่างเดียวไม่พอ** และการจับคู่เฉพาะไม้ที่ซ้ำกันสร้าง selection bias ใหม่ (ข้อ 5.18a) · **เป็นเงื่อนไขก่อนที่ใครจะอ้างว่าความต่างระหว่าง variant มีนัยสำคัญได้อีก** — ดู §5.21 gate ข้อ 5 (block bootstrap ตาม session × instrument) |
 | P | **ทำ Confidence v2 ให้มีความหมาย** | กำลังทำ — migration 0029 และ snapshot อยู่ production ตั้งแต่ v15, ปัจจุบัน `ingest v17`; มี 436 captured / 431 resolved / 16 cohorts. ยังต้อง offline calibration + frozen model + forward shadow + owner approval; `score:null` และห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
+| Q | **Independent raw re-run ของตัวเลข §5.18a** | ค้างอยู่ · **P1 ก่อนเปลี่ยน threshold/rule** — ผู้ตรวจที่ไม่ใช่ผู้เสนอ/ผู้รันต้องใช้ evidence packet, exact experiment IDs, frozen data window และ query commit รัน artifact ดิบซ้ำ. จนกว่าจะเสร็จ ตัวเลขและข้อเสนอทั้งหมดใน §5.18a เป็น `provisional`; คง runtime เดิมและห้ามนำไปเปิด/ปิด Telegram |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
 ใน `plan.ts` มี `volatilityFloorTicks()` คำนวณพื้นความเสี่ยงจาก median range ของแท่งก่อนหน้า
