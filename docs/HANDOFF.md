@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-01 (Evidence-first signal quality)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-02 (Evidence-first signal quality)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -12,6 +12,56 @@
 
 ---
 
+## 0D. สถานะปัจจุบันเดียวที่ใช้รับช่วงงาน (ตรวจ: 2026-09-02 01:55 UTC)
+
+> **เริ่มอ่านและตัดสินใจจากหัวข้อนี้เท่านั้น.** §0C / §0B / §0A และส่วนถัดลงไปเป็น
+> หลักฐานตามเวลาที่เขียน จึงยังเก็บเลข version เก่าไว้เพื่อ audit แต่ **ห้าม**นำคำว่า “รอ PR”,
+> `ingest v15/v16`, REV 1.3.0 หรือสถานะ feed ในส่วนประวัติมาแทนสถานะปัจจุบันด้านล่าง.
+
+| อะไร | สถานะปัจจุบันที่ตรวจแล้ว |
+|---|---|
+| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `bb6428f` |
+| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay) และ **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1). ไม่มี PR ของสามงานนี้ที่ต้องเปิดหรือ merge ซ้ำ |
+| Database | migrations 0029, 0030 และ **0031 `cross_asset_chart_annotations`** อยู่ production แล้ว; migration ล่าสุดที่ Supabase แสดงคือ `20260901150144` |
+| Edge Functions | Supabase แสดง `ingest` **v17 Active**, `chart-annotations` **v1 Active**, `backtest` v7, `outcome-notify` v5 และ `feed-watch` v1 |
+| Rule switches | ทั้ง 8 rules `enabled=true` และ `announcement_mode=evidence_first`; Telegram เปิด 7 rules และปิดเฉพาะ `lvn`. Evidence gate ยังเป็นตัวตัดสินว่าจะประกาศจริง จึงห้ามตีความ `telegram_enabled=true` ว่าทุก signal จะส่ง |
+| Instrument policy | BTCUSDT / GC / MNQU6 5m = `primary`; NQU6 5m = `shadow`. NQU6 ยังเก็บ signal/outcome แต่ไม่เป็นคำสั่งเทรดและไม่วาด marker |
+| Confidence v2 | ยังเป็น **Shadow**, `score=null`, ห้ามใช้เป็น %/filter. View มี 436 captured, 431 resolved, 16 cohorts ณ เวลาตรวจ; ยังไม่ได้ทำ offline calibration, frozen model หรือ forward acceptance |
+| ATAS overlay | Source REV **1.3.1** merge แล้วและ build/reflection ผ่าน. **production branch ไม่มีไฟล์ DLL สำเร็จรูปที่ track ไว้**; ต้อง build/publish artifact 1.3.1 หรือรับไฟล์จากเครื่อง build ก่อน Import. การเห็น marker บนกราฟจริงยังไม่มี screenshot acceptance |
+| Live feed | **ผิดปกติ/หยุดรับข้อมูล:** แถวล่าสุดของ BTCUSDT / GC / MNQU6 / NQU6 อยู่ราว `2026-09-01 23:40 UTC`; ตรวจ 01:55 UTC เงียบประมาณ 135 นาทีทั้งหมด. แถวล่าสุดทุกตัว `error=null` จึงยังชี้ได้เพียงว่า ATAS/bridge หยุดส่งหรือไปไม่ถึง endpoint ไม่ใช่ Edge Function ตอบ error |
+| Web | Source ของ Confidence v2 / Evidence-first / overlay docs merge แล้ว. รอบนี้ไม่ได้เปิด production UI ตรวจภาพ จึงไม่อ้าง visual acceptance ใหม่ |
+| เอกสารเพิ่ม | แก้ Handoff ให้มี canonical current state; ไม่สร้าง runbook เพิ่ม เพราะ `docs/SETUP.md` มีขั้น build/import/rollback และรายการด้านล่างเป็นลำดับรับช่วงที่เพียงพอ |
+
+### 0D.1 งานค้างจริง เรียงตามลำดับ
+
+1. **P0 — ทำให้ feed กลับมาเดิน:** เปิด ATAS และกราฟ 5m ของทั้งสี่ตัว, ตรวจว่า Signal Bridge
+   ยังถูก Add และ Endpoint/`INGEST_TOKEN` ถูกต้อง, แล้วรอให้ `ingest_log` มีเวลาใหม่ทุกตัว.
+   Acceptance คือ POST ผ่าน v17, latest row `error=null` และ quiet time กลับมาต่ำกว่า 10 นาที.
+2. **P1 — ส่งมอบ indicator ที่ติดตั้งได้:** build/publish DLL REV 1.3.1 จาก source ที่ merge แล้ว,
+   Import ใน ATAS, ลบ indicator เดิมแล้ว Add ใหม่, ตรวจ revision 1.3.1 และแนบ screenshot ที่
+   ENTRY/EXIT อ่านได้โดยไม่เปิด plan lines. ตอนนี้ compile ผ่าน แต่ยังไม่ผ่าน visual acceptance.
+3. **P1 — ปิดงาน Confidence v2 ด้วยหลักฐาน:** หลัง feed กลับมา ให้ export cohort แบบ time split,
+   ทำ offline calibration และ forward shadow ตาม §5.20. จำนวน resolved ที่เพิ่มขึ้น **ไม่ใช่**สิทธิ์เปิด
+   filter/Telegram จนกว่าจะมี frozen model version, metrics แยก rule/direction/instrument และ owner approval.
+4. **P2 — งาน logic/runner ที่ยังเปิด:** ยืนยันความหมาย `bars.ticks`, ตัดสิน `speed_of_tape` จาก
+   หลักฐาน (โดยเฉพาะ long ที่ติดลบทุกค่าที่วัด), ทำ backtest ให้ persist ทีละ variant, อธิบาย trail
+   parameter equivalence และแก้ fixture typecheck `confidence_v2_test.ts`. ดู §7.2 รายข้อ.
+5. **Owner/Security — ต้องยืนยันสถานะก่อนทำ:** ตรวจ Supabase Auth redirect/template/signup และยืนยันว่า
+   Telegram bot token ที่เคยหลุดถูก revoke/rotate แล้ว. รายการ §7.1 เป็น checklist เดิมที่ยังไม่มี
+   หลักฐานปิดงาน; ห้ามสรุปว่ายังเสียหรือแก้แล้วโดยไม่ตรวจ dashboard/account จริง.
+
+### 0D.2 Rollback/ข้อห้ามที่ยังมีผล
+
+- ปิดความเสี่ยงการแจ้งเตือนด้วย `telegram_enabled=false`; อย่าตั้ง `announcement_mode=manual`
+  เพื่อแก้ feed หรือข้าม evidence gate.
+- ปิดเฉพาะ overlay ด้วย `Show trade overlay=false`; ไม่ต้อง rollback database.
+- Migration 0031 เป็น additive; **ห้าม drop schema เพื่อ rollback**. หาก ingest v17 มี regression จริง
+  จึงค่อย redeploy v16 พร้อมเก็บ log/timestamp ก่อนเปลี่ยน.
+- ห้ามเปลี่ยน NQU6 เป็น primary, เปิด Confidence v2 เป็นคะแนน หรือเปิดกฎจาก backtest อย่างเดียว
+  โดยไม่มี forward evidence และ owner approval.
+
+---
+
 ## 0C. ATAS overlay visibility hotfix — REV 1.3.1 (ตรวจ: 2026-09-01 16:58 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อน §0B เมื่อติดตั้ง DLL:** แก้ปัญหาป้าย Entry/Exit เล็กจนต้องซูมและ
@@ -20,8 +70,8 @@
 
 | อะไร | สถานะ |
 |---|---|
-| Source | แก้จาก default branch commit `c7e537c`; รวมอยู่ในชุดแก้ไข REV 1.3.1 นี้ |
-| ATAS DLL | REV **1.3.1** build Release สำเร็จ 0 warning / 0 error; file/product version `1.3.1` |
+| Source | **PR #51 merge แล้ว** เข้า production branch ที่ commit `bb6428f`; source hotfix อยู่ใน `51e2b3e` |
+| ATAS DLL | Source REV **1.3.1** build Release สำเร็จ 0 warning / 0 error; file/product version `1.3.1`. Production branch ยังไม่มี DLL สำเร็จรูปที่ track ไว้ |
 | ค่าเริ่มต้นใหม่ | `Show Entry / SL / TP lines = false`, `Overlay marker font size = 14` |
 | Production/server | ไม่ต้อง deploy และไม่มี server/database change |
 | การตรวจบนกราฟจริง | ยังต้อง Import DLL บน ATAS แล้วแนบภาพยืนยัน; session build ตรวจได้เฉพาะ compile และ runtime defaults |
@@ -163,19 +213,18 @@ allow-list ถาวรใน code:
 
 ---
 
-## 0B. สถานะปัจจุบัน — Cross-asset ATAS overlay (ตรวจ: 2026-09-01 15:05 UTC)
+## 0B. หลักฐานการปล่อย Cross-asset ATAS overlay (snapshot: 2026-09-01 15:05 UTC)
 
-> **ให้อ่านหัวข้อนี้ก่อน §0A และประวัติด้านล่าง**: งานนี้ deploy ไป production แล้ว; สิ่งเดียว
-> ที่ยังต้องทำบนเครื่องคือ Import DLL เข้า ATAS และยืนยันภาพบนกราฟจริง. ไม่ต้องติดตั้งโปรแกรมหรือ
-> เพิ่ม URL/token ใหม่.
+> งานนี้ deploy และ merge แล้วตาม §0D. หัวข้อนี้เก็บหลักฐานตอนปล่อย REV 1.3.0; เมื่อติดตั้งจริง
+> ให้ใช้ source/DLL **REV 1.3.1** และขั้นล่าสุดใน §0C/§0D ไม่ใช่สถานะ PR ใน snapshot นี้.
 
 | อะไร | สถานะที่ตรวจแล้ว |
 |---|---|
-| Git source | branch `codex/cross-asset-atas-overlay`, commit `97e65a3`; push แล้วและรอเปิด/merge PR |
+| Git source | **PR #50 merge แล้ว** เข้า production branch ที่ `c7e537c`; source หลักอยู่ใน `97e65a3` |
 | Production schema | migration `0031_cross_asset_chart_annotations.sql` สำเร็จ: policy table, `signals.suppression_reason`, `signal_outcomes.exit_bar_id`, และ scorer ที่บันทึกแท่ง exit |
 | Edge Functions | `ingest` **v17 Active** และ `chart-annotations` **v1 Active** (custom `INGEST_TOKEN`, ไม่ใช้ public endpoint) |
 | Live path หลัง deploy | `ingest v17` ตอบ POST 200 จริงเวลา 15:05 UTC ทั้งชุด; BTCUSDT primary ยังได้ signal ใช้งาน และ NQU6 seq 2709 ถูกเก็บเป็น `muted=true`, `suppression_reason=shadow_instrument` ตาม policy |
-| ATAS DLL | REV **1.3.0** build Release ผ่าน 0 warning; ยังต้อง Import ใน ATAS จึงยังไม่อ้างว่ามี marker ปรากฏบนกราฟจริง |
+| ATAS DLL | REV **1.3.0** build Release ผ่าน 0 warning ณ snapshot นี้; ถูกแทนด้วย source REV **1.3.1** จาก PR #51. ยังไม่มี visual acceptance บนกราฟจริง |
 
 ### 0B.1 พฤติกรรมที่เปลี่ยน
 
@@ -209,10 +258,11 @@ allow-list ถาวรใน code:
 - ยังไม่มี ATAS GET หลัง Import จึงยังไม่อ้างว่า marker วาดผ่านจริง. ให้ตรวจข้อนี้หลังขั้นตอนด้านล่าง
   แล้วบันทึกต่อในหัวข้อนี้.
 
-### 0B.3 ขั้นตอนที่เจ้าของต้องทำบน ATAS (เหลือเพียงนี้)
+### 0B.3 ขั้นตอนที่เจ้าของต้องทำบน ATAS (อัปเดตหลัง merge)
 
-1. ใช้ DLL Release REV 1.3.0 จาก branch/PR นี้ตาม `docs/SETUP.md`: ปิด ATAS → Import → ลบ Signal
-   Bridge เก่าออกจากกราฟ → Add ใหม่. **ไม่ต้องติดตั้ง dependency เพิ่ม**.
+1. Build/publish หรือรับ DLL Release **REV 1.3.1** จาก source บน production branch ตาม
+   `docs/SETUP.md` (ตอนนี้ repo ไม่มี binary 1.3.1 ให้ดาวน์โหลดตรง): ปิด ATAS → Import → ลบ
+   Signal Bridge เก่าออกจากกราฟ → Add ใหม่. **ไม่ต้องติดตั้ง dependency เพิ่มใน ATAS**.
 2. เปิดกราฟ 5m ของ BTCUSDT, GC หรือ MNQU6 ที่ bridge ตั้ง symbol ตรงกับ ingest แล้วคงค่า
    `Show trade overlay=true`, refresh 30 วินาที, lookback 200 bars. Marker จะมีเฉพาะ signal ที่ผ่าน gate;
    การไม่มี marker ไม่ใช่ error หากช่วงนั้นไม่มี primary/unmuted signal.
@@ -231,16 +281,19 @@ allow-list ถาวรใน code:
 
 ---
 
-## 0. เริ่มที่นี่ — สถานะ ณ 2026-09-01
+## 0. ประวัติก่อน PR #48–#51 — ห้ามใช้เป็นสถานะปัจจุบัน
 
-### 🔴 เซสชันใหม่เริ่มตรงนี้
+> ตารางและข้อความในหัวข้อนี้เป็น snapshot ก่อนงาน Evidence-first/cross-asset ถูก merge.
+> ใช้เพื่อ audit เท่านั้น; เซสชันใหม่ต้องเริ่มที่ §0D.
+
+### Snapshot ณ 2026-09-01 ก่อนงานชุดล่าสุด merge
 
 | อะไร | ค่า |
 |---|---|
-| branch ที่ทำงานอยู่ | `codex/confidence-v2-shadow` (push ถึง `ab02dd7` แล้ว; GitHub connector ของเซสชันนี้ไม่มีสิทธิ์สร้าง PR) |
+| branch ที่ทำงานอยู่ ณ snapshot | `codex/confidence-v2-shadow` (ภายหลัง merge แล้วผ่าน PR #48) |
 | แตกจาก / merge กลับเข้า | `claude/form-signal-telegram-rz8am1` (branch หลักของ repo นี้) |
-| งานถัดไป | รอ cohort v2 ปิดผลตาม §5.20; merge PR เพื่อขึ้น Dashboard/เอกสารเท่านั้น — `ingest v15` เก็บ snapshot จริงอยู่แล้ว; **ห้าม**เปิดเป็นตัวกรองหรือเรียกคะแนนเป็น % |
-| PR ล่าสุดที่ merge แล้ว | #44 (`claude/prop-trading-signals-priority-gtwenb` → branch หลัก); #41/#42 คือประวัติของ Speed of Tape/backtest v6 |
+| งานถัดไป ณ snapshot | รอ cohort v2 ปิดผลตาม §5.20; `ingest v15` เริ่มเก็บ snapshot แล้ว; **ห้าม**เปิดเป็นตัวกรองหรือเรียกคะแนนเป็น % |
+| PR ล่าสุด ณ snapshot | #44; สถานะปัจจุบันดู §0D ซึ่งรวม #48/#50/#51 แล้ว |
 
 **ของที่ deploy ก่อนงานนี้** ตรงกับ repo (`ingest` v14 · `backtest` **v6** · migration ถึง 0028)
 และงานทั้งหมดถึง §8.6 ขั้น 3 merge เข้า branch หลักแล้ว ไม่มีอะไรค้างอยู่ใน PR
@@ -248,8 +301,8 @@ allow-list ถาวรใน code:
 **อัปเดต Confidence v2 — อ่าน §5.20 ก่อนทำเรื่อง confidence ต่อ:** migration **0029**
 (`confidence_v2_progress` view) และ `ingest` **v15** ขึ้น production แล้ว. Endpoint ผ่าน 405/401
 และ feed จริงเวลา **09:10 UTC** สร้าง v2 snapshot 4 แถวโดย `error = null`. โค้ด/หน้า Dashboard v2
-และเอกสารอยู่บน remote branch `codex/confidence-v2-shadow` แล้ว แต่ยังต้องสร้าง/merge PR เพื่อขึ้น
-Vercel production; การ merge นี้ **ไม่กระทบการสร้าง signal สด**. Telegram และค่า
+และเอกสารอยู่บน remote branch `codex/confidence-v2-shadow` ณ snapshot นั้น; ภายหลัง merge แล้ว
+ผ่าน PR #48. การ merge นี้ **ไม่กระทบการสร้าง signal สด**. Telegram และค่า
 `signals.confidence` เดิม **ยังไม่เปลี่ยน**.
 
 **สิ่งที่ยังไม่ได้ทำคือการกวาดค่าเอง** (§8.6 ขั้น 4–5) อ่าน **§8.6** ก่อนอย่างอื่น
@@ -336,13 +389,13 @@ indicator ประกาศฟิลด์ไว้แต่ไม่เคย�
 **ก่อนหน้านั้น (0019 + 0020):** `rewardRatio` 2.0 → 3.0 · `outcome-notify` เป็น version 4 ·
 คิวรีที่เคยต้องจำกลายเป็น view (`settings_effect`, `price_action_edge`) บนหน้า `/stats`
 
-**สถานะ feed ตอนนี้ (2026-09-01 00:35 UTC) — สลับข้างกับที่เคยเป็น:**
+**สถานะ feed ณ snapshot 2026-09-01 00:35 UTC — ไม่ใช่สถานะปัจจุบัน:**
 **MNQU6 / NQU6 / GC = สด** ทั้งสามตัว (ส่งเข้าทุก 5 นาที ~50 ครั้งใน 6 ชม.ล่าสุด) ·
 **BTCUSDT = เงียบ** ตั้งแต่ 31 ส.ค. 22:50 UTC
 
 **นี่คือสิ่งที่รอมาตลอด** — ข้อ 5.8 (ชะตา MNQU6) และข้อ 7.1 #1 รอ futures เดินหลายเซสชัน
-มาตั้งแต่ต้น ตอนนี้มันเดินแล้ว ข้อมูลที่ใช้ตัดสินกำลังสะสม **อย่าเพิ่งสรุปจนได้อีกสองเซสชัน**
-และถ้าจะกวาดค่าตาม §8.6 ตอนนี้ ตัวอย่างฝั่ง futures จะหนากว่าตอนข้อ 5.11 ทำ ซึ่งดีขึ้น
+มาตั้งแต่ต้น ณ snapshot นั้นมันเดินแล้ว ข้อมูลที่ใช้ตัดสินกำลังสะสม **อย่าเพิ่งสรุปจนได้อีกสองเซสชัน**
+และถ้าจะกวาดค่าตาม §8.6 ในช่วงนั้น ตัวอย่างฝั่ง futures จะหนากว่าตอนข้อ 5.11 ทำ ซึ่งดีขึ้น
 
 ฝั่ง BTCUSDT ที่เงียบไปน่าจะเป็นชาร์ตที่ปิดไว้ ไม่ใช่ bridge พัง — เหตุผลอยู่ในข้อ 3.7
 (ตลาดปิดกับ bridge พังหน้าตาเหมือนกันในหน้า feed) crypto ไม่มีเวลาปิด ฉะนั้นถ้าเงียบยาว
@@ -370,12 +423,12 @@ ATAS เคยหยุดส่งไป ~8 ชม. (29 ส.ค. 19:15 → 30 �
 
 ### สองเรื่องที่รอ "เจ้าของ" ไม่ใช่รอโค้ด
 
-1. **เปิดชาร์ต BTCUSDT ค้างไว้** — สลับข้างกับที่เคยเขียนไว้ตรงนี้
-   **MNQ/NQ/GC ส่งอยู่แล้วตอนนี้** (ตลาดเปิด ข้อมูลกำลังสะสม = สิ่งที่ข้อ 5.8 รอ)
+1. **เปิดชาร์ต BTCUSDT ค้างไว้** — ข้อนี้เป็นคำสั่ง ณ snapshot เท่านั้น; ปัจจุบันทั้งสี่ feed
+   เงียบพร้อมกันและให้ทำตาม §0D.1
    ส่วน **BTCUSDT เงียบตั้งแต่ 31 ส.ค. 22:50 UTC** ซึ่ง crypto ไม่มีเวลาปิด
    จึงแปลว่าชาร์ตถูกปิด ไม่ใช่ตลาดปิด (ข้อ 3.7) · ยังต้องได้อีก ~2 เซสชันถึงตัดสิน MNQU6 ได้
 2. **แก้ Supabase Auth ให้ล็อกอินเว็บได้** (ข้อ 7.1 #2 และ #3) — หน้า `/experiments`
-   และ `/stats` **เจ้าของยังเปิดดูไม่ได้** เพราะติดล็อกอิน นี่คืออุปสรรคใหญ่สุดตอนนี้
+   และ `/stats` **เจ้าของยังเปิดดูไม่ได้** เพราะติดล็อกอิน ณ snapshot นั้น; สถานะปัจจุบันต้องทดสอบใหม่
 
 เรื่องที่สาม (`rewardRatio` 2.0 → 3.0) **เจ้าของสั่งแล้วและทำไปแล้ว** เมื่อ 2026-08-30 —
 เหตุผลทั้งหมดอยู่ในข้อ 5.6 และในคอมเมนต์ของ migration 0019
@@ -1313,7 +1366,7 @@ MNQU6 −0.008 → −0.008 (ไม่ขยับ) · NQU6 0.547 → 0.547 (ไ
 
 `consecutive 2` คือตัวที่ใกล้ผ่านที่สุด และเป็นอย่างแรกที่ควรกลับมาดูเมื่อชาร์ต futures เดินครบหลายเซสชัน
 
-⚠️ **ข้อจำกัดที่ต้องอ่านควบทุกตาราง (สภาพ ณ ตอนวัด 30–31 ส.ค. — ตอนนี้ตลาดเปิดแล้ว ดูข้อ 0):** MNQ/NQ/GC ตลาดปิด แท่งค้างที่ 28 ส.ค.
+⚠️ **ข้อจำกัดที่ต้องอ่านควบทุกตาราง (สภาพ ณ ตอนวัด 30–31 ส.ค.; ตลาดเปิดภายหลังในวันนั้น):** MNQ/NQ/GC ตลาดปิด แท่งค้างที่ 28 ส.ค.
 ฝั่ง futures จึงมีไม้น้อย (GC 18 · NQU6 12) ด่าน "ทุก instrument ดีขึ้น" จึงตัดสินจากตัวอย่างบาง
 ทั้งฝั่งที่ผ่านและฝั่งที่ตก
 
@@ -1939,13 +1992,13 @@ Telegram ตามพฤติกรรมเดิม. งานนี้จึ
 ย้อนกลับได้. ข้อมูลเก่า 1,313 แถวไม่มี snapshot นี้และ **ไม่ backfill** เพราะไม่มีทางพิสูจน์ได้
 ว่าฟีเจอร์ทุกตัวเป็นค่าที่รู้ได้ก่อนผลลัพธ์จริง.
 
-สถานะ deploy ณ เวลาที่เขียน Handoff:
+สถานะ deploy ตอนเริ่มเก็บ และสถานะปัจจุบันที่ยืนยันซ้ำ 2026-09-02:
 
 | ส่วน | สถานะ | ความหมาย |
 |---|---|---|
 | migration 0029 `confidence_v2_progress` | ✅ production แล้ว | เป็น view อ่านอย่างเดียว; ไม่แตะข้อมูลเดิม/RLS/security policy |
-| `ingest` ที่เขียน snapshot v2 | ✅ production `v15` + feed จริงผ่าน | 3 POST เวลา 09:10 UTC ไม่มี error; เกิด v2 snapshot 4 แถว |
-| Dashboard REV 1.3.1 | อยู่บน remote branch นี้ | แสดงสถานะ Shadow ใน `/signals/[id]` และ `/stats`; ต้องสร้าง/merge PR ก่อนจะเห็นบน production |
+| `ingest` ที่เขียน snapshot v2 | ✅ เริ่มใน `v15`; ปัจจุบันอยู่ใน **v17 Active** | View ปัจจุบันมี 436 captured / 431 resolved / 16 cohorts; feed หยุดอัปเดตหลังประมาณ 23:40 UTC ตาม §0D |
+| Dashboard Confidence v2 | ✅ merge แล้วผ่าน PR #48 | Source แสดงสถานะ Shadow ใน `/signals/[id]` และ `/stats`; รอบ 2026-09-02 ยังไม่ได้ตรวจ visual production ซ้ำ |
 | Telegram / rule params / filter | **ไม่เปลี่ยน** | นี่คือขอบเขตตั้งใจของ v2 ระยะนี้ |
 
 #### contract ของ snapshot (ห้ามเปลี่ยนเงียบ ๆ)
@@ -2019,7 +2072,7 @@ history และ price-action context (sweep/zone/structure). `rule` ใช้ 
 
 #### ลำดับที่ผู้รับงานต้องทำ — ห้ามข้ามด่าน
 
-1. ✅ Deploy `ingest v15` ด้วยไฟล์ครบชุดรวม `_shared/confidence_v2.ts` และ registry ที่ import มัน
+1. ✅ Deploy เริ่มตั้งแต่ `ingest v15` และยังอยู่ใน `ingest v17` ด้วยไฟล์ครบชุดรวม `_shared/confidence_v2.ts` และ registry ที่ import มัน
    (`verify_jwt: false` เหมือน ingest เดิม เพราะ handler ตรวจ `INGEST_TOKEN` เอง). MCP รายงาน 20
    source files เพราะ `types.ts` เป็น type-only import และ Deno bundler ตัดออก; ไม่ใช่ไฟล์ตกหล่น.
 2. ✅ ตรวจครบ 3 ชั้นแล้ว: token มั่ว → 401, `GET` → 405, feed จริง 3 POST หลัง deploy ไม่มี error
@@ -2102,26 +2155,26 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 
 | ส่วน | ต้องมีเพื่อสร้าง/รับ signal สดไหม | ต้องทำเมื่อมีการเปลี่ยนส่วนนี้ | สถานะปัจจุบัน |
 |---|---|---|---|
-| ATAS indicator ที่ส่ง payload พร้อม `INGEST_TOKEN` | **ต้องมี** | build/install indicator และตั้ง endpoint/token ให้ตรง; ไม่ใช่ Git push อย่างเดียว | ใช้งานอยู่; `ingest v16` รับ feed เดิมได้ |
-| Supabase `ingest` + shared rules ที่มัน import | **ต้องมี** สำหรับ logic, การเขียน `signals`, และ Telegram path | push เพื่อเก็บ source แล้ว deploy Edge Function **พร้อมไฟล์ dependency ครบชุด**; ตรวจ 405 → 401 → feed จริง | **v16 production แล้ว**; v2 snapshot ถูกเก็บจริง และ Telegram เป็น Evidence-first |
+| ATAS indicator ที่ส่ง payload พร้อม `INGEST_TOKEN` | **ต้องมี** | build/install indicator และตั้ง endpoint/token ให้ตรง; ไม่ใช่ Git push อย่างเดียว | เคยใช้งานผ่าน v17 แล้ว แต่ feed ล่าสุดหยุดที่ ~23:40 UTC; ต้องตรวจ ATAS/bridge ตาม §0D.1 |
+| Supabase `ingest` + shared rules ที่มัน import | **ต้องมี** สำหรับ logic, การเขียน `signals`, และ Telegram path | push เพื่อเก็บ source แล้ว deploy Edge Function **พร้อมไฟล์ dependency ครบชุด**; ตรวจ 405 → 401 → feed จริง | **v17 Active**; v2 snapshot และ Evidence-first อยู่ใน bundle ปัจจุบัน |
 | `rule_overrides`, `telegram_enabled`, `announcement_mode`, params | **ต้องมี** ในการกำหนดว่าจะสร้าง/ประกาศ rule ไหน | ปรับผ่าน `/rules`/DB ได้; `manual` ต้องมี owner approval + Handoff/PR | ทั้ง 8 rules เป็น evidence_first; muted row ยังถูกวัดผล |
 | `TELEGRAM_BOT_TOKEN`, `TELEGRAM_CHAT_ID` และการเปิด `telegram_enabled` | ต้องมีเฉพาะเมื่ออยาก **รับข้อความ Telegram**; ไม่จำเป็นต่อการบันทึก signal | ตั้ง secret และเปิด rule ที่ผ่านหลักฐาน; ไม่ต้อง merge เว็บ | มีอยู่เดิม; `setup_stability` เป็น gate เพิ่มอีกชั้น ไม่ใช่ permission ให้ v2 model |
-| migration schema ที่ code ใหม่จำเป็นต้องอ่าน/เขียน | ต้องมีเมื่อ logic ต้องพึ่ง table/column/view/function ใหม่นั้น | apply migration ก่อน/พร้อม deploy ที่อ้างถึงมัน และตรวจ query | **0030 production แล้ว**: announcement_mode, ambiguous_path, 2 reports, outcome scorer ใหม่ |
+| migration schema ที่ code ใหม่จำเป็นต้องอ่าน/เขียน | ต้องมีเมื่อ logic ต้องพึ่ง table/column/view/function ใหม่นั้น | apply migration ก่อน/พร้อม deploy ที่อ้างถึงมัน และตรวจ query | ถึง **0031 production แล้ว**: เพิ่ม cross-asset policy, suppression reason, exit bar และ chart annotations contract |
 | `outcome-notify`/outcome evaluator | ไม่จำเป็นต่อการ **ส่ง signal แรก** แต่จำเป็นต่อการปิดผลและวัดว่า signal ใช้ได้จริง | deploy Edge Function เฉพาะเมื่อแก้ notification; scorer SQL เปลี่ยนต้องผ่าน migration | `outcome-notify` v5 ไม่ถูกแก้; `evaluate_pending_outcomes()` ใหม่บันทึก path audit |
 | `backtest` | ไม่จำเป็นต่อ signal สด | deploy เฉพาะเมื่อแก้ตัวรันการทดลอง; ห้ามมี Telegram import | **v7 production แล้ว**; mirror stop-first + ambiguous_path ของ scorer |
-| Vercel `web`/Dashboard | **ไม่จำเป็น** ต่อ signal หรือ Telegram | merge branch เข้า production branch เพื่อให้ Vercel deploy หน้า UI; ตรวจเว็บหลัง deploy | UI Evidence-first/path-audit/price-action stratified รอ PR/merge; live ingest ไม่ต้องรอ |
-| Confidence v2 model/filter | **ไม่จำเป็น และยังห้ามใช้** | รอ cohort → offline model → shadow prediction → forward evidence → owner approval | snapshot กำลังเก็บ, `score: null` |
-| Handoff, PR, README/เอกสาร | ไม่จำเป็นต่อ runtime แต่ **บังคับสำหรับงานถือว่าจบ** | push/merge เพื่อ audit และส่งต่องาน | Handoff/PR guidance อยู่บน branch นี้ |
+| Vercel `web`/Dashboard | **ไม่จำเป็น** ต่อ signal หรือ Telegram | merge branch เข้า production branch เพื่อให้ Vercel deploy หน้า UI; ตรวจเว็บหลัง deploy | Source UI งานถึง PR #51 merge แล้ว; visual production รอบล่าสุดยังไม่ตรวจซ้ำ |
+| Confidence v2 model/filter | **ไม่จำเป็น และยังห้ามใช้** | cohort → offline model → shadow prediction → forward evidence → owner approval | 436 captured / 431 resolved / 16 cohorts, แต่ยัง `score:null` และยังไม่มี calibrated model |
+| Handoff, PR, README/เอกสาร | ไม่จำเป็นต่อ runtime แต่ **บังคับสำหรับงานถือว่าจบ** | push/merge เพื่อ audit และส่งต่องาน | Canonical status อยู่ §0D; การแก้ Handoff รอบนี้ต้องเปิด PR/merge จึงจะเห็นข้ามเครื่อง |
 
 #### สรุปการตัดสินใจแบบเร็ว
 
-- **วันนี้ต้องการให้ signal เดิมเข้าระบบและ Telegram ต่อ:** `ingest v16` production รับ feed,
-  เก็บ v2 และส่งเฉพาะ cells ที่ผ่าน Evidence-first อยู่แล้ว; Dashboard merge ไม่กระทบเส้นทางนี้.
+- **วันนี้ต้องการให้ signal เดิมเข้าระบบและ Telegram ต่อ:** `ingest v17` Active และ logic พร้อมแล้ว
+  แต่ต้องทำให้ ATAS/bridge กลับมาส่ง feed ก่อน; Dashboard ไม่กระทบเส้นทางนี้.
 - **ต้องการเพิ่มหรือแก้ logic ของ rule:** ต้องทำทั้ง Git commit/push **และ** deploy `ingest`
   ที่ bundle dependency ครบ; migration เพิ่มเฉพาะเมื่อ schema ใหม่จำเป็น. จากนั้นตรวจ 3 ชั้นก่อน
   เปิด Telegram.
-- **ต้องการดู Dashboard v2:** สร้างและ merge PR ไป `claude/form-signal-telegram-rz8am1` เพื่อ
-  ให้ Vercel deploy; เป็นงาน visibility/audit เท่านั้น ไม่ได้เปิดสัญญาณ.
+- **ต้องการดู Dashboard v2:** source merge แล้ว; เปิด production ตรวจ visual ได้เลย. เปิด PR ใหม่
+  เฉพาะเมื่อมี code/docs เปลี่ยนเพิ่ม; เป็นงาน visibility/audit ไม่ได้เปิดสัญญาณ.
 - **ต้องการพิสูจน์คุณภาพหรือสร้าง confidence:** ยังไม่ deploy model/filter; รอ outcome ของ
   snapshot ที่กำลังเก็บ แล้วเดินตาม §5.20.
 
@@ -2155,22 +2208,25 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 | `stacked_imbalance` | `ratio: 3`, `minVolume: 10`, `stack: 3` |
 | `delta_divergence` | `lookback: 5`, `minDeltaMagnitude: **200**` |
 | `absorption` | `volumeMultiple: 3`, `edgeTicks: 2`, `rejectionTicks: 2` |
-| `poc_shift` 🔇 | `minTicks: 8`, `consecutive: 3`, `hvnShare: 0.25` |
+| `poc_shift` 🔊 | `minTicks: 8`, `consecutive: 3`, `hvnShare: 0.25` |
 | `delta_flip` 🔊 | `runBars: 3`, `minDeltaMagnitude: 200`, `minRunDelta: 0`, `levelShare: 0.25`, `levelLookback: 20` |
 | `lvn` 🔇 | `maxShare: 0.25`, `interiorShare: 0.8`, `minLevels: 8` |
 | `naked_poc` 🔊 | `lookbackBars: 40`, `minAgeBars: 5` |
-| `speed_of_tape` 🔇 | `rateHistory: 10`, `minRateRatio: 2`, `edgeShare: 0.3` |
+| `speed_of_tape` 🔊 | `rateHistory: 10`, `minRateRatio: 2`, `edgeShare: 0.3` |
 
-🔇 = `telegram_enabled = false` **ยิงและถูกให้คะแนน แต่ไม่ส่งเข้ามือถือ** (ข้อ 5.15)
-🔊 = เปิดเสียงอยู่ · **เจ้าของสลับสวิตช์เองที่ `/rules` เมื่อ 2026-08-31 13:26–13:33** —
-`naked_poc` และ `delta_flip` เปิด · `poc_shift` ปิด · `lvn` ปล่อยปิดไว้ · เทียบตัวเลขที่ข้อ **5.17**
-กฎใหม่ทั้งสี่ตัวยังไม่เคยถูกกวาดค่าแบบข้อ 5.11 — ค่าที่เห็นคือจุดตั้งต้น ไม่ใช่ค่าที่วัดมา
+สถานะ query 2026-09-02 01:55 UTC: ทั้ง 8 rules `enabled=true` และเป็น `evidence_first`;
+`telegram_enabled=true` ทุกกฎยกเว้น `lvn`. 🔊 จึงหมายถึง “ผ่าน master switch” เท่านั้น —
+cell ที่หลักฐานไม่ผ่านยังถูก mute. กฎใหม่ถูกกวาดค่าแล้วตาม §5.18 และไม่มี threshold ใหม่ผ่านเกณฑ์;
+อย่าใช้สถานะสวิตช์เป็นหลักฐานว่ากฎมี edge.
 
 ---
 
 ## 7. งานที่ค้างอยู่
 
 ### 7.1 ต้องให้เจ้าของทำเอง (ผมไม่มีสิทธิ์เข้าถึง ไม่ใช่เรื่องการอนุญาต)
+
+> สถานะรายการนี้ยังไม่ได้ตรวจ dashboard/account ซ้ำในวันที่ 2026-09-02. ให้ถือเป็น
+> **checklist ที่ต้องยืนยัน** ไม่ใช่ข้อสรุปว่าทุกข้อยังเสียหรือแก้เสร็จแล้ว.
 
 | # | งาน | ทำไมผมทำไม่ได้ |
 |---|---|---|
@@ -2180,8 +2236,8 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 | 4 | Revoke Telegram bot token เก่า (`8549812393:...` หลุดในแชต) ที่ @BotFather แล้วใส่ตัวใหม่ใน Supabase | ต้องใช้บัญชี Telegram ของเจ้าของ |
 | 5 | ปิด "Allow new users to sign up" หลังสร้างบัญชี dashboard | Supabase dashboard |
 
-**ข้อ 2 กับ 3 คือสาเหตุที่ล็อกอินเว็บไม่ได้ตอนนี้** — ยืนยันด้วยการยิงจริง:
-ขอ redirect ไป `.../auth/callback` แต่ Supabase ตอบกลับเป็น `http://localhost:3000/`
+หลักฐานเดิมของข้อ 2–3 คือ redirect เคยกลับ `http://localhost:3000/` แทน
+`.../auth/callback`; ต้องทดสอบ login ใหม่ก่อนใช้คำว่า “ยังเสียอยู่”.
 
 ### 7.2 งานโค้ดที่ค้าง
 
@@ -2196,12 +2252,12 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 | G | **วัด pullback entry** | ✅ **เสร็จแล้ว** — วัดครบ 8 แบบ **ผลคือไม่รับ** (ข้อ 5.13) |
 | H | **deploy `backtest` ให้ drawdown ทำงานจริง** | ✅ **เสร็จแล้ว** — v3, `max_drawdown_r` ไม่เป็น null แล้ว |
 | I | **deploy `ingest` + `backtest` ให้กฎใหม่ 3 ตัวทำงาน** | ✅ **เสร็จแล้ว** 2026-08-31 — migration 0027 รันแล้ว · `ingest` v13 · `backtest` v4 · ตรวจครบ 3 ชั้นตามข้อ 7.4 |
-| J | **ตัดสินว่ากฎใหม่ตัวไหนควรเปิดเสียง** | ค้างอยู่ — เจ้าของเปิด `naked_poc` + `delta_flip` และปิด `poc_shift` ไปแล้วเมื่อ 13:26–13:33 · ตัวเลขเทียบอยู่ที่ข้อ **5.17** (สองในสี่สวนทางกับตัวเลข) · เกณฑ์อยู่ในข้อ 8.5 |
+| J | **ตัดสินว่ากฎใหม่ตัวไหนควรเปิดเสียง** | ค้างอยู่ — query ล่าสุดพบทุกกฎเปิด Telegram ยกเว้น `lvn`, แต่ Evidence-first ยัง mute cell ที่ไม่ผ่าน. ต้องตัดสินจาก §5.17/§5.18 ไม่ใช่จากสวิตช์ และบันทึก owner approval หากเปลี่ยน policy |
 | K | **อธิบายว่าทำไม `0.25/0.0625` กับ `0.25/0.03125` ให้ผลเหมือนกันทุกหลัก** | ค้างอยู่ — ไม่ใช่ rounding (ตรวจแล้ว) ต้องรัน `simulate()` ในเครื่องบนบาร์ชุดเดียวกันแล้วไล่ดู `stop_level` ทีละแท่ง **ห้ามรับค่า trail ละเอียดใด ๆ ก่อนตอบข้อนี้** (ข้อ 5.4c) |
 | L | **ตรวจ deploy ชั้น 3 ของ `ingest` v14** | ✅ **ผ่านแล้ว 2026-09-01** — feed กลับมา 23:54 · 31 แถวหลัง deploy · error 1 แถวเดียวคือ `JWT issued at future` (ข้อ 3.12 ไม่ใช่ของใหม่) และ NQU6 ส่งสำเร็จต่อทันที 10 แถวรวด · `speed_of_tape` ยิงจริง **15 สัญญาณ ประกาศ 0** = การปิดเสียงพิสูจน์แล้วด้วยสัญญาณจริง ไม่ใช่ผ่านแบบว่างเปล่า |
-| M | **ตัดสินชะตา `speed_of_tape`** | **หลักฐานครบแล้ว รอเจ้าของกด** — กวาดครบสามพารามิเตอร์ **ฝั่ง long ติดลบทั้ง 9 ค่าที่วัด** ไม่มีค่าไหนช่วยได้ (ข้อ 5.18) ข้อเสนอ: ปิดฝั่ง long ด้วย `rule_overrides` เก็บ short ไว้ดูต่อ หรือปิดทั้งกฎ |
+| M | **ตัดสินชะตา `speed_of_tape`** | **ยังค้าง** — กวาดครบสามพารามิเตอร์และฝั่ง long ติดลบทั้ง 9 ค่าที่วัด (ข้อ 5.18), แต่ query ล่าสุดพบ `telegram_enabled=true`. Evidence-first ลดความเสี่ยงการประกาศแต่ไม่ใช่คำตอบเรื่อง edge; ต้องมี owner decision ว่าปิด long/ทั้งกฎหรือเก็บ shadow |
 | O | **ทำให้ `backtest` เขียนผลทีละ variant** | ค้างอยู่ — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) |
-| P | **confidence ไม่มีความหมาย** | v2 Shadow ถูกสร้างแล้ว (ข้อ 5.20): migration 0029 อยู่ production, snapshot/dashboard อยู่ใน branch นี้ แต่ **ต้อง deploy ingest ก่อนจึงเริ่มเก็บได้**. ค่าเดิม/Telegram ยังอาจทำให้เข้าใจผิด: เจ้าของยังต้องตัดสินว่าจะถอดหรือเขียนกำกับ; ห้ามใช้กรอง |
+| P | **ทำ Confidence v2 ให้มีความหมาย** | กำลังทำ — migration 0029 และ snapshot อยู่ production ตั้งแต่ v15, ปัจจุบัน `ingest v17`; มี 436 captured / 431 resolved / 16 cohorts. ยังต้อง offline calibration + frozen model + forward shadow + owner approval; `score:null` และห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
@@ -2219,7 +2275,7 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 
 เคยเป็น **version 3** ที่ bundle โค้ด `_shared/telegram.ts` และ `_shared/outcomes.ts` **ตัวเก่า**
 ถ้าใครไปเรียกมันจะได้ฟอร์แมตเก่า (ticks ล้วน ไม่มี `#S<seq>` ไม่มีเวลาไทย) ซึ่งผิดข้อห้าม #10
-ตอนนี้ redeploy เป็น **version 4** แล้ว โค้ดตรงกับ repo
+ณ snapshot นั้น redeploy เป็น **version 4**; ปัจจุบัน Supabase แสดง `outcome-notify` **v5 Active**
 
 ยังไม่มีอะไรเรียกมันเหมือนเดิม (`ingest` เรียก `flushOutcomeNotifications()` ในโปรเซสตัวเอง ·
 pg_cron ไม่ได้ชี้มา) มันคือ endpoint สำรองสำหรับช่วงที่ชาร์ตปิด หรือสั่งมือ
@@ -2236,7 +2292,7 @@ pg_cron ไม่ได้ชี้มา) มันคือ endpoint สำร
 
 ---
 
-### 7.4 `ingest` deploy แล้ว (v12) — และวิธี deploy ครั้งหน้า
+### 7.4 ประวัติการ deploy `ingest` และวิธี deploy ครั้งหน้า (ปัจจุบัน v17)
 
 เคยเลื่อนจาก repo อยู่พักหนึ่งโดยตั้งใจ (ตอนนั้นต่างกันแค่ `pullbackShare` ที่ค่าเริ่มต้น 0
 ผลลัพธ์เหมือนเดิมทุกตัวอักษร จึงไม่คุ้มเสี่ยง) **รอบนี้ต้อง deploy จริง** เพราะ `outcomes.ts`
