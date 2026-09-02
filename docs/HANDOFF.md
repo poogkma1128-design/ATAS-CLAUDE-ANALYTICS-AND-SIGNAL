@@ -12,7 +12,7 @@
 
 ---
 
-## 0F. Professional compact ATAS markers — REV 1.3.2 (ตรวจ: 2026-09-02 03:21 UTC)
+## 0F. Professional compact ATAS markers — REV 1.3.2 (ตรวจ: 2026-09-02 03:29 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อน §0E/§0C เมื่อติดตั้งหรือทดสอบ overlay.** Screenshot จาก ATAS จริง
 > พิสูจน์ว่า REV 1.3.1 **ไม่ผ่าน visual acceptance**: ข้อความ audit ยาวทุก Entry/Exit ซ้อนกันมาก
@@ -23,12 +23,12 @@
 |---|---|
 | หลักฐานปัญหา | ภาพ ATAS วันที่ 2026-09-02 มีป้าย `ENTRY LONG/SHORT #S... @ price` และ `EXIT ...` หลายสิบป้ายทับแท่ง/กันเอง; จึงยกเลิกคำอ้างเดิมว่า REV 1.3.1 อ่านได้เมื่อซูมออก |
 | Root cause | `DrawingText.AutoSize=true` ทำให้ ATAS ปรับขนาดตาม scale และทุก marker ใส่ direction + sequence + exact price จึงกว้างโดยโครงสร้าง |
-| Source ใหม่ | branch `codex/professional-overlay-markers`; indicator **REV 1.3.2**. ก่อน merge updater ยังจะ build REV 1.3.1 จาก production ตามปกติ |
+| Source ใหม่ | branch `codex/professional-overlay-markers`; indicator commit `6df20e8`; **PR #56 เปิดแล้ว รอ owner review/merge**; indicator **REV 1.3.2**. ก่อน merge updater ยังจะ build REV 1.3.1 จาก production ตามปกติ |
 | รูปแบบเริ่มต้น | Entry ใช้ `▲ L` สีเขียว / `▼ S` สีแดง; exit ใช้ `TP` เขียว, `SL` แดง, `TR` น้ำเงิน, `TIME` ส้ม หรือ `EXIT`. ขนาด 14px คงที่ (`AutoSize=false`) |
 | ความสะอาด | ปิด `Show marker details` เป็นค่าเริ่มต้น, จุดยัง anchor ที่ exact price เดิม และ marker ที่อยู่ bar/ด้านเดียวกันแยก lane แนวตั้งอัตโนมัติ |
 | Audit mode | เปิด `Show marker details` เพื่อเติม `#S... @ ราคา` ทุก marker ได้; เตือนชัดว่าอาจทำกราฟรก |
 | Verification | `dotnet build -c Release` ผ่าน **0 warning / 0 error**; assembly version `1.3.2`. Reflection ยืนยัน defaults `lines=false`, `details=false`, `font=14` และ text contract `▲ L / ▼ S / TP / SL / TR`. `deno task rev:check` ยังรันไม่ได้บนเครื่องนี้เพราะไม่มี `deno`; visual acceptance ของ DLL 1.3.2 บน ATAS จริงยังรอหลัง merge/import |
-| Deploy/server | **ไม่มี server/database/web deploy** และไม่มี binary track ใน Git; ต้อง merge PR แล้วรัน updater เพื่อ build DLL จาก production |
+| Deploy/server | **ไม่มี server/database/web deploy** และไม่มี binary track ใน Git; ต้อง merge [PR #56](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/56) แล้วรัน updater เพื่อ build DLL จาก production |
 | เอกสาร | อัปเดต `docs/SETUP.md` และ Handoff นี้; ไม่สร้าง runbook แยกเพราะ build/import/rollback อยู่ใน SETUP/§0F.2 แล้ว |
 
 ### 0F.1 เหตุผลเชิงมาตรฐานที่ใช้ตัดสินรูปแบบ
