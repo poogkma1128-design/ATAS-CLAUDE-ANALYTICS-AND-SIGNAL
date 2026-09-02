@@ -12,6 +12,44 @@
 
 ---
 
+## 0G. ป้ายราคา Entry / SL / TP / Exit และสีที่ปรับได้ — REV 1.4.0 (ตรวจ: 2026-09-02 03:54 UTC)
+
+> **ให้อ่านหัวข้อนี้ก่อน §0F เมื่อติดตั้งหรือทดสอบ overlay.** Screenshot จาก ATAS จริงยืนยันว่า
+> REV 1.3.2 ทำให้ marker สั้นและอ่านง่ายขึ้น แต่ป้าย `▲ L`, `▼ S`, `SL`, `TP`, `TR` ไม่มีตัวเลขราคา
+> จึงยังไม่ครบข้อมูลสำหรับออกคำสั่ง. งานนี้เพิ่มเฉพาะ presentation ใน Indicator; **ไม่แก้** signal logic,
+> การคำนวณ Entry/SL/TP, instrument policy, ingest, Telegram, database, web หรือ Edge Function.
+
+| อะไร | สถานะปัจจุบัน |
+|---|---|
+| หลักฐานปัญหา | ภาพ ATAS วันที่ 2026-09-02 แสดง marker compact ชัดขึ้น แต่ต้องไล่อ่านตำแหน่งแกนราคาเองและไม่มีป้ายแผน SL/TP พร้อมตัวเลข |
+| Source ใหม่ | branch `codex/configurable-plan-price-labels`; indicator commit `651d297`; **[PR #57](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/57) เปิดแล้ว รอ owner review/merge**; indicator **REV 1.4.0**; เริ่มจาก production merge commit `a6d74b8` |
+| ป้ายราคา | Entry แสดง `▲ L ราคา` หรือ `▼ S ราคา` เสมอ; ที่แท่งเข้าแสดง `SL ราคา` และ `TP ราคา` เป็นค่าเริ่มต้น; resolved exit แสดง `TP/SL/TR/TIME/EXIT ราคา` ตามผลจริง |
+| ลดความรก | `Show SL / TP price labels` ปิดเฉพาะป้ายแผนได้; `Show signal IDs` ปิดเป็นค่าเริ่มต้นและใช้เติม `#S...` เพื่อ audit; plan lines ยังปิดเป็นค่าเริ่มต้น |
+| ปรับหน้าตา | font 8–32px (default 14), opacity 80–255 (default 235), และสีแยก Long, Short, SL, TP, trailing, timeout, other exit, text, border ในกลุ่ม `Overlay Colors` |
+| ความถูกต้อง | ตัวเลขใช้ `item.Entry/Stop/Target/ExitPrice` ที่ endpoint ส่งมาโดยตรงและ format ตาม tick size; Indicator ไม่คำนวณหรือขยับราคาใหม่ |
+| Verification ก่อน push | `dotnet build -c Release` ผ่าน 0 warning / 0 error; assembly version `1.4.0`. Reflection ยืนยัน defaults `priceLabels=true`, `IDs=false`, `font=14`, `opacity=235`, พบ color properties 9 ช่อง และ text examples `▲ L 29069.75 / SL 29055.50 / TP 29112.50 / TR 29075.25` |
+| Deploy | ไม่มี server/database/web deploy และไม่มี DLL track ใน Git. ก่อน PR #57 merge updater ยัง build REV 1.3.2; หลัง merge ต้องรัน updater, Import DLL และตรวจ About/กราฟจริง |
+| เอกสาร | อัปเดต `docs/SETUP.md` และ Handoff นี้; ไม่เพิ่ม runbook แยกเพราะ SETUP และ §0G.1 ครบขั้นติดตั้ง/acceptance/rollback |
+
+### 0G.1 ขั้นรับช่วง, acceptance และ rollback
+
+1. หลัง PR merge ให้รัน `scripts\update-indicator.bat`; ต้อง build จาก production branch และเห็น
+   REV 1.4.0. ปิด ATAS รวม system tray → Import DLL บน Desktop → ลบ/Add Signal Bridge ใหม่ →
+   About ต้องเป็น REV 1.4.0.
+2. ตั้ง `Show trade overlay=true`, `Show SL / TP price labels=true`, plan lines=false,
+   `Show signal IDs=false`, font=14. Acceptance บน ATAS จริงคือมองเห็นราคา Entry/SL/TP และราคา
+   exit โดยไม่ต้องเทียบแกนราคา, ไม่หดเมื่อ zoom และ lane ไม่ทับกันเกินอ่าน. ต้องแนบ screenshot;
+   build/reflection ผ่านอย่างเดียวยังไม่ใช่ visual acceptance.
+3. สุ่มเทียบตัวเลขหนึ่ง Long และหนึ่ง Short กับ dashboard/Telegram: Entry, SL, TP และ resolved exit
+   ต้องตรงทุกหลักตาม tick size. ตรวจว่า feed/Telegram ไม่เปลี่ยนและ NQU6 shadow ยังไม่วาด.
+4. ทดสอบ parameter: เปลี่ยน font, opacity และอย่างน้อยสี Long/SL/TP แล้วต้องเห็นผลหลัง recalculate;
+   เปิด `Show signal IDs` แล้วต้องเห็น `#S...`; ปิด `Show SL / TP price labels` แล้วต้องเหลือ
+   Entry/Exit price โดยไม่กระทบ signal.
+5. Rollback เร็วสุดคือปิด `Show SL / TP price labels` หรือ `Show trade overlay`; หากต้องย้อน code
+   ให้ Import REV 1.3.2. ไม่มี schema/function/server ให้ rollback.
+
+---
+
 ## 0F. Professional compact ATAS markers — REV 1.3.2 (ตรวจ: 2026-09-02 03:29 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อน §0E/§0C เมื่อติดตั้งหรือทดสอบ overlay.** Screenshot จาก ATAS จริง
@@ -23,12 +61,12 @@
 |---|---|
 | หลักฐานปัญหา | ภาพ ATAS วันที่ 2026-09-02 มีป้าย `ENTRY LONG/SHORT #S... @ price` และ `EXIT ...` หลายสิบป้ายทับแท่ง/กันเอง; จึงยกเลิกคำอ้างเดิมว่า REV 1.3.1 อ่านได้เมื่อซูมออก |
 | Root cause | `DrawingText.AutoSize=true` ทำให้ ATAS ปรับขนาดตาม scale และทุก marker ใส่ direction + sequence + exact price จึงกว้างโดยโครงสร้าง |
-| Source ใหม่ | branch `codex/professional-overlay-markers`; indicator commit `6df20e8`; **PR #56 เปิดแล้ว รอ owner review/merge**; indicator **REV 1.3.2**. ก่อน merge updater ยังจะ build REV 1.3.1 จาก production ตามปกติ |
+| Source ใหม่ | branch `codex/professional-overlay-markers`; indicator commit `6df20e8`; **PR #56 merge แล้ว** ที่ production merge commit `a6d74b8`; indicator **REV 1.3.2** |
 | รูปแบบเริ่มต้น | Entry ใช้ `▲ L` สีเขียว / `▼ S` สีแดง; exit ใช้ `TP` เขียว, `SL` แดง, `TR` น้ำเงิน, `TIME` ส้ม หรือ `EXIT`. ขนาด 14px คงที่ (`AutoSize=false`) |
 | ความสะอาด | ปิด `Show marker details` เป็นค่าเริ่มต้น, จุดยัง anchor ที่ exact price เดิม และ marker ที่อยู่ bar/ด้านเดียวกันแยก lane แนวตั้งอัตโนมัติ |
 | Audit mode | เปิด `Show marker details` เพื่อเติม `#S... @ ราคา` ทุก marker ได้; เตือนชัดว่าอาจทำกราฟรก |
-| Verification | `dotnet build -c Release` ผ่าน **0 warning / 0 error**; assembly version `1.3.2`. Reflection ยืนยัน defaults `lines=false`, `details=false`, `font=14` และ text contract `▲ L / ▼ S / TP / SL / TR`. `deno task rev:check` ยังรันไม่ได้บนเครื่องนี้เพราะไม่มี `deno`; visual acceptance ของ DLL 1.3.2 บน ATAS จริงยังรอหลัง merge/import |
-| Deploy/server | **ไม่มี server/database/web deploy** และไม่มี binary track ใน Git; ต้อง merge [PR #56](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/56) แล้วรัน updater เพื่อ build DLL จาก production |
+| Verification | `dotnet build -c Release` ผ่าน **0 warning / 0 error**; assembly version `1.3.2`. Reflection ยืนยัน defaults `lines=false`, `details=false`, `font=14` และ text contract `▲ L / ▼ S / TP / SL / TR`. Screenshot หลัง import ยืนยันขนาด/ความอ่านง่ายดีขึ้น แต่พบ requirement gap ว่าไม่มีราคาบนป้าย จึงรับช่วงต่อใน §0G |
+| Deploy/server | **ไม่มี server/database/web deploy** และไม่มี binary track ใน Git; [PR #56](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/56) merge แล้ว. Screenshot จริงยืนยัน compact marker อ่านง่ายขึ้น แต่ข้อกำหนดขยายเป็นป้ายราคาตาม §0G |
 | เอกสาร | อัปเดต `docs/SETUP.md` และ Handoff นี้; ไม่สร้าง runbook แยกเพราะ build/import/rollback อยู่ใน SETUP/§0F.2 แล้ว |
 
 ### 0F.1 เหตุผลเชิงมาตรฐานที่ใช้ตัดสินรูปแบบ
@@ -97,14 +135,14 @@
 
 | อะไร | สถานะปัจจุบันที่ตรวจแล้ว |
 |---|---|
-| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `2581b9b` ก่อนเปิดงาน REV 1.3.2 |
-| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay), **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1), **#53 merge แล้ว** (`f38267a`, Handoff gate), **#54 merge แล้ว** (`cd43d46`, updater) และ **#55 merge แล้ว** (`2581b9b`, current Handoff) |
+| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `a6d74b8` ก่อนเปิดงาน REV 1.4.0 |
+| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay), **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1), **#53 merge แล้ว** (`f38267a`, Handoff gate), **#54 merge แล้ว** (`cd43d46`, updater), **#55 merge แล้ว** (`2581b9b`, current Handoff) และ **#56 merge แล้ว** (`a6d74b8`, compact marker REV 1.3.2) |
 | Database | migrations 0029, 0030 และ **0031 `cross_asset_chart_annotations`** อยู่ production แล้ว; migration ล่าสุดที่ Supabase แสดงคือ `20260901150144` |
 | Edge Functions | Supabase แสดง `ingest` **v17 Active**, `chart-annotations` **v1 Active**, `backtest` v7, `outcome-notify` v5 และ `feed-watch` v1 |
 | Rule switches | ทั้ง 8 rules `enabled=true` และ `announcement_mode=evidence_first`; Telegram เปิด 7 rules และปิดเฉพาะ `lvn`. Evidence gate ยังเป็นตัวตัดสินว่าจะประกาศจริง จึงห้ามตีความ `telegram_enabled=true` ว่าทุก signal จะส่ง |
 | Instrument policy | BTCUSDT / GC / MNQU6 5m = `primary`; NQU6 5m = `shadow`. NQU6 ยังเก็บ signal/outcome แต่ไม่เป็นคำสั่งเทรดและไม่วาด marker |
 | Confidence v2 | ยังเป็น **Shadow**, `score=null`, ห้ามใช้เป็น %/filter. View มี 436 captured, 431 resolved, 16 cohorts ณ เวลาตรวจ; ยังไม่ได้ทำ offline calibration, frozen model หรือ forward acceptance |
-| ATAS overlay | REV **1.3.1** อยู่ production แต่ screenshot จริงยืนยันว่า marker รก/เล็กและไม่ผ่าน visual acceptance. ตัวแก้ REV **1.3.2** อยู่ branch/PR ตาม §0F; production ไม่มี DLL สำเร็จรูปที่ track ไว้ |
+| ATAS overlay | Source REV **1.3.2** อยู่ production และ screenshot ยืนยัน compact marker อ่านง่ายขึ้น แต่ป้ายยังไม่มีราคา. ตัวแก้ REV **1.4.0** อยู่ branch ตาม §0G; production ไม่มี DLL สำเร็จรูปที่ track ไว้ |
 | Live feed | **ผิดปกติ/หยุดรับข้อมูล:** แถวล่าสุดของ BTCUSDT / GC / MNQU6 / NQU6 อยู่ราว `2026-09-01 23:40 UTC`; ตรวจ 01:55 UTC เงียบประมาณ 135 นาทีทั้งหมด. แถวล่าสุดทุกตัว `error=null` จึงยังชี้ได้เพียงว่า ATAS/bridge หยุดส่งหรือไปไม่ถึง endpoint ไม่ใช่ Edge Function ตอบ error |
 | Web | Source ของ Confidence v2 / Evidence-first / overlay docs merge แล้ว. รอบนี้ไม่ได้เปิด production UI ตรวจภาพ จึงไม่อ้าง visual acceptance ใหม่ |
 | Repo workflow | เพิ่ม `AGENTS.md` ที่ root เพื่อบังคับ agent ที่รองรับ repository instructions ให้อ่าน Handoff ทั้งไฟล์ก่อนแก้ code/config/schema/deploy และอัปเดต Handoff/เอกสารก่อนจบงาน. กฎนี้ไม่ครอบคลุม AI ที่ไม่ได้เปิด repo, checkout เก่า หรือผลิตภัณฑ์ที่ไม่รองรับ `AGENTS.md` |
@@ -115,9 +153,9 @@
 1. **P0 — ทำให้ feed กลับมาเดิน:** เปิด ATAS และกราฟ 5m ของทั้งสี่ตัว, ตรวจว่า Signal Bridge
    ยังถูก Add และ Endpoint/`INGEST_TOKEN` ถูกต้อง, แล้วรอให้ `ingest_log` มีเวลาใหม่ทุกตัว.
    Acceptance คือ POST ผ่าน v17, latest row `error=null` และ quiet time กลับมาต่ำกว่า 10 นาที.
-2. **P1 — ส่งมอบ indicator ที่ติดตั้งได้:** merge REV 1.3.2, รัน updater, Import ใน ATAS,
-   ลบ/Add ใหม่, ตรวจ revision 1.3.2 และแนบ screenshot ที่ compact markers อ่านได้โดยไม่เปิด
-   plan lines/details. ตอนนี้ compile ผ่าน แต่ยังไม่ผ่าน visual acceptance บนกราฟจริง.
+2. **P1 — ส่งมอบ indicator ป้ายราคาที่ติดตั้งได้:** merge REV 1.4.0 ตาม §0G, รัน updater,
+   Import ใน ATAS, ลบ/Add ใหม่, ตรวจ revision 1.4.0 และแนบ screenshot ที่ Entry/SL/TP/Exit
+   มีราคาชัดเจน. จากนั้นเทียบตัวเลขกับ dashboard/Telegram และทดสอบ font/color/opacity.
 3. **P1 — ปิดงาน Confidence v2 ด้วยหลักฐาน:** หลัง feed กลับมา ให้ export cohort แบบ time split,
    ทำ offline calibration และ forward shadow ตาม §5.20. จำนวน resolved ที่เพิ่มขึ้น **ไม่ใช่**สิทธิ์เปิด
    filter/Telegram จนกว่าจะมี frozen model version, metrics แยก rule/direction/instrument และ owner approval.
