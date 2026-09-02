@@ -128,3 +128,124 @@ select id, name, status, created_at,
 from public.experiments e
 where status <> 'done'
 order by created_at desc;
+
+
+-- =================================================================== Q5-Q8
+-- Added 2026-09-02 (second pass): the full Gate 0 sweep over all 8 rules.
+-- Executed against project sckdriuwfyittcybnbhz on 2026-09-02, window
+-- 2026-08-28 00:00Z .. 2026-09-02 08:50Z, timeframe 5m, is_closed = true.
+-- Proposer/Executor: Claude. INDEPENDENT RE-RUN: not yet done -- results are an
+-- observation, not an approved conclusion. See EXPERIMENT_REVIEW_PROTOCOL.md s2.
+
+-- ---------------------------------------------------------------- Q5
+-- Units, null and degenerate rates, with the data window on the same row.
+-- This is the bars.trades = 0 class of defect: a column that exists, reads as a
+-- number, and carries nothing.
+select i.symbol, count(*) as bars,
+  min(b.opened_at) as window_start_utc, max(b.opened_at) as window_end_utc,
+  round((count(*) filter (where b.ticks is null or b.ticks = 0))::numeric/count(*),4)   as ticks_null_or_zero,
+  round((count(*) filter (where b.trades is null or b.trades = 0))::numeric/count(*),4) as trades_null_or_zero,
+  round((count(*) filter (where b.delta is null))::numeric/count(*),4)                  as delta_null,
+  round((count(*) filter (where b.cum_delta is null))::numeric/count(*),4)              as cum_delta_null,
+  round((count(*) filter (where b.high <= b.low))::numeric/count(*),4)                  as zero_range,
+  round(avg(b.volume)::numeric,1) as avg_volume, round(avg(b.ticks)::numeric,1) as avg_ticks
+from public.bars b join public.instruments i on i.id=b.instrument_id
+where b.is_closed = true group by i.symbol order by bars desc;
+
+-- ---------------------------------------------------------------- Q6
+-- The two gates in front of everything, marginal and conditional.
+-- liquidity  = volume >= median(prev 50 bars, v>0, n>=10) * minVolumeRatio 1.2
+-- tape ratio = ticks  / median(prev 10 bars, t>0, n>=10) >= minRateRatio 2
+-- edgeShare  = close in the outer 30% of the bar's range
+-- avg_volume_per_tick is the units check: it is the "average trade size" proxy
+-- that speed_of_tape records for prop-list item 4.
+with b as (
+  select i.symbol, x.id, x.opened_at, x.volume, x.ticks, x.high, x.low, x.close,
+         row_number() over (partition by i.symbol order by x.opened_at) as rn
+  from public.bars x join public.instruments i on i.id = x.instrument_id
+  where x.is_closed = true and x.timeframe = '5m'
+), g as (
+  select b.symbol, b.volume, b.ticks, b.high, b.low, b.close,
+    (select percentile_cont(0.5) within group (order by p.volume)
+       from b p where p.symbol=b.symbol and p.rn between b.rn-50 and b.rn-1 and p.volume>0) as med_vol50,
+    (select count(*) from b p where p.symbol=b.symbol and p.rn between b.rn-50 and b.rn-1 and p.volume>0) as n_vol,
+    (select percentile_cont(0.5) within group (order by p.ticks)
+       from b p where p.symbol=b.symbol and p.rn between b.rn-10 and b.rn-1 and p.ticks>0) as med_ticks10,
+    (select count(*) from b p where p.symbol=b.symbol and p.rn between b.rn-10 and b.rn-1 and p.ticks>0) as n_ticks
+  from b
+)
+select symbol, count(*) as bars,
+  round((count(*) filter (where n_vol < 10))::numeric/count(*),4) as liq_skipped_short_history,
+  round((count(*) filter (where n_vol >= 10 and volume >= med_vol50*1.2))::numeric
+        / nullif(count(*) filter (where n_vol >= 10),0),4)        as liq_pass_marginal,
+  round((count(*) filter (where n_ticks >= 10 and ticks >= med_ticks10*2.0))::numeric
+        / nullif(count(*) filter (where n_ticks >= 10),0),4)      as tape_ratio_pass_marginal,
+  round((count(*) filter (where n_vol>=10 and volume>=med_vol50*1.2
+                            and n_ticks>=10 and ticks>=med_ticks10*2.0))::numeric
+        / nullif(count(*) filter (where n_vol>=10 and volume>=med_vol50*1.2),0),4) as tape_pass_conditional_on_liq,
+  round((count(*) filter (where high>low and ((close-low)/(high-low) >= 0.7 or (close-low)/(high-low) <= 0.3)))::numeric
+        / nullif(count(*) filter (where high>low),0),4)           as edgeshare_pass_marginal,
+  round(avg(volume/nullif(ticks,0))::numeric,4) as avg_volume_per_tick
+from g group by symbol order by bars desc;
+
+-- ---------------------------------------------------------------- Q7
+-- Delta-magnitude gates and the two level-volume gates.
+with b as (
+  select i.symbol, x.id, x.opened_at, x.delta, x.high, x.low,
+         row_number() over (partition by i.symbol order by x.opened_at) as rn
+  from public.bars x join public.instruments i on i.id=x.instrument_id
+  where x.is_closed=true and x.timeframe='5m'
+), d as (
+  select b.*,
+    (select max(p.high) from b p where p.symbol=b.symbol and p.rn between b.rn-5 and b.rn-1) as prior_hi5,
+    (select min(p.low)  from b p where p.symbol=b.symbol and p.rn between b.rn-5 and b.rn-1) as prior_lo5,
+    (select count(*)    from b p where p.symbol=b.symbol and p.rn between b.rn-3 and b.rn-1 and p.delta > 0) as up3,
+    (select count(*)    from b p where p.symbol=b.symbol and p.rn between b.rn-3 and b.rn-1 and p.delta < 0) as dn3
+  from b
+), lv as (
+  select x.id,
+    (select avg(cl.volume) from public.cluster_levels cl where cl.bar_id=x.id) as avg_vol,
+    (select max(cl.volume) from public.cluster_levels cl where cl.bar_id=x.id) as max_vol,
+    (select count(*) from public.cluster_levels cl where cl.bar_id=x.id and cl.volume >= 10) as levels_ge10,
+    (select count(*) from public.cluster_levels cl where cl.bar_id=x.id) as n_levels
+  from public.bars x where x.is_closed=true and x.timeframe='5m'
+)
+select d.symbol, count(*) as bars,
+  round((count(*) filter (where abs(d.delta) >= 200))::numeric/count(*),4) as delta_mag200_marginal,
+  round((count(*) filter (where abs(d.delta) >= 100))::numeric/count(*),4) as delta_mag100_marginal,
+  round((count(*) filter (where (d.high>d.prior_hi5 and d.delta<=-200) or (d.low<d.prior_lo5 and d.delta>=200)))::numeric
+        /count(*),4)                                                       as divergence_full_conditional,
+  round((count(*) filter (where (d.up3=3 and d.delta<=-200) or (d.dn3=3 and d.delta>=200)))::numeric/count(*),4) as flip_full_conditional,
+  round((count(*) filter (where lv.max_vol >= lv.avg_vol*3))::numeric/count(*),4) as absorption_x3_marginal,
+  round((count(*) filter (where lv.levels_ge10 >= 4))::numeric/count(*),4)        as stacked_minvol10_marginal,
+  round(avg(lv.max_vol/nullif(lv.avg_vol,0))::numeric,2) as avg_max_over_mean_level,
+  round(avg(lv.levels_ge10)::numeric,1) as avg_levels_ge_minvol10, round(avg(lv.n_levels)::numeric,0) as avg_levels
+from d join lv on lv.id=d.id group by d.symbol order by bars desc;
+
+-- ---------------------------------------------------------------- Q8
+-- poc_shift. minTicks is counted in ATAS tick_size units, which HANDOFF 3.1
+-- already records as footprint-row spacing rather than the market's tick.
+with p as (
+  select i.symbol, i.tick_size, x.id,
+         (select cl.price from public.cluster_levels cl where cl.bar_id=x.id
+           order by cl.volume desc, cl.price limit 1) as poc,
+         row_number() over (partition by i.symbol order by x.opened_at) as rn
+  from public.bars x join public.instruments i on i.id=x.instrument_id
+  where x.is_closed=true and x.timeframe='5m'
+), s as (
+  select p.*, lag(poc,1) over (partition by symbol order by rn) as p1,
+              lag(poc,2) over (partition by symbol order by rn) as p2,
+              lag(poc,3) over (partition by symbol order by rn) as p3
+  from p
+), m as (
+  select symbol, tick_size, sign(poc-p1) as d1, sign(p1-p2) as d2, sign(p2-p3) as d3,
+         abs(poc-p3)/nullif(tick_size,0) as total_shift_ticks
+  from s where p3 is not null
+)
+select symbol, count(*) as bars, tick_size,
+  round((count(*) filter (where d1<>0 and d1=d2 and d2=d3))::numeric/count(*),4) as consec3_same_dir_marginal,
+  round((count(*) filter (where total_shift_ticks >= 8))::numeric/count(*),4)     as shift_ge8ticks_marginal,
+  round((count(*) filter (where d1<>0 and d1=d2 and d2=d3 and total_shift_ticks>=8))::numeric
+        / nullif(count(*) filter (where d1<>0 and d1=d2 and d2=d3),0),4)          as shift8_given_consec3,
+  round((percentile_cont(0.5) within group (order by total_shift_ticks))::numeric,1) as median_3bar_shift_ticks
+from m group by symbol, tick_size order by bars desc;
