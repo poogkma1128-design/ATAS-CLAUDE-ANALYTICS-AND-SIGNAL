@@ -12,16 +12,48 @@
 
 ---
 
-## 0D. สถานะปัจจุบันเดียวที่ใช้รับช่วงงาน (ตรวจ: 2026-09-02 01:55 UTC)
+## 0E. แก้ Indicator updater ดึง branch ผิด (ตรวจ: 2026-09-02 02:55 UTC)
 
-> **เริ่มอ่านและตัดสินใจจากหัวข้อนี้เท่านั้น.** §0C / §0B / §0A และส่วนถัดลงไปเป็น
+> **ให้อ่านหัวข้อนี้ก่อนติดตั้ง DLL.** ภาพจากการรันจริงพบว่า updater เดิม checkout
+> `origin/main` ที่ค้างอยู่ จึง build **REV 1.2.1 / commit `7b14ce3`** ทั้งที่ production
+> มี REV 1.3.1 แล้ว. ปัญหาอยู่ที่ updater ไม่ใช่ signal logic หรือ source ของ indicator.
+
+| อะไร | สถานะปัจจุบัน |
+|---|---|
+| Root cause | `scripts/update-indicator.ps1` hardcode `git checkout -B main origin/main`; แต่ production branch ของ repo นี้คือ `claude/form-signal-telegram-rz8am1` |
+| Source ที่ยืนยัน | production HEAD `f38267a`; indicator REV `1.3.1`; indicator commit `51e2b3e` |
+| วิธีแก้ | fetch production ด้วย refspec ตรง, build จาก detached worktree ชั่วคราว, ไม่ checkout/reset working tree ของผู้ใช้, ตรวจ assembly version และ SHA-256 หลัง copy |
+| UX/encoding | `.bat` ตั้ง UTF-8 และข้อความ updater ใช้ ASCII English จึงไม่ขึ้นตัวอักษรไทยเป็นสี่เหลี่ยมบน Windows PowerShell 5.1 |
+| Verification | ทดสอบครบ fetch → restore/build → version check → copy/hash check ผ่าน; .NET SDK 10.0.400, build 0 warning / 0 error, DLL version 1.3.1, SHA-256 `5A6276375E58568985F9A5C97370A8CE7C51F9A4CCB417001F1975F92570AA93` |
+| Deploy/server | ไม่มี Edge Function, database, web หรือ signal-logic change; ต้อง merge updater นี้ก่อน checkout อื่นจะได้รับตัวแก้ |
+| Git | branch งาน `codex/fix-indicator-updater`; PR จะระบุหลัง push |
+
+### 0E.1 วิธีใช้, acceptance และ rollback
+
+1. หลังงานนี้ merge ให้ดึง repo ล่าสุดหนึ่งครั้ง แล้วจากนั้นดับเบิลคลิก
+   `scripts\update-indicator.bat` ได้ทุกครั้ง; updater จะดึง production ล่าสุดเองและวาง
+   `AtasSignalBridge.dll` บน Desktop. ไม่ต้อง checkout `main` และไม่ต้องตอบให้ลบงานค้างอีก.
+2. Acceptance ในหน้าต่าง updater: ต้องเห็น `Production branch: claude/form-signal-telegram-rz8am1`,
+   `Build passed; DLL version verified`, `SHA-256 copy verification passed` และ ณ snapshot นี้ต้องเห็น
+   `REV 1.3.1 | commit 51e2b3e`. ในอนาคตเลขเปลี่ยนได้เมื่อ source indicator บน production เปลี่ยน.
+3. Acceptance ใน ATAS: ปิดโปรแกรมรวม system tray → Import DLL ใหม่ → ลบ/Add Signal Bridge →
+   About ต้องตรงกับ REV/indicator commit ที่ updater พิมพ์. การ build ผ่านยังไม่ยืนยันว่า ATAS เลิก cache
+   DLL เก่า จึงห้ามข้ามขั้น About.
+4. Rollback code ทำได้โดย revert commit ของ updater แต่ **ห้ามกลับไปใช้ `origin/main` หรือ
+   `reset --hard`**. หาก GitHub/fetch ล้ม updater จะหยุดโดยไม่แตะ DLL เดิมและไม่แก้ checkout.
+
+---
+
+## 0D. สถานะปัจจุบันเดียวที่ใช้รับช่วงงาน (ตรวจ: 2026-09-02 02:55 UTC)
+
+> **เริ่มอ่านสถานะระบบจากหัวข้อนี้ และอ่าน §0E ก่อนติดตั้ง DLL.** §0C / §0B / §0A และส่วนถัดลงไปเป็น
 > หลักฐานตามเวลาที่เขียน จึงยังเก็บเลข version เก่าไว้เพื่อ audit แต่ **ห้าม**นำคำว่า “รอ PR”,
 > `ingest v15/v16`, REV 1.3.0 หรือสถานะ feed ในส่วนประวัติมาแทนสถานะปัจจุบันด้านล่าง.
 
 | อะไร | สถานะปัจจุบันที่ตรวจแล้ว |
 |---|---|
-| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `bb6428f` |
-| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay) และ **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1). ไม่มี PR ของสามงานนี้ที่ต้องเปิดหรือ merge ซ้ำ |
+| Git / production branch | `claude/form-signal-telegram-rz8am1` อยู่ที่ merge commit `f38267a` |
+| PR ที่ปิดงานแล้ว | **#48 merge แล้ว** (`b86f2e8`, Evidence-first), **#50 merge แล้ว** (`c7e537c`, cross-asset overlay), **#51 merge แล้ว** (`bb6428f`, overlay visibility REV 1.3.1) และ **#53 merge แล้ว** (`f38267a`, บังคับอ่าน/อัปเดต Handoff). ไม่มี PR เหล่านี้ที่ต้องเปิดหรือ merge ซ้ำ |
 | Database | migrations 0029, 0030 และ **0031 `cross_asset_chart_annotations`** อยู่ production แล้ว; migration ล่าสุดที่ Supabase แสดงคือ `20260901150144` |
 | Edge Functions | Supabase แสดง `ingest` **v17 Active**, `chart-annotations` **v1 Active**, `backtest` v7, `outcome-notify` v5 และ `feed-watch` v1 |
 | Rule switches | ทั้ง 8 rules `enabled=true` และ `announcement_mode=evidence_first`; Telegram เปิด 7 rules และปิดเฉพาะ `lvn`. Evidence gate ยังเป็นตัวตัดสินว่าจะประกาศจริง จึงห้ามตีความ `telegram_enabled=true` ว่าทุก signal จะส่ง |
@@ -554,6 +586,9 @@ csproj อ้าง DLL ตรงจาก `C:\Program Files (x86)\ATAS Platform
 
 `scripts\update-indicator.bat` มีไว้แก้เรื่องนี้ (ดับเบิลคลิกได้เลย)
 เรียก `.ps1` ตรง ๆ จะขึ้น *"running scripts is disabled on this system"* ซึ่งอ่านแล้วเหมือนสคริปต์พัง
+Updater ดึง `claude/form-signal-telegram-rz8am1` โดยตรงและ build ใน temporary detached worktree;
+ห้ามแก้กลับเป็น `origin/main`. มันไม่สลับ branch, ไม่ reset งานค้าง และตรวจทั้ง DLL version กับ
+SHA-256 ก่อนส่งออก. รายละเอียดและหลักฐานล่าสุดดู §0E.
 
 ### 3.6 อื่น ๆ
 
@@ -2621,11 +2656,11 @@ cd web && npm run build
 **อัปเดต DLL บนเครื่อง Windows:**
 ```
 cd C:\atas
-git checkout main && git pull
 scripts\update-indicator.bat        (ดับเบิลคลิกก็ได้)
 ```
-แล้วปิด ATAS → เปิดใหม่ → ลบ Signal Bridge ตัวเก่าออกจากชาร์ต → Import → Custom → Add
-เช็คแท็บ **About** ว่า commit ตรงกับที่สคริปต์พิมพ์ออกมา
+Updater จะ fetch production branch ล่าสุดเอง; **ไม่ต้อง checkout/pull `main`** และไม่กระทบไฟล์ที่
+กำลังแก้ใน checkout. แล้วปิด ATAS → เปิดใหม่ → ลบ Signal Bridge ตัวเก่าออกจากชาร์ต → Import →
+Custom → Add เช็คแท็บ **About** ว่า REV/indicator commit ตรงกับที่สคริปต์พิมพ์ออกมา.
 
 ---
 
@@ -2657,7 +2692,7 @@ web/app/experiments/                หน้าแสดงผลทดลอ�
 web/app/stats/                      สถิติ + settings_effect + price_action_edge (5.9, 8.1)
 web/components/ConfidenceV2Status.tsx  card บอกสถานะ Shadow ของแต่ละ signal (5.20)
 docs/queries/                       คิวรีวิเคราะห์ที่ใช้ซ้ำได้ (ดู 8.3)
-scripts/update-indicator.{ps1,bat}  อัปเดต DLL (พิมพ์ REV + commit ให้เทียบกับแท็บ About)
+scripts/update-indicator.{ps1,bat}  fetch production แบบ isolated, build/verify DLL (REV + commit + SHA-256)
 scripts/rev-check.ts                ตัวเช็ก REV — deno task rev:check (ดู 3.8)
 docs/SETUP.md                       คู่มือติดตั้งฉบับเต็ม
 ```

@@ -1,136 +1,195 @@
-﻿#Requires -Version 5.1
+#Requires -Version 5.1
 <#
-    อัปเดต indicator เป็นเวอร์ชันล่าสุด แล้ว build DLL ให้พร้อม Import เข้า ATAS
+    Download the latest production source, build AtasSignalBridge.dll, verify it,
+    and copy it to the Desktop for ATAS Import.
 
-    วิธีใช้: ดับเบิลคลิก update-indicator.bat ที่อยู่ข้าง ๆ ไฟล์นี้
-
-    เรียกไฟล์นี้ตรง ๆ ไม่ได้ ถ้าเครื่องยังไม่ได้เปิด execution policy ไว้
-    (จะขึ้น "running scripts is disabled on this system") ไฟล์ .bat มีไว้
-    ข้ามข้อจำกัดนั้นเฉพาะตอนรัน โดยไม่แก้ค่าอะไรค้างไว้ในเครื่อง
-
-    สคริปต์นี้ไม่แตะโฟลเดอร์ ATAS เลย มันแค่ build DLL แล้ววางไว้บน Desktop
-    ให้หาเจอง่าย ๆ ตอนกดปุ่ม Import ในหน้า Indicators ของ ATAS
+    Run by double-clicking update-indicator.bat. The updater deliberately builds
+    in a temporary detached worktree so it never switches branches, resets files,
+    or overwrites unfinished work in the user's checkout.
 #>
 
-# git writes progress to stderr, which "Stop" can mistake for a failure, so
-# every step checks its own exit code instead.
+param(
+    [string]$DestinationDirectory = [Environment]::GetFolderPath("Desktop"),
+    [switch]$NoPause
+)
+
+# Git writes normal progress to stderr, so external commands are checked via
+# LASTEXITCODE rather than by turning every stderr line into a PowerShell error.
 $ErrorActionPreference = "Continue"
 
 $RepoRoot = Split-Path -Parent $PSScriptRoot
-$Project  = Join-Path $RepoRoot "atas-indicator\AtasSignalBridge\AtasSignalBridge.csproj"
-$BuiltDll = Join-Path $RepoRoot "atas-indicator\AtasSignalBridge\bin\Release\AtasSignalBridge.dll"
-$Desktop  = [Environment]::GetFolderPath("Desktop")
+$ProductionBranch = "claude/form-signal-telegram-rz8am1"
+$RemoteRef = "origin/$ProductionBranch"
+$BuildRoot = Join-Path ([IO.Path]::GetTempPath()) ("AtasSignalBridge-build-" + [guid]::NewGuid().ToString("N"))
+$WorktreeAdded = $false
+$Succeeded = $false
 
-function Step([int]$n, [string]$text) {
+function Step([int]$Number, [string]$Text) {
     Write-Host ""
-    Write-Host "[$n/4] $text" -ForegroundColor Cyan
+    Write-Host "[$Number/4] $Text" -ForegroundColor Cyan
 }
-function Ok([string]$text)   { Write-Host "      $([char]0x2713) $text" -ForegroundColor Green }
-function Note([string]$text) { Write-Host "      $text" -ForegroundColor DarkGray }
 
-function Stop-Here([string]$problem, [string]$fix) {
+function Ok([string]$Text)   { Write-Host "      OK  $Text" -ForegroundColor Green }
+function Note([string]$Text) { Write-Host "          $Text" -ForegroundColor DarkGray }
+
+function Fail([string]$Problem, [string]$Fix) {
+    throw "$Problem`nFIX: $Fix"
+}
+
+function Pause-IfNeeded {
+    if (-not $NoPause) {
+        Write-Host ""
+        Read-Host "Press Enter to close this window" | Out-Null
+    }
+}
+
+try {
+    Write-Host "Update ATAS Signal Bridge from production" -ForegroundColor White
+    Note "Repository: $RepoRoot"
+    Note "Production branch: $ProductionBranch"
+
+    # --- 1. Prerequisites ----------------------------------------------------
+    Step 1 "Check required tools"
+
+    if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
+        Fail "Git was not found." "Install Git from https://git-scm.com/download/win, then run this updater again."
+    }
+    Ok "git"
+
+    if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
+        Fail ".NET SDK was not found." "Install .NET 10 SDK from https://dotnet.microsoft.com/download/dotnet/10.0, then run this updater again."
+    }
+    Ok ".NET SDK $(dotnet --version)"
+
+    if (-not (Test-Path (Join-Path $RepoRoot ".git"))) {
+        Fail "This script is not inside a Git checkout." "Clone the repository from GitHub and run scripts\update-indicator.bat from that checkout."
+    }
+
+    # --- 2. Fetch production without changing the current checkout ----------
+    Step 2 "Fetch the latest production source from GitHub"
+
+    $OriginUrl = (git -C $RepoRoot remote get-url origin 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $OriginUrl) {
+        Fail "Git remote 'origin' was not found." "Add the GitHub repository as origin, then run this updater again."
+    }
+    Note "Origin: $OriginUrl"
+
+    # An explicit refspec guarantees that the production remote-tracking branch
+    # is refreshed even when this clone has a narrow/custom fetch configuration.
+    $FetchRefSpec = "+refs/heads/${ProductionBranch}:refs/remotes/origin/${ProductionBranch}"
+    git -C $RepoRoot fetch --prune origin $FetchRefSpec
+    if ($LASTEXITCODE -ne 0) {
+        Fail "GitHub fetch failed." "Check the internet connection and GitHub access, then run this updater again."
+    }
+
+    $ProductionHead = (git -C $RepoRoot rev-parse --short=7 $RemoteRef 2>$null)
+    if ($LASTEXITCODE -ne 0 -or -not $ProductionHead) {
+        Fail "The production branch '$ProductionBranch' was not found after fetch." "Do not build from main. Send this whole window to the project maintainer."
+    }
+    $ProductionHead = $ProductionHead.Trim()
+
+    git -C $RepoRoot worktree add --quiet --detach $BuildRoot $RemoteRef
+    if ($LASTEXITCODE -ne 0) {
+        Fail "Could not create the isolated build worktree." "Close other Git operations and run this updater again."
+    }
+    $WorktreeAdded = $true
+
+    $Project = Join-Path $BuildRoot "atas-indicator\AtasSignalBridge\AtasSignalBridge.csproj"
+    $BuiltDll = Join-Path $BuildRoot "atas-indicator\AtasSignalBridge\bin\Release\AtasSignalBridge.dll"
+    if (-not (Test-Path $Project)) {
+        Fail "The indicator project is missing from production." "Send this whole window to the project maintainer."
+    }
+
+    $Commit = (git -C $BuildRoot log -1 --abbrev=7 --format=%h -- atas-indicator)
+    if ($LASTEXITCODE -ne 0 -or -not $Commit) {
+        Fail "Could not determine the latest indicator commit." "Send this whole window to the project maintainer."
+    }
+    $Commit = $Commit.Trim()
+
+    $ProjectText = Get-Content -LiteralPath $Project -Raw
+    $Rev = [regex]::Match($ProjectText, '<Version>([^<]+)</Version>').Groups[1].Value
+    if (-not $Rev) {
+        Fail "The indicator REV is missing from the project file." "Send this whole window to the project maintainer."
+    }
+
+    $LatestSubject = (git -C $BuildRoot log -1 --format=%s)
+    Ok "Production source ready: $LatestSubject"
+    Note "Production HEAD: $ProductionHead"
+    Note "Indicator REV: $Rev (indicator commit $Commit)"
+    Note "Your current branch and local files were not changed."
+
+    # --- 3. Build and verify -------------------------------------------------
+    Step 3 "Build and verify the DLL (the first run can take 1-2 minutes)"
+
+    dotnet build $Project -c Release --nologo
+    if ($LASTEXITCODE -ne 0) {
+        Fail "The indicator build failed." "Read the red error above. If it mentions ATAS.Indicators.dll, install/update ATAS and check docs/SETUP.md."
+    }
+    if (-not (Test-Path $BuiltDll)) {
+        Fail "The build succeeded but AtasSignalBridge.dll was not found." "Send this whole window to the project maintainer."
+    }
+
+    try {
+        $AssemblyVersion = [System.Reflection.AssemblyName]::GetAssemblyName($BuiltDll).Version.ToString(3)
+    } catch {
+        Fail "The built DLL could not be read as a .NET assembly." "Send this whole window to the project maintainer."
+    }
+    if ($AssemblyVersion -ne $Rev) {
+        Fail "Version verification failed: source says $Rev but DLL says $AssemblyVersion." "Do not Import this DLL. Send this whole window to the project maintainer."
+    }
+    $SourceHash = (Get-FileHash -LiteralPath $BuiltDll -Algorithm SHA256).Hash
+    Ok "Build passed; DLL version verified as $AssemblyVersion"
+
+    # --- 4. Copy and verify --------------------------------------------------
+    Step 4 "Copy the verified DLL to the selected folder"
+
+    if (-not (Test-Path -LiteralPath $DestinationDirectory)) {
+        New-Item -ItemType Directory -Path $DestinationDirectory -Force -ErrorAction Stop | Out-Null
+    }
+    $Target = Join-Path $DestinationDirectory "AtasSignalBridge.dll"
+    Copy-Item -LiteralPath $BuiltDll -Destination $Target -Force -ErrorAction Stop
+    $TargetHash = (Get-FileHash -LiteralPath $Target -Algorithm SHA256).Hash
+    if ($TargetHash -ne $SourceHash) {
+        Fail "The copied DLL failed SHA-256 verification." "Do not Import this DLL. Delete it and run the updater again."
+    }
+
+    Ok $Target
+    Ok "SHA-256 copy verification passed"
+    Note "File date: $((Get-Item -LiteralPath $Target).LastWriteTime)"
+    Note "SHA-256: $TargetHash"
+
     Write-Host ""
-    Write-Host "หยุดตรงนี้: $problem" -ForegroundColor Red
-    Write-Host "วิธีแก้:    $fix" -ForegroundColor Yellow
+    Write-Host "Finished. Next steps in ATAS:" -ForegroundColor White
+    Write-Host "  1. Fully close ATAS (including the system tray), then reopen it."
+    Write-Host "  2. Remove the old Signal Bridge from the chart."
+    Write-Host "  3. Right-click chart -> Indicators -> Import."
+    Write-Host "  4. Select AtasSignalBridge.dll from: $DestinationDirectory"
+    Write-Host "  5. Find Signal Bridge under Custom -> Add."
     Write-Host ""
-    Read-Host "กด Enter เพื่อปิดหน้าต่าง" | Out-Null
-    exit 1
+    Write-Host "Verify the About tab shows:" -ForegroundColor White
+    Write-Host "  REV $Rev | commit $Commit" -ForegroundColor Green
+    Write-Host "  Built from production HEAD $ProductionHead" -ForegroundColor Green
+    Write-Host ""
+    Write-Host "The web REV is separate and does not need to match this indicator REV." -ForegroundColor DarkGray
+    $Succeeded = $true
+}
+catch {
+    Write-Host ""
+    Write-Host "UPDATE STOPPED" -ForegroundColor Red
+    Write-Host $_.Exception.Message -ForegroundColor Yellow
+}
+finally {
+    if ($WorktreeAdded) {
+        git -C $RepoRoot worktree remove --force $BuildRoot 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host ""
+            Write-Host "Warning: temporary worktree cleanup failed:" -ForegroundColor Yellow
+            Write-Host "  $BuildRoot" -ForegroundColor Yellow
+        }
+        git -C $RepoRoot worktree prune 2>$null
+    }
 }
 
-Write-Host "อัปเดต ATAS Signal Bridge" -ForegroundColor White
-Note $RepoRoot
-
-# --- 1. เครื่องมือ -----------------------------------------------------------
-Step 1 "ตรวจว่ามีเครื่องมือครบ"
-
-if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
-    Stop-Here "ไม่พบ git" "ติดตั้งจาก https://git-scm.com/download/win แล้วเปิด PowerShell ใหม่"
-}
-Ok "git"
-
-if (-not (Get-Command dotnet -ErrorAction SilentlyContinue)) {
-    Stop-Here ".NET SDK" "ติดตั้ง .NET 10 SDK จาก https://dotnet.microsoft.com/download/dotnet/10.0 แล้วเปิด PowerShell ใหม่"
-}
-Ok ".NET SDK $(dotnet --version)"
-
-if (-not (Test-Path $Project)) {
-    Stop-Here "หาไฟล์โปรเจกต์ไม่เจอ ($Project)" "ตรวจว่าสคริปต์นี้อยู่ในโฟลเดอร์ scripts\ ของ repo ที่ clone มา"
-}
-
-# --- 2. ดึงโค้ดล่าสุด --------------------------------------------------------
-Step 2 "ดึงโค้ดล่าสุดจาก GitHub"
-
-Set-Location $RepoRoot
-
-# งานที่แก้ค้างไว้จะถูก checkout ทับหายไป จึงเตือนก่อนแทนที่จะเงียบ ๆ ทำเลย
-$dirty = git status --porcelain
-if ($dirty) {
-    Write-Host "      มีไฟล์ที่แก้ค้างไว้ในเครื่อง:" -ForegroundColor Yellow
-    $dirty | ForEach-Object { Write-Host "        $_" -ForegroundColor Yellow }
-    $answer = Read-Host "      ทับด้วยเวอร์ชันจาก GitHub เลยไหม (พิมพ์ y แล้ว Enter)"
-    if ($answer -ne "y") { Stop-Here "ยกเลิกตามที่สั่ง" "เก็บงานที่แก้ไว้ก่อน แล้วรันสคริปต์นี้อีกครั้ง" }
-    git reset --hard | Out-Null
-}
-
-git fetch origin --prune
-if ($LASTEXITCODE -ne 0) {
-    Stop-Here "ดึงข้อมูลจาก GitHub ไม่ได้" "ตรวจอินเทอร์เน็ต แล้วรันใหม่"
-}
-
-# main คือสาขาหลักที่งานทุกอย่างถูก merge เข้าไป
-git checkout --quiet -B main origin/main
-if ($LASTEXITCODE -ne 0) { Stop-Here "สลับไปสาขา main ไม่ได้" "ส่ง error ข้างบนมาให้ดู" }
-
-# commit ที่แตะตัว indicator ล่าสุด ไม่ใช่ HEAD ของทั้ง repo
-# งานส่วนใหญ่ในโปรเจกต์นี้อยู่ฝั่ง server ซึ่งไม่แตะ C# เลย HEAD จึงขยับเรื่อย ๆ
-# ทั้งที่ DLL ไม่ต้องเปลี่ยน ถ้าเทียบกับ HEAD จะเห็นเลขไม่ตรงแล้วนึกว่าตัวเก่า
-$Commit = (git log -1 --abbrev=7 --format=%h -- atas-indicator)
-
-# REV ของ indicator อ่านจาก csproj ตรง ๆ เป็นเลขคนละตัวกับ REV ของเว็บโดยตั้งใจ
-# เพราะ indicator เปลี่ยนน้อยกว่ามาก ถ้าใช้เลขร่วมกันจะขยับทุกครั้งที่แก้เว็บ
-# แล้วต้องมา build DLL ใหม่ฟรี ๆ
-$Rev = [regex]::Match((Get-Content $Project -Raw), '<Version>([^<]+)</Version>').Groups[1].Value
-
-Ok "อัปเดตแล้ว — $(git log -1 --format=%s)"
-Note "REV ของ indicator: $Rev (commit $Commit)"
-Note "(repo HEAD คือ $(git rev-parse --short=7 HEAD) — คนละเลขได้ ไม่ผิด)"
-
-# --- 3. Build ----------------------------------------------------------------
-Step 3 "Build DLL (ครั้งแรกอาจนานสัก 1-2 นาที)"
-
-dotnet build $Project -c Release --nologo
-if ($LASTEXITCODE -ne 0) {
-    Stop-Here "build ไม่ผ่าน" "อ่านบรรทัด error สีแดงข้างบน ถ้าเป็น ATAS.Indicators.dll แปลว่าหา ATAS ไม่เจอ — ดู docs/SETUP.md หัวข้อ Build"
-}
-if (-not (Test-Path $BuiltDll)) {
-    Stop-Here "build ผ่านแต่ไม่เจอไฟล์ DLL" "ส่งข้อความทั้งหน้านี้มาให้ดู"
-}
-Ok "build ผ่าน"
-
-# --- 4. วางไว้บน Desktop -----------------------------------------------------
-Step 4 "วางไฟล์ไว้บน Desktop"
-
-$target = Join-Path $Desktop "AtasSignalBridge.dll"
-Copy-Item $BuiltDll $target -Force
-Ok $target
-Note "วันที่ไฟล์: $((Get-Item $target).LastWriteTime)"
-
-Write-Host ""
-Write-Host "เสร็จแล้ว ต่อไปทำใน ATAS:" -ForegroundColor White
-Write-Host "  1. ปิด ATAS ให้สนิท (ออกจาก system tray ด้วย) แล้วเปิดใหม่"
-Write-Host "  2. ลบ Signal Bridge ตัวเก่าออกจากชาร์ตก่อน"
-Write-Host "  3. คลิกขวาบนชาร์ต -> Indicators -> ปุ่ม Import (ลูกศรขึ้น) มุมขวาบน"
-Write-Host "  4. เลือก AtasSignalBridge.dll บน Desktop"
-Write-Host "  5. หา Signal Bridge ในหมวด Custom -> Add"
-Write-Host ""
-Write-Host "ตรวจว่าได้ตัวใหม่จริง:" -ForegroundColor White
-Write-Host "  คลิก Signal Bridge ในหน้า Indicators แล้วดูแท็บ About"
-Write-Host "  ต้องขึ้น: " -NoNewline
-Write-Host "REV $Rev | commit $Commit" -ForegroundColor Green
-Write-Host "  ถ้าขึ้นเลขอื่น แปลว่า ATAS ยังใช้ตัวเก่า - ปิด ATAS แล้ว Import ใหม่"
-Write-Host ""
-Write-Host "  เลขนี้จะไม่เปลี่ยนจนกว่าจะมีการแก้โค้ด C# จริง ๆ" -ForegroundColor DarkGray
-Write-Host "  งานฝั่ง server (กฎ/ค่าตั้ง/เว็บ) ไม่ทำให้ต้อง build ใหม่" -ForegroundColor DarkGray
-Write-Host "  REV ที่มุมขวาบนของเว็บเป็นคนละเลข และไม่ต้องตรงกับเลขนี้" -ForegroundColor DarkGray
-Write-Host ""
-Read-Host "กด Enter เพื่อปิดหน้าต่าง" | Out-Null
+Pause-IfNeeded
+if (-not $Succeeded) { exit 1 }
+exit 0
