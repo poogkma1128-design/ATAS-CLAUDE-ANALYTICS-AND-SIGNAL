@@ -108,9 +108,13 @@ namespace AtasSignalBridge
         public bool ShowOverlayPlanLines { get; set; }
 
         [Display(Name = "Overlay marker font size", GroupName = "Overlay", Order = 120,
-            Description = "Pixel size of the high-contrast Entry and Exit labels. Increase this if the labels are still too small.")]
+            Description = "Fixed pixel size of compact Entry and Exit markers. It no longer shrinks when the chart is zoomed out.")]
         [Range(10, 24)]
         public int OverlayMarkerFontSize { get; set; } = 14;
+
+        [Display(Name = "Show marker details", GroupName = "Overlay", Order = 130,
+            Description = "Append signal ID and exact price to every marker. Leave off for the clean professional chart view; the marker is still anchored to the exact price.")]
+        public bool ShowOverlayMarkerDetails { get; set; }
 
         #endregion
 
@@ -140,6 +144,12 @@ namespace AtasSignalBridge
             // the backfill still happens exactly when it should.
             _lastBar = -1;
             _lastIntrabarSend = DateTime.MinValue;
+
+            // Overlay settings (compact/details, font size, lines and lookback)
+            // must take effect on the next live-edge calculation even when the
+            // annotation payload and current bar have not changed.
+            _renderedAnnotationVersion = -1;
+            _renderedAtBar = -1;
         }
 
         protected override void OnCalculate(int bar, decimal value)
@@ -318,6 +328,7 @@ namespace AtasSignalBridge
 
             var firstBar = Math.Max(0, CurrentBar - OverlayLookbackBars);
             var indexByTime = new Dictionary<string, int>();
+            var markerLanes = new Dictionary<string, int>();
             for (var i = firstBar; i < CurrentBar; i++)
             {
                 var candle = GetCandle(i);
@@ -345,16 +356,19 @@ namespace AtasSignalBridge
                     AddPlanLine(entryBar, endBar, item.Target, Color.SeaGreen, 1, ray);
                 }
 
-                AddLabel("entry-" + item.Id, entryBar, item.Entry,
-                    (longTrade ? "▲ ENTRY LONG #" : "▼ ENTRY SHORT #") + tag + " @ " + item.Entry,
-                    longTrade ? Color.LimeGreen : Color.IndianRed, !longTrade, tickSize);
+                var entryAbove = !longTrade;
+                AddMarker("entry-" + item.Id, entryBar, item.Entry,
+                    EntryMarkerText(longTrade, tag, item.Entry, ShowOverlayMarkerDetails),
+                    longTrade ? LongMarkerColor() : ShortMarkerColor(), entryAbove, tickSize,
+                    NextMarkerLane(markerLanes, entryBar, entryAbove));
 
                 if (hasExit && item.ExitPrice.HasValue)
                 {
-                    var reason = ExitLabel(item.ExitReason);
-                    AddLabel("exit-" + item.Id, exitBar, item.ExitPrice.Value,
-                        "● EXIT " + reason + " #" + tag + " @ " + item.ExitPrice.Value,
-                        ExitColor(item.ExitReason), longTrade, tickSize);
+                    var exitAbove = longTrade;
+                    AddMarker("exit-" + item.Id, exitBar, item.ExitPrice.Value,
+                        ExitMarkerText(item.ExitReason, tag, item.ExitPrice.Value, ShowOverlayMarkerDetails),
+                        ExitColor(item.ExitReason), exitAbove, tickSize,
+                        NextMarkerLane(markerLanes, exitBar, exitAbove));
                 }
             }
         }
@@ -365,8 +379,14 @@ namespace AtasSignalBridge
             TrendLines.Add(new TrendLine(firstBar, price, secondBar, price, pen) { IsRay = ray });
         }
 
-        private void AddLabel(string key, int bar, decimal price, string text, Color color, bool above, decimal tickSize)
+        private void AddMarker(string key, int bar, decimal price, string text, Color color, bool above,
+            decimal tickSize, int lane)
         {
+            // Keep markers visually stable at every chart scale. ATAS AutoSize
+            // changes text size with zoom, which made the old audit-length labels
+            // unreadable unless the owner zoomed in. Compact labels also follow
+            // the event-marker convention used by professional chart platforms.
+            var offset = 10 + lane * (OverlayMarkerFontSize + 6);
             Labels[key] = new DrawingText(tickSize)
             {
                 Tag = key,
@@ -375,13 +395,33 @@ namespace AtasSignalBridge
                 Text = text,
                 IsAbovePrice = above,
                 Textcolor = Color.White,
-                Outlinecolor = color,
-                FillColor = Color.FromArgb(225, 24, 24, 24),
+                Outlinecolor = Color.FromArgb(245, 16, 16, 16),
+                FillColor = Color.FromArgb(235, color),
                 FontSize = OverlayMarkerFontSize,
-                AutoSize = true,
+                AutoSize = false,
                 Align = DrawingText.TextAlign.Center,
-                YOffset = above ? -8 : 8
+                YOffset = above ? -offset : offset
             };
+        }
+
+        private static int NextMarkerLane(IDictionary<string, int> lanes, int bar, bool above)
+        {
+            var key = bar + (above ? "-above" : "-below");
+            if (!lanes.TryGetValue(key, out var lane)) lane = 0;
+            lanes[key] = lane + 1;
+            return lane;
+        }
+
+        private static string EntryMarkerText(bool longTrade, string tag, decimal price, bool showDetails)
+        {
+            var compact = longTrade ? "▲ L" : "▼ S";
+            return showDetails ? compact + " #" + tag + " @ " + price : compact;
+        }
+
+        private static string ExitMarkerText(string reason, string tag, decimal price, bool showDetails)
+        {
+            var compact = ExitLabel(reason);
+            return showDetails ? compact + " #" + tag + " @ " + price : compact;
         }
 
         private void ClearTradeOverlay()
@@ -413,20 +453,30 @@ namespace AtasSignalBridge
             {
                 case "target": return "TP";
                 case "stop": return "SL";
-                case "trail": return "TRAIL";
+                case "trail": return "TR";
                 case "timeout": return "TIME";
                 default: return "EXIT";
             }
+        }
+
+        private static Color LongMarkerColor()
+        {
+            return Color.FromArgb(24, 150, 88);
+        }
+
+        private static Color ShortMarkerColor()
+        {
+            return Color.FromArgb(211, 58, 67);
         }
 
         private static Color ExitColor(string reason)
         {
             switch (reason)
             {
-                case "target": return Color.SeaGreen;
-                case "trail": return Color.DodgerBlue;
-                case "timeout": return Color.DarkOrange;
-                default: return Color.IndianRed;
+                case "target": return Color.FromArgb(24, 150, 88);
+                case "trail": return Color.FromArgb(35, 112, 196);
+                case "timeout": return Color.FromArgb(211, 126, 20);
+                default: return Color.FromArgb(211, 58, 67);
             }
         }
 
