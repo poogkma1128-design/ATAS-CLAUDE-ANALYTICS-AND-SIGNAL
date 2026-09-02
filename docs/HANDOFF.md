@@ -12,7 +12,7 @@
 
 ---
 
-## 0G. ป้ายราคา Entry / SL / TP / Exit และสีที่ปรับได้ — REV 1.4.0 (ตรวจ: 2026-09-02 03:48 UTC)
+## 0G. ป้ายราคา Entry / SL / TP / Exit และสีที่ปรับได้ — REV 1.4.0 (ตรวจ: 2026-09-02 03:54 UTC)
 
 > **ให้อ่านหัวข้อนี้ก่อน §0F เมื่อติดตั้งหรือทดสอบ overlay.** Screenshot จาก ATAS จริงยืนยันว่า
 > REV 1.3.2 ทำให้ marker สั้นและอ่านง่ายขึ้น แต่ป้าย `▲ L`, `▼ S`, `SL`, `TP`, `TR` ไม่มีตัวเลขราคา
@@ -22,13 +22,13 @@
 | อะไร | สถานะปัจจุบัน |
 |---|---|
 | หลักฐานปัญหา | ภาพ ATAS วันที่ 2026-09-02 แสดง marker compact ชัดขึ้น แต่ต้องไล่อ่านตำแหน่งแกนราคาเองและไม่มีป้ายแผน SL/TP พร้อมตัวเลข |
-| Source ใหม่ | branch `codex/configurable-plan-price-labels`; indicator **REV 1.4.0**; เริ่มจาก production merge commit `a6d74b8`. PR/indicator commit จะเติมหลัง push |
+| Source ใหม่ | branch `codex/configurable-plan-price-labels`; indicator commit `651d297`; **[PR #57](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/57) เปิดแล้ว รอ owner review/merge**; indicator **REV 1.4.0**; เริ่มจาก production merge commit `a6d74b8` |
 | ป้ายราคา | Entry แสดง `▲ L ราคา` หรือ `▼ S ราคา` เสมอ; ที่แท่งเข้าแสดง `SL ราคา` และ `TP ราคา` เป็นค่าเริ่มต้น; resolved exit แสดง `TP/SL/TR/TIME/EXIT ราคา` ตามผลจริง |
 | ลดความรก | `Show SL / TP price labels` ปิดเฉพาะป้ายแผนได้; `Show signal IDs` ปิดเป็นค่าเริ่มต้นและใช้เติม `#S...` เพื่อ audit; plan lines ยังปิดเป็นค่าเริ่มต้น |
 | ปรับหน้าตา | font 8–32px (default 14), opacity 80–255 (default 235), และสีแยก Long, Short, SL, TP, trailing, timeout, other exit, text, border ในกลุ่ม `Overlay Colors` |
 | ความถูกต้อง | ตัวเลขใช้ `item.Entry/Stop/Target/ExitPrice` ที่ endpoint ส่งมาโดยตรงและ format ตาม tick size; Indicator ไม่คำนวณหรือขยับราคาใหม่ |
 | Verification ก่อน push | `dotnet build -c Release` ผ่าน 0 warning / 0 error; assembly version `1.4.0`. Reflection ยืนยัน defaults `priceLabels=true`, `IDs=false`, `font=14`, `opacity=235`, พบ color properties 9 ช่อง และ text examples `▲ L 29069.75 / SL 29055.50 / TP 29112.50 / TR 29075.25` |
-| Deploy | ไม่มี server/database/web deploy และไม่มี DLL track ใน Git. หลัง merge ต้องรัน updater, Import DLL และตรวจ About/กราฟจริง |
+| Deploy | ไม่มี server/database/web deploy และไม่มี DLL track ใน Git. ก่อน PR #57 merge updater ยัง build REV 1.3.2; หลัง merge ต้องรัน updater, Import DLL และตรวจ About/กราฟจริง |
 | เอกสาร | อัปเดต `docs/SETUP.md` และ Handoff นี้; ไม่เพิ่ม runbook แยกเพราะ SETUP และ §0G.1 ครบขั้นติดตั้ง/acceptance/rollback |
 
 ### 0G.1 ขั้นรับช่วง, acceptance และ rollback
