@@ -26,7 +26,7 @@
 | UX/encoding | `.bat` ตั้ง UTF-8 และข้อความ updater ใช้ ASCII English จึงไม่ขึ้นตัวอักษรไทยเป็นสี่เหลี่ยมบน Windows PowerShell 5.1 |
 | Verification | ทดสอบครบ fetch → restore/build → version check → copy/hash check ผ่าน; .NET SDK 10.0.400, build 0 warning / 0 error, DLL version 1.3.1, SHA-256 `5A6276375E58568985F9A5C97370A8CE7C51F9A4CCB417001F1975F92570AA93` |
 | Deploy/server | ไม่มี Edge Function, database, web หรือ signal-logic change; ต้อง merge updater นี้ก่อน checkout อื่นจะได้รับตัวแก้ |
-| Git | branch งาน `codex/fix-indicator-updater`; **PR #54 เปิดแล้ว รอ owner review/merge**; Vercel check ของ head `08687e2` ผ่าน `success` |
+| Git | branch งาน `codex/fix-indicator-updater`; **PR #54 เปิดแล้ว รอ owner review/merge**; Vercel check ของ snapshot `08687e2` ผ่าน `success` |
 
 ### 0E.1 วิธีใช้, acceptance และ rollback
 
