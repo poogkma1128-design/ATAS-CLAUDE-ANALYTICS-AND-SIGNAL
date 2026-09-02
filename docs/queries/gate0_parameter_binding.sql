@@ -1,12 +1,26 @@
--- Gate 0 — "does this threshold ever actually bind, and does it mean the same
--- thing on every instrument?"
+-- Gate 0 diagnostics — "does this threshold ever actually bind, and does it
+-- mean the same thing on every instrument?"
 --
--- Provenance: these are the exact queries behind the four figures quoted in the
--- 2026-09-02 review of HANDOFF section 5.18. They are recorded here so the
--- numbers can be re-derived rather than taken on trust -- an independent
--- reviewer who cannot re-run a figure has not verified it.
+-- Provenance: these are the queries the proposer used behind figures quoted in
+-- the 2026-09-02 review of HANDOFF section 5.18. They are recorded so figures
+-- can be re-derived rather than taken on trust. They are NOT, by themselves, a
+-- complete Gate 0 packet and have not yet received an independent raw re-run.
 --
 -- Read-only. Nothing here writes.
+--
+-- Re-run record (fill in the PR/Handoff evidence packet; never edit historical
+-- results into this SQL file):
+--   reviewer =
+--   query commit =
+--   executed_at_utc =
+--   database/project =
+--   exact experiment_id(s) =
+--   result artifact/link =
+--
+-- A complete Gate 0 must additionally freeze the data window and report both
+-- marginal and conditional rates by instrument x direction x session, units,
+-- quantiles/distribution, null/degenerate rates, and sensitivity. Q1 below is
+-- a marginal bar-level diagnostic only; it cannot approve a sweep.
 
 -- ---------------------------------------------------------------- Q1
 -- Source of: BTCUSDT interior-thinnest share 0.0040 vs futures 0.18-0.21,
@@ -22,6 +36,7 @@
 with per_bar as (
   select i.symbol,
          b.id,
+         b.opened_at,
          (select avg(cl.volume) from public.cluster_levels cl where cl.bar_id = b.id) as avg_vol,
          (select min(cl.volume) from public.cluster_levels cl
            where cl.bar_id = b.id
@@ -35,6 +50,8 @@ with per_bar as (
 )
 select symbol,
        count(*) as bars,
+       min(opened_at) as window_start_utc,
+       max(opened_at) as window_end_utc,
        round(avg(levels)) as avg_levels,
        round(avg(interior_min_vol / nullif(avg_vol,0))::numeric, 4) as avg_interior_thinnest_share,
        round((count(*) filter (where interior_min_vol <= avg_vol * 0.15))::numeric / count(*), 4) as pass_at_015,
@@ -81,10 +98,13 @@ order by trades desc;
 
 
 -- ---------------------------------------------------------------- Q3
--- Source of: speed_of_tape long GC +0.181 on the 1000-bar run, i.e. the
+-- Discovery query for: speed_of_tape long GC +0.181 on the 1000-bar run, i.e. the
 -- forbidden-item-18 check the "close the long side" recommendation skipped.
 -- Run it for any (rule, variant) pair before proposing a rule-wide action.
-select e.name, r.variant, r.symbol, r.direction, r.trades,
+-- IMPORTANT: name LIKE is useful for discovery but is not reproducible evidence.
+-- Copy the returned UUIDs into the evidence packet and re-run with exact e.id
+-- predicates before citing a number.
+select e.id as experiment_id, e.name, e.created_at, r.variant, r.symbol, r.direction, r.trades,
        round((r.total_r / nullif(r.trades,0))::numeric, 3) as r_per_trade,
        round(r.max_drawdown_r::numeric,2) as max_dd_r
 from public.experiment_results r
@@ -99,6 +119,9 @@ order by r.direction, r.symbol, e.created_at, r.variant;
 -- Runs that produced nothing, and runs still claiming to be alive.
 -- A sweep write-up that does not account for these is reporting a filtered
 -- view of its own evidence.
+-- This can expose non-done rows only. It cannot discover a planned variant that
+-- was never created or a successful run omitted from prose; those require the
+-- pre-registered manifest and evidence packet in EXPERIMENT_REVIEW_PROTOCOL.md.
 select id, name, status, created_at,
        round(extract(epoch from (now() - created_at))/3600, 1) as hours_since,
        (select count(*) from public.experiment_results x where x.experiment_id = e.id) as rows

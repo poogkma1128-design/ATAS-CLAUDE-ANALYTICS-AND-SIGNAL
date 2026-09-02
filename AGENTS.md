@@ -13,6 +13,27 @@ Before editing any source code, configuration, migration, script, test, deployme
 
 No implementation edit may begin until this gate is complete. Reading only a chat summary is not a substitute for reading the repository Handoff.
 
+## Mandatory Experiment and Review Gate
+
+For any work that proposes, runs, interprets, or approves a signal-quality experiment, also read and follow
+`docs/EXPERIMENT_REVIEW_PROTOCOL.md` before changing code, parameters, production state, or an empirical
+conclusion.
+
+1. Assign four lifecycle roles explicitly: Proposer, Executor/Recorder, Independent Reviewer, and Owner.
+   A model preference in the Handoff is only routing guidance; it never waives role separation.
+2. The Proposer may not decide its own hypothesis. The Executor/Recorder may not approve its own run or
+   report. The Independent Reviewer must re-query raw artifacts, not review only the narrative.
+3. Run Gate 0 before a parameter sweep. Record marginal and conditional bind/pass rates by instrument,
+   direction, and session, together with units, distributions, null/degenerate rates, and sensitivity.
+4. Every empirical claim must cite a reproducible evidence packet: exact experiment IDs, code/query commit,
+   data window, planned/attempted/succeeded/failed/omitted/superseded variants, baseline metrics, and the
+   independent review status. SQL/DB is the source of numerical evidence, not a human or AI reviewer.
+5. Until per-opportunity artifacts and session-by-instrument block resampling exist, do not claim that a
+   variant difference is statistically significant. A better aggregate is an observation, not proof.
+6. Before obeying a misassigned or unsafe request, respond in the required L1-L4 format from the protocol.
+   Production alerts, filters, rules, secrets, GUI installation, and anything that can reach real money retain
+   the owner-only approvals defined there.
+
 ## Mandatory Completion Gate
 
 Before declaring any change complete:
