@@ -2596,6 +2596,144 @@ Edge Function ที่รับ signal อยู่. การเปลี่�
 
 ---
 
+### 5.23 วงจรเรียนรู้ offline/shadow — แผนที่ตรึงไว้ **ก่อน** เห็นตัวเลข
+
+**สถานะ:** เขียน 2026-09-02 · **เป็นแผน ยังไม่มีโค้ด ยังไม่ deploy runtime ไม่เปลี่ยนแม้แต่บรรทัดเดียว**
+ระดับ **L2** · จะเป็น **L3 ทันที** ถ้าเอาผลไปแตะ trail params, filter หรือ Telegram
+
+**ทำไมเขียนก่อนลงมือ:** `EXPERIMENT_REVIEW_PROTOCOL.md` §3 บังคับให้ hypothesis, variant list,
+estimand และเกณฑ์แพ้ถูกบันทึก**ก่อนเห็นผล** — เขียนทีหลังคือการปรับแผนให้เข้ากับคำตอบ
+
+**เป้าหมายจากเจ้าของ:** วิเคราะห์ไม้ปิดจริงและ counterfactual "ไม่เลื่อน trailing" หาเหตุแพ้ ·
+สร้างโมเดลที่ไม่เห็นข้อมูลอนาคต · พิสูจน์บน holdout/forward ก่อนแตะสัญญาณจริง ·
+ไม่ไล่ปรับจนชนะข้อมูลเก่า · ไม่เปิด filter/Telegram โดยไม่มีหลักฐานและการอนุมัติ
+
+#### ข้อเท็จจริงที่วัดแล้ว (read-only · project `sckdriuwfyittcybnbhz` · 2026-09-02)
+
+| อะไร | ตัวเลข |
+|---|---|
+| ไม้ที่มี `confidenceV2` snapshot **และ** ปิดผลแล้ว | **684** กระจายบน **2 วันเท่านั้น** (1 ก.ย. 436 · 2 ก.ย. 248) |
+| ไม้ปิดผลทั้งหมด (ไม่ต้องมี snapshot) | 2,039 |
+| ไม้ที่ออกด้วย `trail` | **943 (46%)** |
+| ไม้ที่ถูก mute แต่ยังให้คะแนน | 496 จาก 684 |
+| avg `pnl_ticks` ไม้ที่ประกาศ vs ไม้ที่ mute | **51.9 vs 30.8** |
+
+สองแถวสุดท้ายอ่านคู่กัน: evidence gate เลือกไม้ดีได้จริง **⇒ เทรนเฉพาะไม้ที่ประกาศคือ selection bias**
+ต้องเทรนบนไม้ที่ mute ด้วย โดยใช้ `muted` เป็น covariate ไม่ใช่ตัวกรอง
+
+#### ⚠️ แก้ข้อสันนิษฐาน — trailing ไม่เคยทำให้แพ้เลยสักไม้
+
+เคยตั้งข้อสงสัยว่า `exit_reason='trail'` ตัดสินด้วย latch flag (`0031:145`) ไม่ใช่ด้วยว่า stop
+ขยับจริง จึงอาจมีไม้ที่ติดป้าย `trail` แต่ออกที่ stop เดิม **วัดบน 943 ไม้แล้วไม่เกิดขึ้นเลย:**
+
+| ตรวจ | ผล |
+|---|---|
+| stop ไม่เคยขยับ | **0** |
+| ขยับแล้วแต่ยังต่ำกว่าจุดเข้า | **0** |
+| ออกที่จุดเข้าหรือสูงกว่า | **943 (100%)** |
+| ไม้ที่ขาดทุน | **0** |
+| R เฉลี่ย | **+0.887** |
+
+เป็นผลจากโครงสร้าง: `trailAfterR 0.5` + `trailOffsetR 0.25` ⇒ stop ลงจอดที่ **+0.25R เป็นอย่างแย่ที่สุด**
+
+> **⇒ โจทย์ "หาเหตุแพ้จาก trailing" ตอบแล้วว่าไม่มีเหตุแพ้** — trailing ไม่ได้ทำให้ขาดทุน **มันตัดตัวชนะ**
+> โจทย์ที่ถูกคือ **"trail ทิ้งกำไรไว้เท่าไร และทิ้งกับไม้แบบไหน"** ซึ่งคือสิ่งที่ counterfactual วัดพอดี
+>
+> กับดัก latch จะเกิดจริงก็ต่อเมื่อ **`trailOffsetR > trailAfterR`** ⇒ ต้องเป็น **invariant test** ไม่ใช่แค่หมายเหตุ
+
+#### ทางลัดที่ดูน่าใช้ แต่พัง — บันทึกไว้เพื่อไม่ให้เสียเวลาซ้ำ
+
+`mfe_ticks`/`mae_ticks` ถูกเก็บครบ 100% ของไม้ที่ปิดผล จึงดูเหมือนหา counterfactual ได้จาก SQL
+ล้วน ลองแล้วได้ว่า **864 จาก 943 ไม้ "น่าจะหมดเวลา"** — ซึ่ง**เป็นสิ่งประดิษฐ์จากการตัดข้อมูล
+ไม่ใช่ผลจริง**: `0031:186-191` คำนวณ MFE/MAE **ถึงแท่งที่ออกเท่านั้น** และ trail ออกเฉลี่ยที่แท่ง
+2.9 จาก horizon 10 ⇒ ทางวิ่งหลังจากนั้นไม่มีอยู่ในฐานข้อมูล
+
+**⇒ counterfactual ต้องเดินแท่งใหม่ ทำจาก `signal_outcomes` อย่างเดียวไม่ได้**
+
+#### และข้อที่ทำให้ counterfactual นี้ *น่าเชื่อกว่า* การจำลองอย่างอื่น
+
+§5.4c บันทึกไว้เอง: *"ไม้ที่ไม่มี trail ออกที่ `plan.stop`/`plan.target` ซึ่งเป็นระดับที่รู้ล่วงหน้า
+ไม่ต้องเดา path ในแท่ง — ต่างจากทุกแถวที่มี trail"*
+⇒ ฝั่ง counterfactual คือฝั่งที่ตัวจำลองตอบได้ซื่อสัตย์ที่สุด **ฝั่ง actual ต่างหากที่มีสมมติฐาน**
+กลับด้านกับที่คนมักคิด
+
+#### แผน 6 phase
+
+| Phase | งาน | ไฟล์ |
+|---|---|---|
+| **0** | กรอก evidence packet ตาม protocol §3 ให้ครบ **ก่อนเห็นตัวเลข** · ปิดแถว experiment ที่ค้าง `96de5127-e16f-40e1-b547-8a56775097eb` (§7.2-O1) | — |
+| **1** | migration สร้าง **`public.opportunity_results`** = **O2** | `supabase/migrations/0032_what_the_trail_actually_cost.sql` |
+| **2** | `rescoreOne()` — **เรียก `scorePlan` ตัวเดิมโดยไม่แก้** แล้ว override `trailTriggerTicks: 0` · **ไม่สร้าง walk ตัวที่ 4** | `supabase/functions/_shared/rescore.ts` + `rescore_test.ts` |
+| **3** | `mode:"rescore"` — โหลด **OHLC เท่านั้น** ไม่แตะ `cluster_levels` · เขียนทีละ batch พร้อม `on conflict do nothing` (= O1 ในขอบเขตแคบ) | `supabase/functions/backtest/index.ts` |
+| **4** | Q1 parity · Q2 exclusion census · Q3 แยก rule × direction × instrument × session_day · **Q4 ผู้ตรวจ re-derive เอง** | `docs/queries/trail_counterfactual.sql` |
+| **5** | cohort export | `docs/queries/confidence_v2_cohort_export.sql` + views ใน 0032 |
+| **6** | อัปเดต Handoff/เอกสาร (completion gate) | `docs/HANDOFF.md` |
+
+**คอลัมน์ของ `opportunity_results` ที่ต้องมีและเหตุผล:**
+`candidate_key` = `symbol|timeframe|bar_opened_at|rule_key|direction` — **หัวใจ** เพราะมันทำให้
+"อยู่ใน variant A ไม่อยู่ใน B" ถูกบันทึกเป็น exclusion แทนที่จะหายไปเงียบ ๆ ซึ่งคือ selection bias
+ที่ §5.18a เจอ · `included` + `exclusion_reason` (check constraint) · `session_day` ตรึงตอนเขียน
+เพื่อเป็นหน่วย resampling · แผนที่เดินจริงครบทุกช่อง · ผลลัพธ์สะท้อน `0031:179-196` +
+**`r` เก็บจริง** (ตอนนี้ทุก view คำนวณเอง) + **`mfe_horizon_ticks` / `mae_horizon_ticks` /
+`bars_to_mfe` / `bars_to_mae`** ← ตัวที่ไม่มีอยู่และเป็นเหตุให้ทางลัดข้างบนพัง ·
+`evaluator_version` / `data_version` (bars เป็นตารางที่แก้ได้) · `unique (run_id, variant, candidate_key)`
+
+🔒 **ด่านชี้ขาดของ Phase 3:** variant `baseline` **ต้อง reproduce `signal_outcomes` เป๊ะ**
+(diff `exit_reason` / `bars_used` / `pnl_ticks`) **ถ้าไม่ตรง รันเป็นโมฆะและห้ามเขียน `no_trail`**
+— กลไกเดียวกับแถว `share = 0` ใน `risk_floor_sweep.sql` แต่บังคับด้วยเครื่องแทนการมองด้วยตา
+
+**cohort export ต้องระวังชื่อชนกัน:** `shared` มี `delta` และ `RULE_FEATURE_PATHS` ให้
+`delta_divergence`/`delta_flip` มี `delta` ด้วย ⇒ ต้องมี `feature_namespace` แยก และ
+**เก็บ dotted key ไว้ทั้งอัน** (`level.delta`) เพราะจุดคือ path เข้า payload ไม่ใช่การซ้อนชั้นของฟีเจอร์
+
+#### สิ่งที่ต้องตรึง **ก่อน** เห็นตัวเลข
+
+1. **variant มีสองตัวเท่านั้น** — `baseline` และ `no_trail` **ไม่ใช่ trail sweep**
+   (§5.4c กวาด trail มาแล้วสองรอบ 12 ค่า ไม่รับอะไร · เพิ่ม variant = หาผู้ชนะโดยบังเอิญ)
+2. **estimand** = mean R ต่อ opportunity ของ*นโยบายทั้งชุด* รวมไม้ที่ถูก exclude ·
+   รายงานแยก rule × direction และ instrument พร้อม exclusion census · **ไม่ใช่ win rate** (ข้อห้าม #12)
+3. **เกณฑ์แพ้ เขียนก่อน:** `no_trail` ต้องดีขึ้นทั้ง R รวม **และ** ไม่มี instrument ไหนแย่ลง
+   **และ** ไม่ได้มาจาก session เดียว (≥3 `session_day`)
+4. **resampling:** block bootstrap ตาม `(session_day, symbol)` · B และ seed ตรึงก่อนอ่านผล
+5. **feature set = `RULE_FEATURE_PATHS` + `shared` เป๊ะ** · เพิ่มฟีเจอร์ = `modelVersion` ใหม่ + cohort ใหม่
+6. **ห้าม export** `muted`, `suppression_reason`, `telegram_message_id` — โมเดลจะเรียนรู้
+   evidence gate ไม่ใช่เรียนรู้ตลาด (แต่ **ต้องเทรนบนไม้ที่ mute ด้วย** ตามตารางข้างบน)
+7. **`exit_reason` ไม่ใช่ feature และไม่ใช่ stratifier** — มันอยู่ปลายน้ำของแผน
+
+#### สิ่งที่ยังทำไม่ได้ และเพราะอะไร
+
+| ไม่ทำ | เพราะ |
+|---|---|
+| **fit โมเดล confidence v2** | 684 ไม้ / **2 วัน** ⇒ ทุก cohort ได้ `sessions ≤ 2` · `confidence_v2_progress` ต้องการ ≥30 ไม้ ≥2 symbol **≥3 session** จึงไม่มี cell ไหนถึง `ready for offline calibration` — **เป็นข้อจำกัดทางเลขคณิต ไม่ใช่เรื่องการออกแบบ** · ที่ ~340 ไม้/วัน ต้องรอ ~3–4 สัปดาห์ |
+| เขียน block bootstrap | เขียนก่อนตรึง resampling plan = ปรับแผนให้เข้ากับคำตอบ |
+| อ้างว่า `no_trail` ต่างอย่างมีนัยสำคัญ | protocol §5 ห้ามจนกว่า O2 + block resampling จะเสร็จ · Phase 1–5 พูดได้แค่ **"observed difference, significance unproven"** |
+| แตะ `trailAfterR` / `trailOffsetR` | **§7.2-K บล็อกไว้อยู่แล้ว** (ยังไม่อธิบายว่าทำไม `0.25/0.0625` ให้ผลเท่ากับ `0.25/0.03125`) และเป็น **L3** |
+| แตะ Telegram / filter / `announcement_mode` | **L3 — เจ้าของเท่านั้น** |
+| backfill `confidenceV2` ลงข้อมูลเก่า | §5.20 ห้าม — พิสูจน์ไม่ได้ว่าฟีเจอร์ทุกตัวรู้ได้ก่อนผล |
+
+**ของแถมที่ Phase 2 ปลดล็อกให้:** `rescore.ts` ที่รัน `simulate()` ได้นอก edge function
+คือเครื่องมือที่ **§7.2-K** ต้องการพอดี ("รัน `simulate()` ในเครื่องบนบาร์ชุดเดียวกันแล้วไล่ดู
+`stop_level` ทีละแท่ง") ⇒ ทำ Phase 2 แล้ว K ตอบได้เป็นผลพลอยได้
+
+#### เจ้าภาพ (ตาม §5.21)
+
+| ชิ้นงาน | เจ้าภาพหลัก | ผู้ตรวจ |
+|---|---|---|
+| Phase 1–5 (migration · `rescore.ts` · edge function · queries · export) | **GPT/Codex** | Claude |
+| ตั้งสมมติฐานเหตุแพ้ / กลไก | **Claude** | GPT |
+| ตรวจ look-ahead / leakage / selection bias | **Claude** *(คนละ session กับผู้เสนอ)* | เจ้าของ |
+| estimand · split · block bootstrap · calibration | **GPT/Codex** | Claude |
+| เปิด filter / Telegram / แตะ trail params | **เจ้าของ** | — |
+
+**หมายเหตุถาวร:** §5.23 ร่างโดย **Claude ซึ่งเป็นผู้เสนอ** ⇒ ตามกฎเหล็กข้อ 1 ของ §5.21
+**Claude ไม่รับรองแผนที่ตัวเองร่าง** — ต้องมี GPT หรืออีก session ตรวจก่อนเริ่ม Phase 1
+และตัวเลขทุกตัวในหัวข้อนี้ยัง**ไม่ผ่าน independent raw re-run**
+
+**Verification/rollback ของงานเขียนหัวข้อนี้:** แก้เอกสารอย่างเดียว ตรวจด้วย static diff
+ไม่มี runtime test เพราะไม่มี runtime change · rollback คือ revert commit เอกสาร
+
+---
+
 ## 6. ค่า params ปัจจุบัน (แก้ได้ที่ `/rules` ไม่ต้อง deploy)
 
 ทุกกฎมีชุดนี้เหมือนกัน:
@@ -2673,10 +2811,11 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | L | **ตรวจ deploy ชั้น 3 ของ `ingest` v14** | ✅ **ผ่านแล้ว 2026-09-01** — feed กลับมา 23:54 · 31 แถวหลัง deploy · error 1 แถวเดียวคือ `JWT issued at future` (ข้อ 3.12 ไม่ใช่ของใหม่) และ NQU6 ส่งสำเร็จต่อทันที 10 แถวรวด · `speed_of_tape` ยิงจริง **15 สัญญาณ ประกาศ 0** = การปิดเสียงพิสูจน์แล้วด้วยสัญญาณจริง ไม่ใช่ผ่านแบบว่างเปล่า |
 | M | **ตัดสินชะตา `speed_of_tape`** | **ยังค้าง** — กวาดครบสามพารามิเตอร์และฝั่ง long ติดลบทั้ง 9 ค่าที่วัด (ข้อ 5.18), แต่ query ล่าสุดพบ `telegram_enabled=true`. Evidence-first ลดความเสี่ยงการประกาศแต่ไม่ใช่คำตอบเรื่อง edge; ต้องมี owner decision ว่าปิด long/ทั้งกฎหรือเก็บ shadow |
 | O1 | **ทำให้ `backtest` เขียนผลและสถานะทีละ variant** | ค้างอยู่ · **P1** — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) · **กำลังเกิดอยู่จริงตอนนี้:** `standing sweep 2026-09-02` (`96de5127-e16f-40e1-b547-8a56775097eb`) ค้าง `running` โดยมี 0 แถวตั้งแต่ 2026-09-01 21:00 UTC และ `/experiments` แสดงว่ากำลังรัน — ปิดแถวนั้นด้วยมือระหว่างรอ |
-| O2 | **เก็บ per-opportunity artifact ต่อ variant** | ค้างอยู่ — ต้องมี stable candidate key, variant, included/excluded **พร้อมเหตุผล**, R, outcome, instrument และ data/evaluator version · **`signal_id` อย่างเดียวไม่พอ** และการจับคู่เฉพาะไม้ที่ซ้ำกันสร้าง selection bias ใหม่ (ข้อ 5.18a) · **เป็นเงื่อนไขก่อนที่ใครจะอ้างว่าความต่างระหว่าง variant มีนัยสำคัญได้อีก** — ดู §5.21 gate ข้อ 5 (block bootstrap ตาม session × instrument) |
+| O2 | **เก็บ per-opportunity artifact ต่อ variant** | ค้างอยู่ — ต้องมี stable candidate key, variant, included/excluded **พร้อมเหตุผล**, R, outcome, instrument และ data/evaluator version · **`signal_id` อย่างเดียวไม่พอ** และการจับคู่เฉพาะไม้ที่ซ้ำกันสร้าง selection bias ใหม่ (ข้อ 5.18a) · **เป็นเงื่อนไขก่อนที่ใครจะอ้างว่าความต่างระหว่าง variant มีนัยสำคัญได้อีก** — ดู §5.21 gate ข้อ 5 (block bootstrap ตาม session × instrument) · **schema ออกแบบไว้แล้วใน §5.23** (`opportunity_results` — `candidate_key`, `included`/`exclusion_reason`, `session_day`, `mfe_horizon_ticks`) ยังไม่ implement |
 | P | **ทำ Confidence v2 ให้มีความหมาย** | กำลังทำ — migration 0029 และ snapshot อยู่ production ตั้งแต่ v15, ปัจจุบัน `ingest v17`; มี 436 captured / 431 resolved / 16 cohorts. ยังต้อง offline calibration + frozen model + forward shadow + owner approval; `score:null` และห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
 | Q | **Independent raw re-run ของตัวเลข §5.18a** | ค้างอยู่ · **P1 ก่อนเปลี่ยน threshold/rule** — ผู้ตรวจที่ไม่ใช่ผู้เสนอ/ผู้รันต้องใช้ evidence packet, exact experiment IDs, frozen data window และ query commit รัน artifact ดิบซ้ำ. จนกว่าจะเสร็จ ตัวเลขและข้อเสนอทั้งหมดใน §5.18a เป็น `provisional`; คง runtime เดิมและห้ามนำไปเปิด/ปิด Telegram |
+| R | **สร้างวงจรเรียนรู้ offline/shadow (counterfactual "ไม่เลื่อน trailing" + โมเดลที่พิสูจน์ได้)** | ค้างอยู่ — **แผนเต็มตรึงไว้แล้วใน §5.23** พร้อม variant list, estimand, เกณฑ์แพ้ และ resampling plan ตาม protocol §3 · Phase 1–5 เป็นสาย **GPT/Codex** ตาม §5.21 · **Phase 0 (กรอก evidence packet + ปิดแถว experiment ที่ค้าง) ต้องทำก่อนแตะโค้ด** · fit โมเดลยังทำไม่ได้: 684 ไม้บน 2 วัน ⇒ ทุก cohort `sessions ≤ 2` · §5.23 ร่างโดย Claude ซึ่งเป็นผู้เสนอ จึงยังไม่ผ่านการตรวจอิสระ |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
 ใน `plan.ts` มี `volatilityFloorTicks()` คำนวณพื้นความเสี่ยงจาก median range ของแท่งก่อนหน้า
