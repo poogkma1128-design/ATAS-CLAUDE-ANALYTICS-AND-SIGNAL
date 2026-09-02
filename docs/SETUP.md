@@ -165,6 +165,11 @@ ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ�
 
 **ดับเบิลคลิก `scripts\update-indicator.bat`**
 
+สคริปต์จะดึง source จาก production branch `claude/form-signal-telegram-rz8am1` โดยตรง
+(ไม่ใช่ `main`) แล้ว build ใน Git worktree ชั่วคราว จึง **ไม่สลับ branch, ไม่ reset และไม่ทับงานที่
+แก้ค้างไว้** ใน checkout ปัจจุบัน. ก่อนวางไฟล์บน Desktop จะตรวจว่า version ใน DLL ตรงกับ REV
+ของ source และตรวจ SHA-256 หลังคัดลอกอีกครั้ง; ถ้าอย่างใดไม่ตรงจะหยุดและห้าม Import.
+
 ถ้าอยากสั่งจาก PowerShell ที่เปิดค้างอยู่:
 
 ```powershell
@@ -184,9 +189,12 @@ ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ�
 
 ### หรือทำเองทีละขั้น
 
+วิธีนี้ใช้เฉพาะ checkout ที่ไม่มีงานแก้ค้าง. วิธีดับเบิลคลิกด้านบนปลอดภัยกว่าเพราะไม่เปลี่ยน branch.
+
 ```powershell
-git checkout main
-git pull
+git fetch origin
+git switch claude/form-signal-telegram-rz8am1
+git pull --ff-only origin claude/form-signal-telegram-rz8am1
 cd atas-indicator
 dotnet build -c Release
 ```
@@ -229,12 +237,13 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 | ที่ | เห็นอะไร |
 |---|---|
-| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | `REV 1.1.0 \| commit 70776f6 \| built 2026-08-29 04:27` |
+| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | เช่น `REV 1.3.1 \| commit 51e2b3e \| built ...` |
 | แท็บ **Settings** → กลุ่ม **About** → ช่อง **Revision** | ข้อความเดียวกัน (อ่านอย่างเดียว แก้ไม่ได้) |
 | Log ของ ATAS ตอน indicator โหลด | บรรทัด `Signal Bridge REV ...` |
 
-**วิธีตอบคำถาม "ล่าสุดหรือยัง":** `scripts\update-indicator.ps1` จะพิมพ์ commit
-ที่มัน build ให้ตอนจบ เอาไปเทียบกับที่ขึ้นในแท็บ About ถ้าตรงกัน = ATAS ใช้ตัวใหม่แล้ว
+**วิธีตอบคำถาม "ล่าสุดหรือยัง":** `scripts\update-indicator.ps1` จะพิมพ์ production HEAD,
+indicator REV และ indicator commit ที่มัน build ให้ตอนจบ เอา REV/indicator commit ไปเทียบกับ
+แท็บ About ถ้าตรงกัน = ATAS ใช้ตัวใหม่แล้ว
 ถ้าไม่ตรง = ATAS ยังโหลดตัวเก่าค้างอยู่ ให้ปิด ATAS แล้ว Import ใหม่
 
 ถ้า build จากไฟล์ zip หรือเครื่องไม่มี git จะขึ้น `commit no-git` แทนตัวเลข
