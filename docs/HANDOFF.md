@@ -12,6 +12,34 @@
 
 ---
 
+## 0I. Independent review migration 0033 — **ไม่ผ่าน; Phase 2 ถูกบล็อก** (ตรวจ: 2026-09-03)
+
+> GPT/Codex ตรวจ source บน production branch commit `5cc79ba` ตาม §5.21 กฎเหล็กข้อ 1 แล้ว.
+> ผลคือ **L2 rejected**: ห้าม apply 0033 และห้ามเริ่ม `rescore.ts` จนกว่าจะมี follow-up migration
+> กับ executable regression tests แล้วผ่าน independent re-review. รายละเอียดและ counterexample อยู่ที่
+> `docs/reviews/2026-09-03-migration-0033-independent-review.md`.
+
+ตัวบล็อกหลักมี 4 กลุ่ม:
+
+1. `trail_counterfactual_parity` เริ่มจากแถว baseline ที่ถูกเขียนแล้วและ inner join outcome
+   จึงคืนค่าว่างทั้งตอน baseline หายทั้งชุด, หายบางไม้ หรือ `signal_id` เป็น null — แต่ contract
+   กลับนิยามว่า “ว่าง = ผ่าน”.
+2. `arms_agree_on_denominator` เทียบเพียงจำนวนแถว; candidate คนละชุดแต่จำนวนเท่ากันผ่านได้.
+3. constraint ยังยอมรับ included row ที่ risk ไม่บวก/แผนไม่ครบ, resolved row ที่ outcome/R ไม่ครบ,
+   excluded row ที่ยังพก outcome, variant อิสระ และ `r` ที่ไม่ตรง `pnl_ticks / risk_ticks`.
+4. cohort ใช้ `signals.fired_at` แทน `bars.opened_at` และ export `muted` ขัดกฎที่ตรึงใน §5.23.
+   SQL production แบบ read-only พบ **68/1,006** v2 signals อยู่คนละวัน UTC เมื่อเทียบสองเวลา
+   (ตรวจ `2026-09-02 23:18 UTC`; ingest lag สูงสุดมากกว่า 1 วัน).
+
+**สถานะจริง:** PR #63 merge ที่ `72ea987`; PR #64 แก้ Handoff 1 บรรทัดและ merge ที่ `5cc79ba`.
+ทั้งสองไม่มี independent review ก่อน merge. Production migration ยังจบที่ 0032; เวลา
+`2026-09-02 23:18:30 UTC` ตาราง/view ของ 0033 ยังไม่มีและ `experiments.kind` ยังไม่มี.
+การตรวจนี้ไม่แก้ migration เดิม, ไม่สร้าง Phase 2, ไม่ deploy และไม่แตะ signal/parameter/Telegram.
+Rollback มีเพียง revert เอกสาร review นี้. งานถัดไปที่ปลอดภัยคือ migration ใหม่แก้สี่กลุ่มข้างบน
+แล้วให้ผู้ตรวจอิสระรัน counterexample ซ้ำก่อนปลดล็อก Phase 2.
+
+---
+
 ## 0H. รับรองนโยบายแบ่งงานและตรวจหลักฐาน หลัง PR #58 (ตรวจ: 2026-09-02)
 
 > **สถานะ Git ปัจจุบันของเอกสาร:** PR #57 merge แล้วที่ `d52da91`; PR #58 merge แล้วที่
@@ -2672,8 +2700,8 @@ estimand และเกณฑ์แพ้ถูกบันทึก**ก่อ
 | Phase | งาน | ไฟล์ |
 |---|---|---|
 | **0** | ✅ **เสร็จแล้ว 2026-09-02** — evidence packet กรอกครบทุกช่องที่ `docs/experiments/2026-09-02-trail-counterfactual.md` (เขียน**ก่อน**รัน ตาม protocol §3) · ปิดแถว `96de5127` ที่ค้างแล้ว (`status=running` เหลือ 0) **แต่สาเหตุยังไม่ถูกแก้ — cron 0018 จะยิงซ้ำและตายแบบเดิมทุกคืนจนกว่า O1 จะเสร็จ** | — |
-| **1** | ✅ **เสร็จแล้ว 2026-09-02** — migration สร้าง **`public.opportunity_results`** = **O2** พร้อม `experiments.kind` และ view 4 ตัว · **ตารางว่าง ยังไม่มีอะไรเขียนลงไป** (ตัวเขียนคือ Phase 3) | `supabase/migrations/0033_what_the_trail_actually_cost.sql` |
-| **2** | `rescoreOne()` — **เรียก `scorePlan` ตัวเดิมโดยไม่แก้** แล้ว override `trailTriggerTicks: 0` · **ไม่สร้าง walk ตัวที่ 4** | `supabase/functions/_shared/rescore.ts` + `rescore_test.ts` |
+| **1** | ⚠️ source merge แล้วแต่ **ไม่ผ่าน independent review 2026-09-03** — parity ผ่านได้เมื่อ baseline หาย, denominator เทียบแค่ count, constraints ไม่ปิด state/R และ cohort ผิด contract; production ยังไม่มี 0033 · ดู §0I | `supabase/migrations/0033_what_the_trail_actually_cost.sql` |
+| **2** | **บล็อกอยู่** — เริ่มได้หลัง follow-up migration + regression tests ผ่าน independent re-review เท่านั้น; เมื่อปลดล็อกจึงทำ `rescoreOne()` โดยเรียก `scorePlan` ตัวเดิมไม่แก้และ override `trailTriggerTicks: 0` · **ไม่สร้าง walk ตัวที่ 4** | `supabase/functions/_shared/rescore.ts` + `rescore_test.ts` |
 | **3** | `mode:"rescore"` — โหลด **OHLC เท่านั้น** ไม่แตะ `cluster_levels` · เขียนทีละ batch พร้อม `on conflict do nothing` (= O1 ในขอบเขตแคบ) | `supabase/functions/backtest/index.ts` |
 | **4** | Q1 parity · Q2 exclusion census · Q3 แยก rule × direction × instrument × session_day · **Q4 ผู้ตรวจ re-derive เอง** | `docs/queries/trail_counterfactual.sql` |
 | **5** | cohort export | `docs/queries/confidence_v2_cohort_export.sql` + views ใน 0033 |
@@ -2686,7 +2714,7 @@ estimand และเกณฑ์แพ้ถูกบันทึก**ก่อ
 | ตาราง | `public.opportunity_results` — ครบทุกคอลัมน์ตามที่ระบุข้างล่าง |
 | คอลัมน์ใหม่ | `experiments.kind` (`sweep` \| `rescore`, default `sweep`) — rescore ไม่ใช่การค้นหา grid และห้ามรายงานแบบนั้น |
 | view | `trail_counterfactual` · `trail_counterfactual_parity` · `confidence_v2_cohort` · `confidence_v2_features` |
-| ตรวจแล้ว | replay `0001`→`0033` เรียงกันบน Postgres 16 สะอาด · รัน `0033` ซ้ำได้ (idempotent) · ยิงข้อมูลจริงเข้า view ทั้ง 4 · ทดสอบว่า constraint ทั้ง 9 ข้อ **ปฏิเสธ** การเขียนที่ผิดจริง (ไม่ใช่แค่ compile ผ่าน) |
+| ผลตรวจ | Claude รายงานว่า replay/idempotency/fixture ผ่าน แต่ไม่มี test artifact ใน repo; independent review พบ counterexample ที่ contract ไม่ปฏิเสธ จึง **ห้ามถือว่า Phase 1 ผ่าน** · ดู §0I |
 
 **ต่างจุดที่ 1 — `candidate_key` เรียกผ่านฟังก์ชัน ไม่ใช่นิพจน์ตรง ๆ**
 Postgres รับเฉพาะนิพจน์ `immutable` ใน generated column และ `to_char` ถูกมาร์คว่า `stable`
@@ -2703,6 +2731,10 @@ key เก่าไว้คนละฟอร์แมตและทำให�
 ถ้า arm `baseline` reproduce `signal_outcomes` ไม่ได้ ทั้งการรันเป็นโมฆะและห้ามเขียน `no_trail`
 เลย การปล่อยให้เป็น query ที่ต้อง "จำว่าต้องรัน" คือปล่อยให้ด่านชี้ขาดขึ้นกับความจำ
 view นี้คืน **เฉพาะแถวที่ไม่ตรง** ⇒ ว่าง = ผ่าน · มีแถว = รันเป็นโมฆะ
+
+> **คำเตือนหลัง independent review 2026-09-03:** ข้อความข้างบนอธิบายเจตนาแต่ implementation
+> ปัจจุบันยังรับประกันไม่ได้; view ว่างได้เมื่อ baseline หายหรือ link outcome ไม่ครบ. §0I มีผลเหนือกว่า
+> จนกว่า follow-up migration จะผ่านการตรวจ.
 
 **สิ่งที่ Phase 1 ตั้งใจ *ไม่* ทำ:** ไม่มี trigger, ไม่มี default ที่เดาค่าให้, ไม่มี view ไหนคำนวณ
 ค่าความเชื่อมั่นหรือ p-value · `trail_counterfactual` **คงระดับ `session_day` ไว้ไม่ยุบรวม**
@@ -2858,11 +2890,11 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | L | **ตรวจ deploy ชั้น 3 ของ `ingest` v14** | ✅ **ผ่านแล้ว 2026-09-01** — feed กลับมา 23:54 · 31 แถวหลัง deploy · error 1 แถวเดียวคือ `JWT issued at future` (ข้อ 3.12 ไม่ใช่ของใหม่) และ NQU6 ส่งสำเร็จต่อทันที 10 แถวรวด · `speed_of_tape` ยิงจริง **15 สัญญาณ ประกาศ 0** = การปิดเสียงพิสูจน์แล้วด้วยสัญญาณจริง ไม่ใช่ผ่านแบบว่างเปล่า |
 | M | **ตัดสินชะตา `speed_of_tape`** | **ยังค้าง** — กวาดครบสามพารามิเตอร์และฝั่ง long ติดลบทั้ง 9 ค่าที่วัด (ข้อ 5.18), แต่ query ล่าสุดพบ `telegram_enabled=true`. Evidence-first ลดความเสี่ยงการประกาศแต่ไม่ใช่คำตอบเรื่อง edge; ต้องมี owner decision ว่าปิด long/ทั้งกฎหรือเก็บ shadow |
 | O1 | **ทำให้ `backtest` เขียนผลและสถานะทีละ variant** | ค้างอยู่ · **P1** — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) · **กำลังเกิดอยู่จริงตอนนี้:** `standing sweep 2026-09-02` (`96de5127-e16f-40e1-b547-8a56775097eb`) ค้าง `running` โดยมี 0 แถวตั้งแต่ 2026-09-01 21:00 UTC และ `/experiments` แสดงว่ากำลังรัน — ปิดแถวนั้นด้วยมือระหว่างรอ · **อัปเดต 2026-09-02:** แถวที่ค้างถูกปิดด้วยมือแล้ว (ดู `docs/experiments/2026-09-02-trail-counterfactual.md`) **แต่เป็นการเก็บกวาด ไม่ใช่การแก้** — cron `0018` ยังยิง sweep หลาย variant ทุก 21:00 UTC และจะตายแบบเดิมเงียบ ๆ ทุกคืน · หน้าต่างแท่งโตขึ้นเรื่อย ๆ (2,892 แท่งฆ่ารันเมื่อ 1 ก.ย. · ตอนนี้ 3,795) **เพดานจึงต่ำลงทุกวัน** · **stopgap 2026-09-02 (migration 0032):** ลด `maxBars` ของ cron จาก 1000 → **200** เพื่อให้รันจบแทนที่จะตายเงียบทุกคืน — **ไม่ใช่การแก้** และมีราคา: 200 แท่ง 5m คือไม่ถึง 17 ชม./instrument ซึ่ง**สั้นเกินกว่าจะเห็นหลักฐานสะสม** อันเป็นเหตุผลที่ job นี้มีอยู่ · พอ O1 เสร็จให้ดันเพดานกลับขึ้น |
-| O2 | **เก็บ per-opportunity artifact ต่อ variant** | ค้างอยู่ — ต้องมี stable candidate key, variant, included/excluded **พร้อมเหตุผล**, R, outcome, instrument และ data/evaluator version · **`signal_id` อย่างเดียวไม่พอ** และการจับคู่เฉพาะไม้ที่ซ้ำกันสร้าง selection bias ใหม่ (ข้อ 5.18a) · **เป็นเงื่อนไขก่อนที่ใครจะอ้างว่าความต่างระหว่าง variant มีนัยสำคัญได้อีก** — ดู §5.21 gate ข้อ 5 (block bootstrap ตาม session × instrument) · **schema ลงจริงแล้ว 2026-09-02** ที่ `supabase/migrations/0033_what_the_trail_actually_cost.sql` (`opportunity_results` — `candidate_key` generated, `included`/`exclusion_reason` วงคำปิด, `session_day`, `mfe_horizon_ticks`) · **แต่ตารางยังว่าง** ตัวเขียนคือ Phase 3 ของ §5.23 ⇒ **O2 ยังไม่ปลดล็อกการอ้างนัยสำคัญ** จนกว่าจะมีข้อมูลจริงในนั้นและผ่าน `trail_counterfactual_parity` · ⚠️ **และยังไม่ได้ apply ลง DB จริง** — ตรวจเมื่อ 2026-09-02 23:0x UTC หลัง PR #63 merge: `to_regclass('public.opportunity_results')` = `null`, `experiments.kind` ไม่มี ⇒ **repo มี 0033 แต่ DB ยังไม่มี** ซึ่งเป็นช่องว่าง repo↔DB **กลับด้าน**กับกรณี 0032 ที่ PR #63 เพิ่งปิดไป · repo นี้**ไม่มี CI ที่ apply migration** (`.github/workflows/` ว่าง) ⇒ ต้องมีคน apply ด้วยมือ ไม่งั้นช่องว่างนี้จะอยู่ต่อไปเงียบ ๆ แบบเดิม · **Phase 2 ไม่ต้องใช้ DB** (เป็น TypeScript ล้วน) แต่ **Phase 3 รันไม่ได้เลยถ้ายังไม่ apply** · migration เป็น additive และ inert (ตารางว่าง + view อ่านอย่างเดียว ไม่มี trigger ไม่แตะ runtime) · **Claude ไม่ apply เอง — รอเจ้าของสั่ง** |
+| O2 | **เก็บ per-opportunity artifact ต่อ variant** | **ค้างและถูกบล็อก L2** — source 0033 merge แล้วแต่ยังไม่ apply และ **ไม่ผ่าน independent review 2026-09-03**: parity ผ่านแบบว่างได้, candidate sets คนละชุดแต่ count เท่ากันผ่านได้, และ constraints ไม่บังคับ artifact/state/R ครบ · ห้าม apply/เขียนข้อมูล/อ้างนัยสำคัญจน follow-up migration + executable tests ผ่าน re-review · ดู §0I และ review doc |
 | P | **ทำ Confidence v2 ให้มีความหมาย** | กำลังทำ — migration 0029 และ snapshot อยู่ production ตั้งแต่ v15, ปัจจุบัน `ingest v17`; มี 436 captured / 431 resolved / 16 cohorts. ยังต้อง offline calibration + frozen model + forward shadow + owner approval; `score:null` และห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
 | Q | **Independent raw re-run ของตัวเลข §5.18a** | ค้างอยู่ · **P1 ก่อนเปลี่ยน threshold/rule** — ผู้ตรวจที่ไม่ใช่ผู้เสนอ/ผู้รันต้องใช้ evidence packet, exact experiment IDs, frozen data window และ query commit รัน artifact ดิบซ้ำ. จนกว่าจะเสร็จ ตัวเลขและข้อเสนอทั้งหมดใน §5.18a เป็น `provisional`; คง runtime เดิมและห้ามนำไปเปิด/ปิด Telegram |
-| R | **สร้างวงจรเรียนรู้ offline/shadow (counterfactual "ไม่เลื่อน trailing" + โมเดลที่พิสูจน์ได้)** | ค้างอยู่ — **แผนเต็มตรึงไว้แล้วใน §5.23** พร้อม variant list, estimand, เกณฑ์แพ้ และ resampling plan ตาม protocol §3 · Phase 1–5 เป็นสาย **GPT/Codex** ตาม §5.21 · ✅ **Phase 0 เสร็จ** (evidence packet ตรึงครบ + ปิดแถว experiment ที่ค้าง) · ✅ **Phase 1 เสร็จ 2026-09-02** — `0033_what_the_trail_actually_cost.sql` ลง `opportunity_results` + `experiments.kind` + view 4 ตัว **ตารางยังว่าง** · **ถัดไปคือ Phase 2** (`_shared/rescore.ts` — เรียก `scorePlan` เดิมโดยไม่แก้) แล้ว Phase 3 (`mode:"rescore"` ที่ต้องผ่าน `trail_counterfactual_parity` ให้ว่างก่อนจึงเขียน arm `no_trail` ได้) · fit โมเดลยังทำไม่ได้: 684 ไม้บน 2 วัน ⇒ ทุก cohort `sessions ≤ 2` · §5.23 ร่างโดย Claude ซึ่งเป็นผู้เสนอ **และ Phase 1 ก็ implement โดย Claude เช่นกัน ⇒ ทั้งแผนและ migration ยังไม่ผ่านการตรวจอิสระ** (§5.21 กฎเหล็กข้อ 1) |
+| R | **สร้างวงจรเรียนรู้ offline/shadow (counterfactual "ไม่เลื่อน trailing" + โมเดลที่พิสูจน์ได้)** | **บล็อกที่ Phase 1 (L2)** — Phase 0/evidence packet อยู่เดิม; source 0033 merge แล้วแต่ production ยังไม่มีและ independent review 2026-09-03 **ไม่รับรอง**. Phase 2 `rescore.ts` จึงยังไม่เริ่มตามเงื่อนไข “ถ้า migration ผ่าน”. ต้องทำ follow-up migration/tests แก้ §0I แล้ว re-review ก่อน; fit model/เปลี่ยน trail/filter/Telegram ยังถูกห้ามเหมือนเดิม |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
 ใน `plan.ts` มี `volatilityFloorTicks()` คำนวณพื้นความเสี่ยงจาก median range ของแท่งก่อนหน้า
