@@ -237,7 +237,7 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 | ที่ | เห็นอะไร |
 |---|---|
-| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | เช่น `REV 1.3.2 \| commit <indicator commit> \| built ...` |
+| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | เช่น `REV 1.4.0 \| commit <indicator commit> \| built ...` |
 | แท็บ **Settings** → กลุ่ม **About** → ช่อง **Revision** | ข้อความเดียวกัน (อ่านอย่างเดียว แก้ไม่ได้) |
 | Log ของ ATAS ตอน indicator โหลด | บรรทัด `Signal Bridge REV ...` |
 
@@ -260,7 +260,7 @@ indicator REV และ indicator commit ที่มัน build ให้ต�
 
 ถ้ายังไม่ใส่ URL หรือ token indicator จะไม่ทำอะไรและขึ้นข้อความเตือนใน log ของ ATAS
 
-### Overlay จุดเข้า–ออกบน ATAS (REV 1.3.2 ขึ้นไป)
+### Overlay จุดเข้า–ออกบน ATAS (REV 1.4.0 ขึ้นไป)
 
 ไม่ต้องใส่ URL หรือ token เพิ่ม: Indicator ใช้ Endpoint URL และ Ingest token ชุดเดิม แล้วเปลี่ยน
 ปลายทางจาก `ingest` เป็น `chart-annotations` เอง. เปิดใช้ได้บนทุกกราฟที่ส่งเข้าระบบ เช่น
@@ -272,14 +272,20 @@ BTCUSDT, GC และ MNQU6.
 | Overlay refresh (seconds) | 30 | ดึง annotation แบบ background; ไม่ block กราฟ |
 | Overlay lookback bars | 200 | จำกัดจำนวนแท่งที่วาดเพื่อไม่ให้กราฟหนาแน่น |
 | Show Entry / SL / TP lines | **ปิด** | ซ่อนเส้นแผนแนวนอนเพื่อไม่ให้กราฟรก; เปิดเฉพาะเมื่อต้องการดูระดับแผน |
-| Overlay marker font size | 14 | ขนาด marker แบบคงที่; ปรับได้ 10–24 px และไม่หดเมื่อซูมออก |
-| Show marker details | **ปิด** | ใช้ marker สั้นสะอาดตา; เปิดเมื่อ audit แล้วต้องการเห็น signal ID และราคาอยู่ในทุกป้าย |
+| Overlay marker font size | 14 | ขนาดป้ายคงที่; ปรับได้ 8–32 px และไม่หดเมื่อซูมออก |
+| Show SL / TP price labels | **เปิด** | แสดง `SL ราคา` และ `TP ราคา` ของแผนที่แท่งเข้า; ปิดได้ถ้าต้องการลดป้าย |
+| Show signal IDs | **ปิด** | เติม `#S...` หลังราคาเพื่อ audit; ราคา Entry/Exit ยังแสดงแม้ปิดค่านี้ |
+| Marker opacity | 235 | ความทึบพื้นป้าย 80–255 |
 
-REV 1.3.2 ใช้ marker สั้นตามรูปแบบกราฟเทรดทั่วไป: `▲ L` = เข้า Long, `▼ S` = เข้า Short,
-`TP` = ออกที่เป้า, `SL` = ออกที่ stop, `TR` = trailing stop, `TIME` = หมดเวลา และ `EXIT` =
-เหตุผลอื่น. สีเขียว/แดง/น้ำเงิน/ส้มแยกประเภทชัดเจน, ขนาดคงที่เมื่อ zoom และ marker ที่อยู่แท่งกับ
-ด้านเดียวกันจะถูกเลื่อนคนละชั้นอัตโนมัติ. ถึงป้ายไม่พิมพ์ราคา แต่ **จุดยึดยังเป็นราคาจริงแบบเดิม**;
-เปิด `Show marker details` เมื่อต้องการแสดง `#S... @ ราคา` ทุกจุด.
+กลุ่ม `Overlay Colors` ปรับสีแยกได้สำหรับ Long entry, Short entry, Stop Loss, Take Profit,
+Trailing stop, Timeout, Other exit, Text และ Border. ค่าเริ่มต้นใช้เขียวสำหรับ Long/TP, แดงสำหรับ
+Short/SL, น้ำเงินสำหรับ trailing stop, ส้มสำหรับ timeout, ตัวอักษรขาวและขอบเกือบดำ.
+
+REV 1.4.0 แสดงราคาในป้ายโดยตรง: `▲ L 29069.75` = เข้า Long, `▼ S 77852.1` = เข้า Short,
+`SL 29055.50` และ `TP 29112.50` = ราคา Stop/Target ตามแผน ส่วนผลที่เกิดจริงใช้ `TP ราคา`,
+`SL ราคา`, `TR ราคา`, `TIME ราคา` หรือ `EXIT ราคา`. ป้ายมีขนาดคงที่เมื่อ zoom และ marker ที่อยู่
+แท่ง/ด้านเดียวกันจะถูกเลื่อนคนละชั้นอัตโนมัติ. เปิด `Show signal IDs` เมื่อต้องการผูกป้ายกับ
+signal ใน dashboard โดยไม่เปลี่ยนราคาหรือ logic ใด ๆ.
 
 เส้นที่ REV 1.3.0 วาดเต็มกราฟคือระดับ Entry สีเทา, SL สีแดง และ TP สีเขียวของแต่ละสัญญาณ;
 สัญญาณที่ยังไม่ปิดถูกยืดเป็น ray ไปทางขวา. เส้นยังปิดเป็นค่าเริ่มต้นและเปิดกลับได้จาก setting
@@ -291,7 +297,7 @@ REV 1.3.2 ใช้ marker สั้นตามรูปแบบกราฟ�
 
 ถ้า endpoint overlay ตอบ error ให้ดู ATAS log คำว่า `Signal Bridge overlay`; feed เข้า ingest และ
 Telegram จะไม่หยุดเพราะปัญหานี้. หากเพิ่ง deploy function แต่ยังไม่มี marker ให้รอหนึ่งรอบ refresh
-แล้วตรวจว่า DLL ใน About ขึ้น REV 1.3.2 หรือใหม่กว่า.
+แล้วตรวจว่า DLL ใน About ขึ้น REV 1.4.0 หรือใหม่กว่า.
 
 ---
 

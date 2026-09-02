@@ -3,6 +3,7 @@ using System.Collections.Generic;
 using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Drawing;
+using System.Globalization;
 using ATAS.Indicators;
 using ATAS.Indicators.Drawing;
 using Utils.Common.Logging;
@@ -108,13 +109,49 @@ namespace AtasSignalBridge
         public bool ShowOverlayPlanLines { get; set; }
 
         [Display(Name = "Overlay marker font size", GroupName = "Overlay", Order = 120,
-            Description = "Fixed pixel size of compact Entry and Exit markers. It no longer shrinks when the chart is zoomed out.")]
-        [Range(10, 24)]
+            Description = "Fixed pixel size of Entry, SL, TP and Exit price labels. It does not shrink when the chart is zoomed out.")]
+        [Range(8, 32)]
         public int OverlayMarkerFontSize { get; set; } = 14;
 
-        [Display(Name = "Show marker details", GroupName = "Overlay", Order = 130,
-            Description = "Append signal ID and exact price to every marker. Leave off for the clean professional chart view; the marker is still anchored to the exact price.")]
+        [Display(Name = "Show signal IDs", GroupName = "Overlay", Order = 130,
+            Description = "Append #S signal IDs to price labels. Leave off for the clean chart view.")]
         public bool ShowOverlayMarkerDetails { get; set; }
+
+        [Display(Name = "Show SL / TP price labels", GroupName = "Overlay", Order = 140,
+            Description = "Show the planned Stop Loss and Take Profit price next to each Entry. Entry and resolved Exit prices are always shown.")]
+        public bool ShowOverlayPlanPriceLabels { get; set; } = true;
+
+        [Display(Name = "Marker opacity", GroupName = "Overlay", Order = 150,
+            Description = "Background opacity for every price label: 80 is transparent, 255 is solid.")]
+        [Range(80, 255)]
+        public int OverlayMarkerOpacity { get; set; } = 235;
+
+        [Display(Name = "Long entry", GroupName = "Overlay Colors", Order = 200)]
+        public Color OverlayLongColor { get; set; } = Color.FromArgb(24, 150, 88);
+
+        [Display(Name = "Short entry", GroupName = "Overlay Colors", Order = 210)]
+        public Color OverlayShortColor { get; set; } = Color.FromArgb(211, 58, 67);
+
+        [Display(Name = "Stop Loss", GroupName = "Overlay Colors", Order = 220)]
+        public Color OverlayStopColor { get; set; } = Color.FromArgb(211, 58, 67);
+
+        [Display(Name = "Take Profit", GroupName = "Overlay Colors", Order = 230)]
+        public Color OverlayTargetColor { get; set; } = Color.FromArgb(24, 150, 88);
+
+        [Display(Name = "Trailing stop", GroupName = "Overlay Colors", Order = 240)]
+        public Color OverlayTrailColor { get; set; } = Color.FromArgb(35, 112, 196);
+
+        [Display(Name = "Timeout", GroupName = "Overlay Colors", Order = 250)]
+        public Color OverlayTimeoutColor { get; set; } = Color.FromArgb(211, 126, 20);
+
+        [Display(Name = "Other exit", GroupName = "Overlay Colors", Order = 260)]
+        public Color OverlayExitColor { get; set; } = Color.FromArgb(105, 105, 105);
+
+        [Display(Name = "Text", GroupName = "Overlay Colors", Order = 270)]
+        public Color OverlayTextColor { get; set; } = Color.White;
+
+        [Display(Name = "Border", GroupName = "Overlay Colors", Order = 280)]
+        public Color OverlayBorderColor { get; set; } = Color.FromArgb(16, 16, 16);
 
         #endregion
 
@@ -351,22 +388,39 @@ namespace AtasSignalBridge
 
                 if (ShowOverlayPlanLines)
                 {
-                    AddPlanLine(entryBar, endBar, item.Entry, Color.DimGray, 1, ray);
-                    AddPlanLine(entryBar, endBar, item.Stop, Color.IndianRed, 1, ray);
-                    AddPlanLine(entryBar, endBar, item.Target, Color.SeaGreen, 1, ray);
+                    AddPlanLine(entryBar, endBar, item.Entry,
+                        longTrade ? OverlayLongColor : OverlayShortColor, 1, ray);
+                    AddPlanLine(entryBar, endBar, item.Stop, OverlayStopColor, 1, ray);
+                    AddPlanLine(entryBar, endBar, item.Target, OverlayTargetColor, 1, ray);
                 }
 
                 var entryAbove = !longTrade;
                 AddMarker("entry-" + item.Id, entryBar, item.Entry,
-                    EntryMarkerText(longTrade, tag, item.Entry, ShowOverlayMarkerDetails),
-                    longTrade ? LongMarkerColor() : ShortMarkerColor(), entryAbove, tickSize,
+                    EntryMarkerText(longTrade, tag, item.Entry, tickSize, ShowOverlayMarkerDetails),
+                    longTrade ? OverlayLongColor : OverlayShortColor, entryAbove, tickSize,
                     NextMarkerLane(markerLanes, entryBar, entryAbove));
+
+                if (ShowOverlayPlanPriceLabels)
+                {
+                    var stopAbove = !longTrade;
+                    AddMarker("stop-" + item.Id, entryBar, item.Stop,
+                        PlanMarkerText("SL", tag, item.Stop, tickSize, ShowOverlayMarkerDetails),
+                        OverlayStopColor, stopAbove, tickSize,
+                        NextMarkerLane(markerLanes, entryBar, stopAbove));
+
+                    var targetAbove = longTrade;
+                    AddMarker("target-" + item.Id, entryBar, item.Target,
+                        PlanMarkerText("TP", tag, item.Target, tickSize, ShowOverlayMarkerDetails),
+                        OverlayTargetColor, targetAbove, tickSize,
+                        NextMarkerLane(markerLanes, entryBar, targetAbove));
+                }
 
                 if (hasExit && item.ExitPrice.HasValue)
                 {
                     var exitAbove = longTrade;
                     AddMarker("exit-" + item.Id, exitBar, item.ExitPrice.Value,
-                        ExitMarkerText(item.ExitReason, tag, item.ExitPrice.Value, ShowOverlayMarkerDetails),
+                        ExitMarkerText(item.ExitReason, tag, item.ExitPrice.Value, tickSize,
+                            ShowOverlayMarkerDetails),
                         ExitColor(item.ExitReason), exitAbove, tickSize,
                         NextMarkerLane(markerLanes, exitBar, exitAbove));
                 }
@@ -394,9 +448,9 @@ namespace AtasSignalBridge
                 TextPrice = price,
                 Text = text,
                 IsAbovePrice = above,
-                Textcolor = Color.White,
-                Outlinecolor = Color.FromArgb(245, 16, 16, 16),
-                FillColor = Color.FromArgb(235, color),
+                Textcolor = OverlayTextColor,
+                Outlinecolor = Color.FromArgb(255, OverlayBorderColor),
+                FillColor = Color.FromArgb(OverlayMarkerOpacity, color),
                 FontSize = OverlayMarkerFontSize,
                 AutoSize = false,
                 Align = DrawingText.TextAlign.Center,
@@ -412,16 +466,38 @@ namespace AtasSignalBridge
             return lane;
         }
 
-        private static string EntryMarkerText(bool longTrade, string tag, decimal price, bool showDetails)
+        private static string EntryMarkerText(bool longTrade, string tag, decimal price, decimal tickSize,
+            bool showDetails)
         {
-            var compact = longTrade ? "▲ L" : "▼ S";
-            return showDetails ? compact + " #" + tag + " @ " + price : compact;
+            var label = (longTrade ? "▲ L " : "▼ S ") + FormatPrice(price, tickSize);
+            return showDetails ? label + " #" + tag : label;
         }
 
-        private static string ExitMarkerText(string reason, string tag, decimal price, bool showDetails)
+        private static string PlanMarkerText(string level, string tag, decimal price, decimal tickSize,
+            bool showDetails)
         {
-            var compact = ExitLabel(reason);
-            return showDetails ? compact + " #" + tag + " @ " + price : compact;
+            var label = level + " " + FormatPrice(price, tickSize);
+            return showDetails ? label + " #" + tag : label;
+        }
+
+        private static string ExitMarkerText(string reason, string tag, decimal price, decimal tickSize,
+            bool showDetails)
+        {
+            var label = ExitLabel(reason) + " " + FormatPrice(price, tickSize);
+            return showDetails ? label + " #" + tag : label;
+        }
+
+        private static string FormatPrice(decimal price, decimal tickSize)
+        {
+            var step = Math.Abs(tickSize);
+            var decimals = 0;
+            while (step != decimal.Truncate(step) && decimals < 8)
+            {
+                step *= 10;
+                decimals++;
+            }
+
+            return price.ToString("F" + decimals, CultureInfo.InvariantCulture);
         }
 
         private void ClearTradeOverlay()
@@ -459,24 +535,15 @@ namespace AtasSignalBridge
             }
         }
 
-        private static Color LongMarkerColor()
-        {
-            return Color.FromArgb(24, 150, 88);
-        }
-
-        private static Color ShortMarkerColor()
-        {
-            return Color.FromArgb(211, 58, 67);
-        }
-
-        private static Color ExitColor(string reason)
+        private Color ExitColor(string reason)
         {
             switch (reason)
             {
-                case "target": return Color.FromArgb(24, 150, 88);
-                case "trail": return Color.FromArgb(35, 112, 196);
-                case "timeout": return Color.FromArgb(211, 126, 20);
-                default: return Color.FromArgb(211, 58, 67);
+                case "target": return OverlayTargetColor;
+                case "stop": return OverlayStopColor;
+                case "trail": return OverlayTrailColor;
+                case "timeout": return OverlayTimeoutColor;
+                default: return OverlayExitColor;
             }
         }
 
