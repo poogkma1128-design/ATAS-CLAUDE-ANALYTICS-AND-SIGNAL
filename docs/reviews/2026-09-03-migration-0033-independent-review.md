@@ -188,14 +188,27 @@ parity is currently empty, not that the `no_trail` candidate belongs to the froz
 `has unequal candidate sets`, so the gate does catch it — but it is the denominator view that catches it,
 not the write guard.
 
-**Decided by the owner on 2026-09-03 06:25 UTC — production apply stays blocked until P0-1 is closed.**
-The one point the two reviews did not reconcile was whether 0033 and 0034 may be applied to production.
-Neither review can settle that; it is an owner decision, and the owner has now made it in writing: **do
-not apply to production until P0-1 (`service_role` can write `trail_rescore_runs` and
-`trail_rescore_expected` directly, and therefore author the manifest the parity gate is anchored to) is
-fixed and the fix has passed an independent re-run.** The "Accepted" review's line that 0034 "may be
-applied to production together with 0033" is therefore superseded as a recommendation — its findings and
-verdict on the schema are untouched. HANDOFF §0J and §7.2 rows O2/R record the same decision.
+**Decided by the owner on 2026-09-03 06:25 UTC, widened at 07:23 UTC — production apply stays blocked
+until all five findings are closed.** The one point the two reviews did not reconcile was whether 0033 and
+0034 may be applied to production. Neither review can settle that; it is an owner decision, and the owner
+has made it in writing: **do not apply to production until every one of the five findings below is fixed
+and the whole set has passed an independent re-run.** Closing some but not all of them is not enough.
+
+| Finding | From | What is wrong |
+|---|---|---|
+| **P0-1** | the "Rejected" review | `service_role` can write `trail_rescore_runs` / `trail_rescore_expected` directly, and so can author the manifest the parity gate is anchored to |
+| **P0-2** | the "Rejected" review | a single `included = false` row makes parity permanently non-empty, blocking the `no_trail` arm and `done`, so the exclusion census cannot be recorded |
+| **P1-1** | the "Rejected" review | parity does not anchor `risk_ticks` against `public.signals`, although R is divided by it |
+| **P1-2** | the "Rejected" review | the artifact is not sealed after `done`, and `trail_counterfactual` carries no parity signal |
+| **R1** | the "Accepted" review | `trail_rescore_expected_immutable` — the trigger the whole fix rests on — has no test coverage at all |
+
+The first record of this decision, at 06:25 UTC, named only P0-1 as the unblock condition. The reviewer
+pointed out that the other four still had to be fixed but were not gating; the owner widened the condition
+to all five at 07:23 UTC. The decision itself did not change — only the bar for lifting it went up.
+
+The "Accepted" review's line that 0034 "may be applied to production together with 0033" is superseded as
+a recommendation — its findings and its verdict on the schema are untouched, and R1 is one of the five
+conditions. HANDOFF §0J and §7.2 rows O2/R record the same decision.
 
 Performed under `docs/EXPERIMENT_REVIEW_PROTOCOL.md` §1–§5 and HANDOFF §5.21/§5.23. The reviewer is
 neither the proposer of §5.23 nor the author of 0033 or 0034, and re-derived every claim below by running
