@@ -104,3 +104,33 @@ no-trail plan override `trailTriggerTicks: 0`.
 No runtime code, signal logic, database object, Edge Function, Telegram setting or production data changed.
 The only changes from this review are documentation. Rollback is a documentation revert; there is no
 runtime rollback.
+
+## Remediation candidate recorded 2026-09-03 — not yet re-reviewed
+
+GPT/Codex, acting as the Executor/Recorder rather than the independent reviewer, added:
+
+- `supabase/migrations/0034_make_the_counterfactual_fail_closed.sql`;
+- `supabase/tests/0034_make_the_counterfactual_fail_closed_test.sql`.
+
+The candidate addresses the five required repairs with a database-frozen expected cohort, explicit parity
+reasons, an exact two-way candidate-key difference, row/run/finalization constraints, and separate
+confidence training/audit views. The audit view is a post-review governance addition from HANDOFF §5.23
+items 6–8: it includes delivery/post-outcome fields for composition checks and stratified reporting only;
+the training view excludes `muted`, `suppression_reason`, `telegram_message_id` and `exit_reason`, while
+retaining muted and announced rows in the population. Both derive event/session time from
+`bars.opened_at`.
+
+Executor verification replayed the relevant schema through 0033, loaded 0034, and ran the SQL regression
+inside a transaction on a disposable local PostgreSQL engine. It returned `0034 regression: PASS` for
+missing/partial/null/extra baseline cases, null PnL, equal counts with different keys, invalid
+variant/kind/state/units/excluded/R/version rows, plan drift, and the three-layer confidence contract.
+
+**This does not change the rejected verdict above.** The person/session that proposed or implemented the
+repair cannot approve it under HANDOFF §5.21. Required re-review procedure:
+
+1. apply 0033 then 0034 to a disposable PostgreSQL or Supabase development branch, never production;
+2. run `supabase/tests/0034_make_the_counterfactual_fail_closed_test.sql` with errors fatal;
+3. inspect raw constraints, both mismatch views and the two confidence view column lists independently;
+4. record the database/branch, exact commits, raw result and any untested limitation here;
+5. only after an independent pass may Phase 2 `rescore.ts` begin. Production application remains a
+   separate owner-approved action.
