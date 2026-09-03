@@ -389,6 +389,37 @@ TP-before-SL, expectancy, แยกตาม instrument/regime/ทิศ) — �
 > **reason code แบบ order flow** (ข้อ 9 ของ protocol เจ้าของ) ยังทำไม่ได้อยู่ดีไม่ว่าจะสร้าง engine
 > เมื่อไร เพราะ `cum_delta` NULL 100% และ order flow ยังไม่เข้า V3/V4 (รอ V6 ตามลำดับเดิมใน §ซ)
 
+## ญ.11 V3.1 — Deep historical backfill (เสนอ 2026-09-03 · **บล็อกรอเจ้าของเช็ก ATAS**)
+
+เจ้าของเสนอทางแก้ปัญหา n น้อยของ V3 ที่ต่างจากการรอ V4: แทนที่จะรอ live feed สะสมทีละ session
+ให้ backfill ข้อมูล 5m OHLCV ย้อนหลังจาก ATAS โดยตรง (Backtest A — Mathematical Layer) แล้วค่อยใช้
+Replay ตรวจ order flow เฉพาะช่วงที่ Backtest A บอกว่าน่าสนใจ (Backtest B) — **ไม่ใช่การแทน V4**
+แต่เป็นแทร็กคู่ขนานที่เพิ่มกำลังทางสถิติได้เร็วกว่า
+
+**ตรวจโค้ดจริงแล้วพบ 3 ข้อที่เปลี่ยนขอบเขตงาน:**
+
+1. 🔴 **Backfill ปัจจุบันเพดาน 200 แท่ง (~16.7 ชม.) โดยตั้งใจ** — `SignalBridgeIndicator.cs:75-78`
+   (`BackfillBars` `[Range(0,200)]`) ตรงกับ `ingest.ts:20` (`MAX_BARS_PER_REQUEST=200`) พอดี และ
+   `SendBackfill()` ส่งเป็น 1 HTTP request เดียวไม่มีการแบ่งชุด ⇒ ดึงหลายสัปดาห์/เดือนไม่ได้ด้วยโค้ดปัจจุบัน
+   ต้องเขียนใหม่ให้แบ่งส่งเป็นชุด ≤200 แท่ง
+2. ✅ **OHLCV ไม่ต้องพึ่ง footprint** — ตรวจแล้ว `Volume`/`Delta`/`MinDelta`/`MaxDelta` มาจาก
+   `GetCandle(bar)` ตรง ๆ ส่วนที่ต้องพึ่ง footprint คือ `ticks` เท่านั้น (`GetPriceVolumeInfo`)
+   ซึ่งไม่อยู่ใน signature ทั้ง 4 ตัวของ H4 เลย ⇒ ข้อจำกัดเรื่อง DOM/footprint depth ที่เจ้าของ
+   กังวล (Replay 1 วัน/1 สัปดาห์) **ไม่ใช้กับ Backtest A**
+3. 🔴 **ความเสี่ยงปนเปื้อนข้อมูล — สำคัญที่สุด** — ถ้า backfill ผ่าน `ingest` endpoint ปกติ ระบบจะรัน
+   rule evaluation จริงกับแท่งเก่าด้วย param วันนี้แล้วเขียนลง `public.signals`/`signal_outcomes`
+   ⇒ ปนเปื้อนทุกสถิติที่มีอยู่แล้ว (§5.18 Gate 0, ประชากร H1/H2/H3, cohort confidence_v2) ที่สมมติว่า
+   `signals` คือประวัติ live จริง **ห้ามทำแบบนี้เด็ดขาด**
+
+**ทางที่ปลอดภัย (ออกแบบไว้ ยังไม่เขียน):** ตารางใหม่แยกต่างหาก (เช่น `h4_backfill_bars`) +
+Edge Function ใหม่ที่เบา เขียนแค่ OHLCV **ไม่เรียก rule evaluation เลย** ไม่แตะ `public.bars`/
+`public.signals` ต้นฉบับ — ต้องผ่าน migration + Gate 0 + Independent Review ตาม protocol เดิม
+
+> **การตัดสินใจ 2026-09-03:** เจ้าของเลือก **เช็กความลึกของข้อมูล OHLCV 5m บน ATAS ก่อน**
+> ไม่เขียนโค้ดจนกว่าจะรู้ว่าคุ้มสร้าง pipeline ใหม่หรือไม่ (ถ้า ATAS มีจริงแค่ไม่กี่สิบวัน การลงทุน
+> สร้าง migration+Edge Function ใหม่อาจไม่คุ้ม) — **งานนี้ต้องทำโดยเจ้าของ** (GUI บน ATAS,
+> Claude ไม่มีทางเห็นหน้าจอ) ดูรายละเอียดที่ต้องเช็คใน §7.1 แถวใหม่
+
 ## ญ.10 สถานะ
 
 provisional — Executor คือ Claude เซสชันนี้ **รับรองผลตัวเองไม่ได้** ต้องมีผู้ตรวจอิสระรัน
