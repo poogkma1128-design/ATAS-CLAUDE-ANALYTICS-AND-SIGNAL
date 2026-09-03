@@ -221,3 +221,33 @@ This is not the `Independent re-run result` in the frozen packet: the same actor
 repair. Phase 1 remains unaccepted, Phase 2 remains blocked, and neither 0033 nor 0034 has been applied to
 production. The next actor must follow the five-step re-review procedure in the review document without
 editing any pre-registered field above.
+
+### Independent re-review of the repair — 2026-09-03 — REQUEST CHANGES
+
+The re-review named above was performed by a reviewer that neither proposed §5.23 nor wrote 0033 or 0034.
+It replayed `0001`→`0034` on a disposable local PostgreSQL 16.13 cluster, ran the vendor suite with
+`-v ON_ERROR_STOP=1` (`0034 regression: PASS`, exit 0), and then ran its own raw counterexamples rather
+than trusting that line. Result: **rejected at L2**, two P0 and two P1 findings.
+
+- **P0** — `service_role`, the role Phase 3 writes as, can insert directly into `trail_rescore_runs` and
+  `trail_rescore_expected`; 0034 revokes writes only from `anon` and `authenticated`. The writer can
+  therefore author the "database-frozen" manifest itself, and a run whose denominator is half the live
+  population passes every gate.
+- **P0** — the manifest is built only from resolved signals, so any `included = false` row is a parity
+  mismatch. Recording a single exclusion permanently blocks the `no_trail` arm and run completion, which
+  makes the exclusion census this packet's estimand depends on unrecordable.
+- **P1** — parity freezes `exit_reason`/`bars_used`/`pnl_ticks` but not `risk_ticks`, so R can be wrong by
+  any factor while every gate stays green.
+- **P1** — the artifact is not sealed after `done` and `trail_counterfactual` carries no parity signal; the
+  `no_trail` arm has no anchor at any point.
+
+**Nothing in the pre-registered packet above changes.** No run exists, no `experiment_id` has been
+allocated, and `Independent re-run result and timestamp` stays `Not yet` because that field records the
+independent re-run of the *experiment*, which cannot start while Phase 1 is unaccepted. Phase 2 remains
+blocked and neither migration has been applied to production
+(`supabase_migrations.schema_migrations` head = `20260902142002`, read-only check at
+`2026-09-03 01:12:46 UTC`).
+
+Full counterexamples, expected vs actual, and file:line references:
+`docs/reviews/2026-09-03-migration-0033-independent-review.md`, section
+"Independent re-review result — migration 0034 (PR #70)".
