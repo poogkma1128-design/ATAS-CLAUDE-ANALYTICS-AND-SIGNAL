@@ -191,3 +191,33 @@ multi-variant sweep at 21:00 UTC daily and will fail the same way, silently, unt
 killed a run on 1 Sep, and the window is 3,795 now.
 
 **2. This packet written.** No other production write, no code change, no deploy.
+
+---
+
+## Phase 1 review and repair log — 2026-09-03
+
+Migration 0033 failed its first independent review. The verdict and counterexamples are preserved in
+`docs/reviews/2026-09-03-migration-0033-independent-review.md`; the merged migration was not edited.
+
+GPT/Codex then wrote follow-up migration 0034 and an executable SQL regression test. The repair adds a
+database-frozen expected cohort, exact candidate-set comparison, row/run/completion constraints and the
+three-layer confidence contract from HANDOFF §5.23 items 6–8. The training view includes both muted and
+announced population rows but contains no delivery/post-outcome fields; those live only in the new
+audit-only view.
+
+Review target: commit `c91b167`, branch `codex/migration-0034-repair`,
+[PR #70](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/70).
+
+Executor verification on a disposable local PostgreSQL engine:
+
+```text
+migration 0033_what_the_trail_actually_cost.sql: ok
+migration 0034_make_the_counterfactual_fail_closed.sql: ok
+regression 0034: ok
+0034 regression: PASS
+```
+
+This is not the `Independent re-run result` in the frozen packet: the same actor implemented and ran the
+repair. Phase 1 remains unaccepted, Phase 2 remains blocked, and neither 0033 nor 0034 has been applied to
+production. The next actor must follow the five-step re-review procedure in the review document without
+editing any pre-registered field above.
