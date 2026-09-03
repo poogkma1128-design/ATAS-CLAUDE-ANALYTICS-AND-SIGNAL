@@ -3349,6 +3349,28 @@ of assumed now. The volume gate earned its place that way; these should have to 
 > ต้องมีผู้ตรวจอิสระรัน `h4_candle_signature_v2.sql` ซ้ำก่อนถือเป็นข้อสรุป.
 > Production ไม่ถูกแตะ: ไม่มี migration/deploy/การเขียนข้อมูล ทุก query เป็น `SELECT`
 
+> ### V3 — **ตรึงแผนแล้ว ยังไม่รัน** (`docs/experiments/2026-09-03-candle-signature-v3.md`)
+>
+> เจ้าของสั่ง roadmap 6 ขั้นหลังเห็นผล V2. Gate 0 ของ V3 ตอบแล้วว่าทำอะไรได้จริง:
+>
+> | ขั้น | สถานะ |
+> |---|---|
+> | 1 Freeze V2 | ✅ เสร็จ (PR #77) |
+> | 2 MFE/MAE 1/3/5/**10** + `mae_before_mfe` | ✅ ทำได้ · h10 **ตัดตัวอย่างทิ้ง ~30%** |
+> | 3 Matched baseline (session + volatility + regime) | ✅ **ทำได้เต็มรูป — 345/347 ไม้หาคู่เจอ** |
+> | 4 regime 4 ชั้น (Trend/Range/Breakout/**Sweep**) | 🔴 **ทำไม่ได้** — Sweep เหลือ **3–6 ไม้**, Breakout 23–39 ⇒ V3 ใช้ **2 ชั้น** (`range` 100/95 · `directional` 77/75) เลื่อน 4 ชั้นไป V5 |
+> | 5 ไม่เพิ่ม feature | ✅ ตรงกับที่ V2 ตรึงไว้ |
+> | 6 order flow ทีหลัง | ✅ ตรงกับลำดับเดิม |
+>
+> 🔴 **ปัญหาเชิงโครงสร้างที่เจอตอน Gate 0:** `breakout_up` มี strong_down = **0 พอดี** และ
+> `breakout_down` มี strong_up = **0 พอดี** เพราะบาร์ที่ปิดเหนือ `hi50` ย่อมปิดใกล้ High โดยนิยาม
+> ⇒ **regime กับ direction ไม่เป็นอิสระต่อกัน** ต้องแก้ที่นิยาม ไม่ใช่รอข้อมูล
+>
+> 🔴 **V3 ถูกประกาศล่วงหน้าว่ากำลังไม่พอ:** effect ที่เห็น 0.22–0.32R · sd 0.95R · n ที่จะมี 75–100 ·
+> **n ที่ต้องมี ≈285/ช่อง = ประมาณ 21 session** (ตอนนี้ 7) ⇒ **ถ้า V3 ได้ผล null นั่นไม่ใช่หลักฐานว่าไม่มี edge**
+> V3 จึงเป็น **pipeline + observation run ไม่ใช่ verdict run**; คำตัดสินเรื่อง edge อยู่ที่ **V4 (~2026-09-17)**
+> ด้วยแผนเดียวกันไม่แก้เกณฑ์ · งบทดสอบ 16 ตัว p<0.0031
+
 **แผนเต็ม (ตรึงก่อนรัน) + ผลการรัน อยู่ที่ `docs/experiments/2026-09-03-mathematical-candle-signature.md`** ·
 Gate 0 query: `docs/queries/h4_candle_signature_gate0.sql` · V2 query: `docs/queries/h4_candle_signature_v2.sql` ·
 หัวข้อนี้เก็บเฉพาะสิ่งที่ต้องรู้เพื่อรับช่วงงาน. **แผนที่ตรึงไว้ไม่ถูกแก้หลังเห็นผล** —
@@ -3494,6 +3516,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | U | **H3 — FVG เป็นบริบทที่บันทึกไว้ (SMC)** | **ตรึงแผนแล้ว ยังไม่รัน** — §5.26 · แพงสุดในสามข้อ ต้องเขียนตัวคำนวณ FVG ใหม่ · **แบ่ง 3 ขั้น A→B→C** ตามแบบแผนที่ `price_action.ts` ใช้อยู่แล้ว (บันทึกก่อน ค่อยเลื่อนขั้น) · 🔒 **Gate 0 ต้องผ่านก่อน** — ถ้า FVG อยู่ใกล้ราคาเกือบตลอดเวลาแปลว่าไม่ผูก = โรคเดียวกับ `lvn.minLevels 8` · ทำ FVG อย่างเดียว ห้ามพ่วง order block/CHoCH |
 | T | **H2 — False break (sweep สภาพคล่องแล้วกลับตัว)** | **ตรึงแผนแล้ว ยังไม่รัน** — §5.25 · ใช้ `payload.priceAction.sweep` ที่แช่ไว้ตอนยิงอยู่แล้ว ⇒ ไม่ต้องเก็บข้อมูลใหม่ · `reversal_sweep` **257 ไม้ / 4 instrument / 6 session** · 🔒 **ต้องวัดการซ้อนทับกับ `absorption` ก่อนตัวเลข R ทุกตัว** — ถ้าซ้อนเกิน 50% H2 คือการนับของเดิมซ้ำ · ห้ามแบ่งย่อย `sweep × bos` (ช่องมีแค่ 4–20 ไม้) |
 | V | **H4 — Mathematical Candle Signature × บริบท** | **รัน V2 แล้ว 2026-09-03 · ผลคือไม่ผ่าน (0/12 ผ่านเกณฑ์)** — §5.27 · ตกเกณฑ์ข้อ 1 (นัยสำคัญ) และข้อ 6 (`range_pos` ไม่แยก continuation จาก exhaustion ฝั่ง long) ⇒ **ห้ามสร้างกฎ/filter/อ้าง edge** · **ตัวเดียวในรายการนี้ที่ไม่ถูกบล็อกด้วย 0034** (วัดบน `bars`, `SELECT` ล้วน) · V2 พิสูจน์ว่า **ข้อสรุป V1 ผิดกลับด้าน** และเจอ confound ของ baseline ที่ตรึงไว้เอง (ตัวหารต่างกัน 2 เท่า) · **สิ่งที่ยังไม่ถูกปฏิเสธ:** diff +0.22 ถึง +0.32R ทิศเดียวกัน 3/4 instrument แต่ n=69–108 น้อยเกิน ⇒ **ต้องรอข้อมูลราว 18–24 session ไม่ใช่จูนเกณฑ์** · V3 ต้องเปลี่ยนตัวแปรบริบท (POC/volatility) + ใช้ matched baseline เป็นค่าเริ่มต้น · OOS (ตั้งแต่ 2026-09-04) **ยังไม่ถูกแตะ** · **ยังไม่มี independent reviewer ⇒ ผลเป็น provisional** |
+| X | **H4 V3 — regime × signature × distribution** | **ตรึงแผนแล้ว Gate 0 ผ่านแล้ว ยังไม่รัน** — §5.27 · `docs/experiments/2026-09-03-candle-signature-v3.md` · ทำตาม roadmap 6 ขั้นของเจ้าของเท่าที่ข้อมูลอนุญาต · 🔒 **Liquidity Sweep ทำไม่ได้ (3–6 ไม้)** และ regime ไม่เป็นอิสระจาก direction ⇒ ใช้ regime 2 ชั้น เลื่อน 4 ชั้นไป V5 · 🔒 **ประกาศล่วงหน้าว่ากำลังไม่พอ** (n 75–100 vs ต้องการ ~285) ⇒ **ห้ามตีความ null ว่าไม่มี edge** · V3 = pipeline+observation · **verdict อยู่ที่ V4 เมื่อครบ ~21 session (~2026-09-17)** · OOS ตั้งแต่ 2026-09-04 **ห้ามแตะจนกว่า V4 จบ** |
 | W | **ปิดคำถาม `open` ของบาร์ futures** | **เปิดใหม่จาก V2 (§5.27)** — `next_open = close` เป๊ะแค่ 25–32% บน GC/MNQU6/NQU6 (BTCUSDT 74%) · avg abs gap 0.04–0.10R · ไม่มี gap เกิน 1R และ `ingest.ts:221` เขียนค่าที่ ATAS ส่งมาตรง ๆ ⇒ **ยังไม่ใช่ bug ที่พิสูจน์แล้ว** แต่ต้องตรวจกับเอกสาร/พฤติกรรม ATAS ว่า `open` ที่ indicator ส่งคือ open จริงของแท่ง หรือราคาที่ snapshot แรกเห็น · **สำคัญเพราะสมมติฐาน "เข้าที่ `next_open`" ของทุกการทดลองต่อจากนี้ตั้งอยู่บนฟิลด์นี้** |
 | S | **H1 — เทรนเป็นตัวกรอง (ไม่ใช่กฎใหม่)** | **ตรึงแผนแล้ว ยังไม่รัน** — §5.24 · ทดสอบได้กับไม้ที่ปิดผลแล้ว **2,094 ไม้ บน 6 session** ไม่ต้องเก็บข้อมูลใหม่ ไม่แตะ signal path · ใช้ `payload.priceAction.structure` ที่แช่ไว้ตอนยิงอยู่แล้ว ⇒ ไม่มี look-ahead · **สาย GPT/Codex** เป็นคนรัน query + bootstrap · ยังไม่ผ่านการตรวจอิสระ |
 | R | **สร้างวงจรเรียนรู้ offline/shadow (counterfactual "ไม่เลื่อน trailing" + โมเดลที่พิสูจน์ได้)** | **ยังบล็อกที่ Phase 1 (L2)** · **เจ้าของสั่ง 2026-09-03 06:25 UTC ขยายเงื่อนไข 07:23 UTC: ห้าม apply production จนกว่าจะปิดครบทั้ง 5 ข้อ (P0-1, P0-2, P1-1, P1-2, R1)** (ดู §0J) — Phase 0/evidence packet อยู่เดิม. 0034 repair + regression **ผ่าน independent re-review แล้วเมื่อ 2026-09-03 และผลคือ REQUEST CHANGES**: P0 ×2 (writer เขียน frozen manifest เองได้; แถว excluded ทำให้ run เป็นโมฆะถาวร) + P1 ×2 (parity ไม่ยึด `risk_ticks`; artifact ไม่ถูกซีลหลัง `done`). Production ยังไม่มีทั้ง 0033 และ 0034 (migration head = `20260902142002`, ตรวจ read-only 2026-09-03 01:12 UTC). **Phase 2 `rescore.ts` ยังไม่เริ่ม** และเงื่อนไข "ถ้า migration ผ่าน" ยังไม่เกิด. ต้องมี migration ต่อจาก 0034 (ห้ามแก้ 0033/0034 ย้อนหลัง) + regression ที่พิสูจน์ counterexample ทั้งสี่ แล้ว re-review อีกรอบ. ห้าม fit model / เปลี่ยน trail / filter / Telegram เหมือนเดิม; apply production ยังเป็นการอนุมัติแยกของเจ้าของ |
