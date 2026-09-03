@@ -6,6 +6,53 @@ Review target: commit `c91b167` (PR #70), read at production-branch commit `0533
 Reviewer: Claude, a different session from the one that wrote migration 0033.
 Author of 0034: GPT/Codex. Author of the rejected 0033: Claude. Neither reviewed its own work.
 
+## Cross-reference — a second independent review of 0034 exists and disagrees
+
+**Migration 0034 has two independent reviews, and they reached different verdicts.** Read both before
+acting on either. Neither document's findings or verdict has been edited by this cross-reference; only
+this block was added.
+
+| | `2026-09-03-migration-0034-independent-review.md` | `2026-09-03-migration-0033-independent-review.md`, section "Independent re-review result — migration 0034 (PR #70)" |
+|---|---|---|
+| Verdict | **Accepted at L2**, with two test-coverage findings | **Rejected at L2** — P0 ×2, P1 ×2, P2 ×7 |
+| On applying to production | "Migration 0034 may be applied to production together with 0033" | Do not apply; P0-1 is unclosed |
+| On Phase 2 | Start after finding R1 closes | Blocked until P0/P1 close |
+| Reviewer | Claude, a session that did not write 0033 or 0034 | Claude, a different session that did not write 0033 or 0034, propose §5.23, or perform the other review |
+
+Both reviewed commit `c91b167` (PR #70), both replayed `0001`→`0034` on a disposable PostgreSQL 16
+instance, and both got `0034 regression: PASS`. **Where the two overlap they agree.** Both independently
+confirm that the three P0 findings and the P1 finding against migration 0033 are genuinely fixed, and both
+independently found that `pg_temp.expect_error` accepts any error as a pass (recorded as R2 in one document
+and P2-6 in the other).
+
+**The verdicts differ because the two reviews tested different things, not because they measured the same
+thing differently.**
+
+| Checked by the "Accepted" review only | Checked by the "Rejected" review only |
+|---|---|
+| Mutation-testing the suite by dropping one guard at a time — which is how it found **R1**: `trail_rescore_expected` never appears in the test file, so the immutability trigger the whole fix rests on has no coverage | `set role service_role` and writing directly to `trail_rescore_runs` / `trail_rescore_expected` (**P0-1**) |
+| | Writing a valid `included = false` row and observing the parity gate (**P0-2**) |
+| | Storing a `risk_ticks` that contradicts `public.signals` (**P1-1**) |
+| | Mutating `opportunity_results` after the run reaches `done` (**P1-2**) |
+
+So each review carries at least one finding the other does not, and the four P0/P1 items are additive
+rather than contradicted: no measurement in the "Accepted" review rebuts them, because that review did not
+exercise those paths. Conversely R1 stands on its own and the "Rejected" review did not find it.
+
+**One factual correction.** The "Accepted" review states that the original `{A,B}` vs `{C,D}` denominator
+counterexample "turns out to be unconstructible now" because `guard_no_trail_after_parity` refuses a
+`no_trail` row until baseline parity passes. It is constructible: write a complete baseline arm first so
+parity is empty, then write `no_trail` rows for two *different* candidates — the guard only checks that
+parity is currently empty, not that the `no_trail` candidate belongs to the frozen manifest.
+`trail_counterfactual_denominator_mismatches` then returns 4 rows and `status = 'done'` is refused with
+`has unequal candidate sets`, so the gate does catch it — but it is the denominator view that catches it,
+not the write guard.
+
+**Unreconciled, and owner-only either way:** whether 0033 and 0034 may be applied to production. HANDOFF
+§0J and §7.2 rows O2/R currently record the blocked state. Applying a migration to production is an
+owner decision that neither review grants.
+
+
 ## Verdict
 
 **Accepted at L2 for the three P0 findings and the P1. Two test-coverage gaps must close before

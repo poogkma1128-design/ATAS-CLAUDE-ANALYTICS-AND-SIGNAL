@@ -20,6 +20,17 @@
 > รายละเอียด counterexample + expected/actual + file:line อยู่ที่หัวข้อ
 > *"Independent re-review result — migration 0034 (PR #70)"* ใน
 > `docs/reviews/2026-09-03-migration-0033-independent-review.md`.
+>
+> ⚠️ **0034 มี independent review สองฉบับและผลไม่ตรงกัน** — อีกฉบับคือ
+> `docs/reviews/2026-09-03-migration-0034-independent-review.md` ซึ่งตัดสิน **Accepted at L2**
+> และเขียนว่า apply production ได้. **อ่านทั้งสองฉบับก่อนตัดสินใจ**: ทั้งคู่ตรวจ commit `c91b167`
+> เดียวกัน, replay บน PostgreSQL 16 เหมือนกัน, ได้ `0034 regression: PASS` เหมือนกัน และ**ตรงกันทุกข้อ
+> ที่ตรวจซ้อนกัน** (ยืนยันว่า P0 สามข้อ + P1 ของ 0033 แก้แล้วจริง และเจอจุดอ่อนของ `expect_error`
+> เหมือนกัน). ผลต่างมาจาก**ขอบเขตการทดสอบ ไม่ใช่การวัดที่ขัดกัน**: ฉบับ Accepted ไม่ได้ทดสอบ
+> `service_role` grant, แถว `included=false`, `risk_ticks` ที่เพี้ยนจากแผนจริง และการแก้ข้อมูลหลัง
+> `done` (= P0/P1 ทั้งสี่ข้อข้างล่าง) ส่วนฉบับนี้ไม่ได้ทำ mutation-test ของ suite จึงไม่เจอ R1
+> (trigger `trail_rescore_expected_immutable` ไม่มี test คุมเลย) ⇒ **ทั้งสี่ข้อล่างและ R1 ต้องแก้
+> ทั้งหมด ไม่ใช่เลือกข้าง**. แต่ละฉบับมี cross-reference block เทียบกันไว้แล้ว.
 
 **ฐานที่ใช้ตรวจ (รันเอง ไม่ได้อ่านรายงานของ Executor):** disposable local PostgreSQL cluster ชื่อ
 `rev0034` ใน container ของเซสชันนี้ (**ไม่ใช่ Supabase project ใด ๆ**) · engine **PostgreSQL 16.13** ·
