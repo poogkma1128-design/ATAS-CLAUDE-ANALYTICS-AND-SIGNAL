@@ -48,9 +48,14 @@ parity is currently empty, not that the `no_trail` candidate belongs to the froz
 `has unequal candidate sets`, so the gate does catch it — but it is the denominator view that catches it,
 not the write guard.
 
-**Unreconciled, and owner-only either way:** whether 0033 and 0034 may be applied to production. HANDOFF
-§0J and §7.2 rows O2/R currently record the blocked state. Applying a migration to production is an
-owner decision that neither review grants.
+**Decided by the owner on 2026-09-03 06:25 UTC — production apply stays blocked until P0-1 is closed.**
+The one point the two reviews did not reconcile was whether 0033 and 0034 may be applied to production.
+Neither review can settle that; it is an owner decision, and the owner has now made it in writing: **do
+not apply to production until P0-1 (`service_role` can write `trail_rescore_runs` and
+`trail_rescore_expected` directly, and therefore author the manifest the parity gate is anchored to) is
+fixed and the fix has passed an independent re-run.** The "Accepted" review's line that 0034 "may be
+applied to production together with 0033" is therefore superseded as a recommendation — its findings and
+verdict on the schema are untouched. HANDOFF §0J and §7.2 rows O2/R record the same decision.
 
 
 ## Verdict
