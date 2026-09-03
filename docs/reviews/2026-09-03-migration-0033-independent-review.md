@@ -112,6 +112,9 @@ GPT/Codex, acting as the Executor/Recorder rather than the independent reviewer,
 - `supabase/migrations/0034_make_the_counterfactual_fail_closed.sql`;
 - `supabase/tests/0034_make_the_counterfactual_fail_closed_test.sql`.
 
+Review target: commit `c91b167` on branch `codex/migration-0034-repair`,
+[PR #70](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/70).
+
 The candidate addresses the five required repairs with a database-frozen expected cohort, explicit parity
 reasons, an exact two-way candidate-key difference, row/run/finalization constraints, and separate
 confidence training/audit views. The audit view is a post-review governance addition from HANDOFF §5.23

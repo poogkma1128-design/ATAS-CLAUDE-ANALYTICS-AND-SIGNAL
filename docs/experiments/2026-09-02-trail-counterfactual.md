@@ -205,6 +205,9 @@ three-layer confidence contract from HANDOFF §5.23 items 6–8. The training vi
 announced population rows but contains no delivery/post-outcome fields; those live only in the new
 audit-only view.
 
+Review target: commit `c91b167`, branch `codex/migration-0034-repair`,
+[PR #70](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/70).
+
 Executor verification on a disposable local PostgreSQL engine:
 
 ```text

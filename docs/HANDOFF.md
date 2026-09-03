@@ -17,6 +17,8 @@
 > อ่านต่อจาก §0I. GPT/Codex เป็น **Executor/Recorder** ของงานนี้ จึงตรวจได้ว่า migration โหลดและ
 > regression test ผ่าน แต่ **ไม่มีสิทธิ์รับรองงานตัวเอง**. Phase 2 `rescore.ts` ยังถูกบล็อกและ
 > ห้าม apply production จนกว่าผู้ตรวจอิสระจะรัน SQL artifact ดิบซ้ำแล้วรับรอง.
+> Source อยู่ branch `codex/migration-0034-repair`, commit `c91b167`,
+> **[PR #70](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/70)**.
 
 ยืนยัน contract §5.23 ข้อ 6/7/8 แล้ว: การมีไม้ mute อยู่ในประชากรไม่เท่ากับการส่งคอลัมน์
 `muted` เข้าโมเดล. 0034 แยกเป็น 3 ชั้นจริง — `confidence_v2_cohort` เป็นสัญญา fit ที่มีเฉพาะ
