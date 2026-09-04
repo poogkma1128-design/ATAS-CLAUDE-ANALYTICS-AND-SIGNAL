@@ -76,10 +76,17 @@
 select setseed(0.20260904);
 
 -- ------------------------------------------------------------------ shared base
--- Lower bound 2026-08-28: everything before it is daily and H4 bars mislabelled '5m' by the
--- indicator's free-text TimeframeLabel (see the V4 record, section 6). Measured effect of
--- excluding them on the candidate counts: at most one per cell, because the fifty-bar
--- warm-up discards those bars either way. The exclusion is for correctness, not for n.
+-- Two filters below exclude rows labelled '5m' that are not 5m bars, both from the same
+-- free-text TimeframeLabel bug (see the V4 record, section 6).
+--
+-- The lower bound drops 255 pre-feed daily and H4 rows. Nearly free: the fifty-bar warm-up
+-- discarded those bars either way, so it moves counts by at most one.
+--
+-- The grid filter drops 1,283 in-window rows and is not free, which is the point. Those sat
+-- among genuine bars, feeding the rolling median and the fifty-bar high and low. Removing
+-- them moves cell counts by at most 4 - but four long candidates change REGIME, and the
+-- regime split is the whole of V4's hypothesis. A count that barely moves is not evidence
+-- that nothing moved.
 create temporary table v4_base as
 with b as (
   select b.instrument_id, i.symbol, b.opened_at, b.open, b.high, b.low, b.close, b.volume,

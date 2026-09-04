@@ -52,8 +52,8 @@
 --
 -- For the H4 candle-signature work specifically, the in-window rows matter through a
 -- different route than the signal count above. Strict adjacency already kept them out of
--- every V3/V4 candidate set; what they did instead was sit inside the rolling 50-bar window that sets med_range, med_vol, hi50 and lo50 for
--- the genuine bars around them. Measured: removing them moves V4 cell counts by at most 4,
+-- every V3/V4 candidate set; what they did instead was sit inside the rolling 50-bar window
+-- that sets med_range, med_vol, hi50 and lo50 for the genuine bars around them. Measured: removing them moves V4 cell counts by at most 4,
 -- and moves four long candidates from one regime to the other. Regime is the variable V4's
 -- entire hypothesis is stated over, so that is a correctness fix, not a tidy-up.
 --
