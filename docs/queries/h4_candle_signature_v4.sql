@@ -88,6 +88,15 @@ with b as (
   join public.instruments i on i.id = b.instrument_id
   where b.timeframe = '5m' and b.is_closed
     and b.opened_at >= timestamptz '2026-08-28 00:00:00+00'
+    -- On the five-minute grid. 1,283 closed bars inside this window are labelled
+    -- '5m' but sit off it - some minute-aligned (a 1m chart), some sub-second (a
+    -- tick chart) - from the same free-text label bug. Strict adjacency already
+    -- keeps them out of the candidate set, but NOT out of the rolling 50-bar
+    -- window below, and a median taken over a mix of 1m, tick and 5m bars sets
+    -- the wrong threshold for the genuine bars around them. Measured effect of
+    -- removing them: cell counts move by at most 4, but four long candidates
+    -- change regime - and regime is the variable V4's hypothesis is about.
+    and date_part('epoch', b.opened_at)::bigint % 300 = 0
     and b.opened_at <  timestamptz '2026-09-26 00:00:00+00'   -- V4_CUTOFF
 ),
 f as (
