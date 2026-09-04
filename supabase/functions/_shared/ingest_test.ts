@@ -212,6 +212,125 @@ Deno.test("validate: rejects a non-finite price", () => {
   assertEquals(validate(bad), "bars[0].high must be a finite number");
 });
 
+// The 2026-09-03 incident in one test: the indicator sat on a daily chart with
+// its timeframe label still reading "5m", and every field below is individually
+// valid. Only the relationship between the label and the timestamps is wrong,
+// which is why the old validate() waved it through. 543 signals - 15% of the live
+// population - were computed on bars that were never 5m bars before this existed.
+Deno.test("validate: rejects bars coarser than the timeframe they claim", () => {
+  const daily = payload({
+    timeframe: "5m",
+    bars: [
+      bar({ openedAt: "2026-08-25T22:00:00.000Z" }),
+      bar({ openedAt: "2026-08-26T22:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T22:00:00.000Z" }),
+    ],
+  });
+  assertEquals(
+    validate(daily),
+    "no two consecutive bars are 5m apart (closest is 24h), which contradicts " +
+      "timeframe \"5m\"; check the indicator's timeframe label against the chart's period",
+  );
+
+  // Four-hourly, the other shape the GC chart produced that day.
+  const fourHourly = payload({
+    timeframe: "5m",
+    bars: [
+      bar({ openedAt: "2026-08-27T02:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T06:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+    ],
+  });
+  assertEquals(
+    validate(fourHourly),
+    "no two consecutive bars are 5m apart (closest is 4h), which contradicts " +
+      "timeframe \"5m\"; check the indicator's timeframe label against the chart's period",
+  );
+
+  // Correctly labelled, the same bars are fine.
+  assertEquals(validate({ ...daily, timeframe: "1d" }), null);
+});
+
+Deno.test("validate: a real 5m run with session gaps is still accepted", () => {
+  // Genuine data is not evenly spaced - this run crosses a break - but a chart
+  // on a period always produces at least one gap of exactly that period.
+  const genuine = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:05:00.000Z" }),
+      bar({ openedAt: "2026-08-27T14:30:00.000Z" }),
+      bar({ openedAt: "2026-08-27T14:35:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(genuine), null);
+});
+
+Deno.test("validate: one anomalous bar does not reject a genuine batch", () => {
+  // The tick-chart bug left closed bars a millisecond apart in the database. A rule
+  // keyed on the SMALLEST gap would throw this whole payload out over the pair at
+  // 10:10 - and a rejected payload is a stalled feed. One correct gap is enough.
+  const withAnomaly = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:05:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:10:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:10:00.001Z" }),
+      bar({ openedAt: "2026-08-27T10:15:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(withAnomaly), null);
+});
+
+Deno.test("validate: rejects bars finer than the timeframe they claim", () => {
+  // The other half of the same bug: a 1-minute chart posting as "5m", which is what
+  // 1,283 rows inside the live window turned out to be.
+  const minutely = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:01:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:02:00.000Z" }),
+    ],
+  });
+  assertEquals(
+    validate(minutely),
+    "no two consecutive bars are 5m apart (closest is 1m), which contradicts " +
+      "timeframe \"5m\"; check the indicator's timeframe label against the chart's period",
+  );
+});
+
+Deno.test("validate: spacing is not judged when it cannot be", () => {
+  // Tick and range charts close on volume, so no spacing is wrong for them.
+  const tick = payload({
+    timeframe: "2000t",
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:00:07.000Z" }),
+      bar({ openedAt: "2026-08-27T13:41:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(tick), null);
+
+  // Two bars either side of a weekend are legitimately far apart.
+  const sparse = payload({
+    bars: [
+      bar({ openedAt: "2026-08-28T20:55:00.000Z" }),
+      bar({ openedAt: "2026-08-31T02:00:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(sparse), null);
+
+  // A live bar streamed on its own carries no gap, and unfinished bars are not
+  // part of the judgement at all.
+  const live = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z", isClosed: false }),
+      bar({ openedAt: "2026-08-28T10:00:00.000Z", isClosed: false }),
+      bar({ openedAt: "2026-08-29T10:00:00.000Z", isClosed: false }),
+    ],
+  });
+  assertEquals(validate(live), null);
+});
+
 Deno.test("validate: caps how much can arrive in one request", () => {
   const many = payload({ bars: Array.from({ length: 201 }, () => bar()) });
   assertEquals(validate(many), "too many bars in one request (max 200)");

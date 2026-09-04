@@ -64,7 +64,84 @@ export function validate(payload: IngestPayload): string | null {
     }
   }
 
-  return null;
+  return spacingError(payload);
+}
+
+/**
+ * A time-based timeframe label in minutes, or null for labels that do not
+ * describe a fixed period. Tick and range charts ("2000t", "50r") land in the
+ * null branch on purpose: their bars close on volume rather than on the clock,
+ * so no spacing is wrong for them.
+ */
+export function timeframeMinutes(label: string): number | null {
+  const parsed = /^(\d+)\s*(m|min|mins|h|hr|hrs|d)$/i.exec(label.trim());
+  if (!parsed) return null;
+  const count = Number(parsed[1]);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  const unit = parsed[2].toLowerCase();
+  if (unit.startsWith("d")) return count * 1440;
+  if (unit.startsWith("h")) return count * 60;
+  return count;
+}
+
+/**
+ * Refuses a batch whose bars are coarser than the timeframe it claims.
+ *
+ * The indicator's timeframe is a free-text setting that defaults to "5m" and is
+ * not read from the chart's period, so attaching it to a daily chart posts daily
+ * bars into the 5m partition. That is not hypothetical: on 2026-09-03 it wrote
+ * 255 daily and H4 bars, and because ingest evaluates rules on whatever arrives,
+ * 177 signals were computed on them and are still in public.signals. Nothing
+ * rejected it, because every field was individually valid - only the RELATIONSHIP
+ * between the label and the timestamps was wrong.
+ *
+ * The test is whether ANY pair of consecutive closed bars is exactly one period
+ * apart. Checking that gaps divide evenly by the period would not have caught
+ * this - a day is a whole multiple of five minutes - but a chart genuinely on a
+ * period produces at least one gap of exactly that period in any run of three
+ * bars, and a coarser or finer chart produces none.
+ *
+ * Deliberately NOT the smallest gap, though that also separates the two cases.
+ * The database has closed bars a millisecond apart, from the tick-chart version
+ * of this same bug, so "smallest gap must equal the period" would reject an
+ * entire payload because of one anomalous bar in it - and rejecting a payload
+ * stops the live feed. Requiring one good gap cannot fail that way: a genuine
+ * batch with an odd bar in it still has many correct gaps.
+ *
+ * Fewer than three closed bars is not judged: two bars either side of a weekend
+ * are legitimately far apart, and a single live bar has no gap at all.
+ */
+function spacingError(payload: IngestPayload): string | null {
+  const minutes = timeframeMinutes(payload.timeframe);
+  if (minutes === null) return null;
+
+  const times = payload.bars
+    .filter((bar) => bar.isClosed !== false)
+    .map((bar) => Date.parse(bar.openedAt))
+    .sort((a, b) => a - b);
+  if (times.length < 3) return null;
+
+  const expected = minutes * 60_000;
+  let smallest = Infinity;
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1];
+    if (gap === expected) return null;
+    // Duplicate timestamps carry no spacing information; the upsert's
+    // (instrument, timeframe, opened_at) key collapses them anyway.
+    if (gap > 0 && gap < smallest) smallest = gap;
+  }
+  if (!Number.isFinite(smallest)) return null;
+
+  const describe = (ms: number) =>
+    ms % 3_600_000 === 0
+      ? `${ms / 3_600_000}h`
+      : ms % 60_000 === 0
+      ? `${ms / 60_000}m`
+      : `${ms / 1000}s`;
+  return `no two consecutive bars are ${describe(expected)} apart ` +
+    `(closest is ${describe(smallest)}), which contradicts timeframe ` +
+    `"${payload.timeframe}"; check the indicator's timeframe label against ` +
+    `the chart's period`;
 }
 
 // ------------------------------------------------------------------ ingest

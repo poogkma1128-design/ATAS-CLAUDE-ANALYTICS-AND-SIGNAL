@@ -20,13 +20,20 @@
 -- opening on a population the measurement query will never see.
 
 -- ------------------------------------------------------------------ Q0 INTEGRITY
--- public.bars holds rows whose timeframe column says '5m' but whose range and volume are
--- one to three orders of magnitude too large to be five-minute bars. Cause: the indicator's
--- TimeframeLabel is a free-text setting defaulting to "5m" (SignalBridgeIndicator.cs:71-73)
--- rather than the chart's real period, and ingest.ts:37-39 only checks it is a non-empty
--- string. Attaching the bridge to a daily or H4 chart therefore writes daily bars into the
--- 5m partition. Run this first: any row in the feed era flagged here poisons the rolling
--- 50-bar median that every threshold below is measured against.
+-- public.bars holds rows labelled '5m' that are not 5-minute bars, in two shapes:
+--
+--   COARSER: 255 pre-feed rows whose range and volume are one to three orders of magnitude
+--   too large - daily and H4 bars, written 2026-09-03 during the ATAS history check.
+--   FINER:   1,283 rows inside the feed era sitting off the five-minute grid - some
+--   minute-aligned (a 1m chart), some sub-second (a tick chart), across four sessions.
+--
+-- One cause for both: TimeframeLabel is a free-text setting defaulting to "5m"
+-- (SignalBridgeIndicator.cs) rather than the chart's period, and ingest only checked it was
+-- a non-empty string. The full census is docs/queries/timeframe_contamination_census.sql;
+-- the repair is migration 0035, and the guard against a repeat is in ingest.ts validate().
+--
+-- Run this first. Anything flagged here poisons the rolling 50-bar median that every
+-- threshold below is measured against.
 select i.symbol,
   case when b.opened_at >= timestamptz '2026-08-28 00:00:00+00'
        then 'feed era' else 'pre-feed' end as era,
@@ -43,11 +50,16 @@ group by 1, 2
 order by 1, 2;
 
 -- ------------------------------------------------------------------------- base
--- Identical to v3_base except for the lower window bound. The pre-feed rows above are
--- excluded because they are not 5m bars at all; leaving them in makes med_range and hi50
--- meaningless for the first fifty bars of each instrument. Measured cost of the exclusion:
--- at most one candidate per cell (the 50-bar warm-up drops those bars either way), so this
--- repair does not move V3's published counts.
+-- v3_base with two filters added, both excluding rows that are not 5m bars.
+--
+-- The lower bound drops the 255 pre-feed daily and H4 rows. That one is nearly free: the
+-- 50-bar warm-up discarded those bars either way, so it moves counts by at most one.
+--
+-- The grid filter drops the 1,283 in-window rows and is NOT free, which is the point. Those
+-- bars sit among genuine ones, so they were feeding the rolling median and the 50-bar high
+-- and low. Removing them moves cell counts by at most 4 - but four long candidates change
+-- REGIME, and the regime split is the whole of V4's hypothesis. A count that barely moves
+-- is not evidence that nothing moved.
 create temporary view v4_base as
 with b as (
   select b.instrument_id, i.symbol, b.opened_at, b.open, b.high, b.low, b.close, b.volume,
@@ -56,6 +68,15 @@ with b as (
   join public.instruments i on i.id = b.instrument_id
   where b.timeframe = '5m' and b.is_closed
     and b.opened_at >= timestamptz '2026-08-28 00:00:00+00'
+    -- On the five-minute grid. 1,283 closed bars inside this window are labelled
+    -- '5m' but sit off it - some minute-aligned (a 1m chart), some sub-second (a
+    -- tick chart) - from the same free-text label bug. Strict adjacency already
+    -- keeps them out of the candidate set, but NOT out of the rolling 50-bar
+    -- window below, and a median taken over a mix of 1m, tick and 5m bars sets
+    -- the wrong threshold for the genuine bars around them. Measured effect of
+    -- removing them: cell counts move by at most 4, but four long candidates
+    -- change regime - and regime is the variable V4's hypothesis is about.
+    and date_part('epoch', b.opened_at)::bigint % 300 = 0
 ),
 f as (
   select b.*,

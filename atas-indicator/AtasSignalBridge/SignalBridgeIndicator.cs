@@ -4,6 +4,7 @@ using System.ComponentModel;
 using System.ComponentModel.DataAnnotations;
 using System.Drawing;
 using System.Globalization;
+using System.Text.RegularExpressions;
 using ATAS.Indicators;
 using ATAS.Indicators.Drawing;
 using Utils.Common.Logging;
@@ -324,7 +325,109 @@ namespace AtasSignalBridge
                 if (snapshot != null) payload.Bars.Add(snapshot);
             }
 
+            var mismatch = SpacingMismatch(payload);
+            if (mismatch != null)
+            {
+                // Refuse rather than post. The server rejects this too, but a
+                // rejection there is a line in a log nobody is reading; here it
+                // lands in the ATAS log with the chart still in front of you.
+                this.LogError("Signal Bridge: " + mismatch, new InvalidOperationException(mismatch));
+                return;
+            }
+
             _sender.Enqueue(payload);
+        }
+
+        /// <summary>
+        /// Describes the disagreement when the bars about to be sent are coarser
+        /// than <see cref="TimeframeLabel"/> claims, or null when they agree.
+        ///
+        /// The label is typed by hand and defaults to "5m" - it is not read from
+        /// the chart - so attaching this indicator to a daily chart posts daily
+        /// bars into the 5m partition. That happened on 2026-09-03: 255 daily and
+        /// H4 bars went in as "5m" and the server evaluated rules against them,
+        /// leaving 177 signals in the database that were never 5m signals.
+        ///
+        /// The test is whether ANY pair of consecutive closed bars is exactly one
+        /// period apart. Checking that gaps divide evenly by the period would not
+        /// catch it, because a day is a whole multiple of five minutes; but a chart
+        /// genuinely on a period yields at least one gap of exactly that period in
+        /// any three bars, and a coarser or finer chart yields none.
+        ///
+        /// Deliberately not the smallest gap: the database holds closed bars a
+        /// millisecond apart from the tick-chart version of this bug, and keying on
+        /// the minimum would discard a whole payload over one odd bar. Mirrors
+        /// spacingError() in supabase/functions/_shared/ingest.ts.
+        /// </summary>
+        private string SpacingMismatch(IngestPayload payload)
+        {
+            var expected = TimeframeSpan(payload.Timeframe);
+            // Tick and range charts close on volume, not the clock: no spacing is
+            // wrong for them, so there is nothing to check.
+            if (expected == TimeSpan.Zero) return null;
+
+            var times = new List<DateTime>();
+            foreach (var snapshot in payload.Bars)
+            {
+                if (!snapshot.IsClosed) continue;
+                if (DateTime.TryParse(snapshot.OpenedAt,
+                        CultureInfo.InvariantCulture,
+                        DateTimeStyles.AdjustToUniversal | DateTimeStyles.AssumeUniversal,
+                        out var parsed))
+                {
+                    times.Add(parsed);
+                }
+            }
+
+            // Two bars either side of a weekend are legitimately far apart, and a
+            // lone live bar has no gap at all. Neither is evidence of anything.
+            if (times.Count < 3) return null;
+            times.Sort();
+
+            var smallest = TimeSpan.MaxValue;
+            for (var i = 1; i < times.Count; i++)
+            {
+                var gap = times[i] - times[i - 1];
+                if (gap == expected) return null;
+                if (gap > TimeSpan.Zero && gap < smallest) smallest = gap;
+            }
+            if (smallest == TimeSpan.MaxValue) return null;
+
+            return "no two bars on this chart are " + Describe(expected) + " apart (closest is "
+                + Describe(smallest) + "), but the timeframe label says \""
+                + payload.Timeframe + "\". Nothing was sent. Set the label to match this "
+                + "chart's period, or move the indicator to a " + payload.Timeframe + " chart.";
+        }
+
+        private static string Describe(TimeSpan span)
+        {
+            if (span.TotalMinutes % 60 == 0) return span.TotalHours + "h";
+            if (span.TotalSeconds % 60 == 0) return span.TotalMinutes + "m";
+            return span.TotalSeconds + "s";
+        }
+
+        /// <summary>
+        /// A time-based timeframe label as a span, or <see cref="TimeSpan.Zero"/>
+        /// for labels that do not describe a fixed period ("2000t", "50r").
+        /// Mirrors timeframeMinutes() in supabase/functions/_shared/ingest.ts;
+        /// the two must agree or the client refuses what the server accepts.
+        /// </summary>
+        private static TimeSpan TimeframeSpan(string label)
+        {
+            if (string.IsNullOrWhiteSpace(label)) return TimeSpan.Zero;
+
+            var match = Regex.Match(label.Trim(), @"^(\d+)\s*(m|min|mins|h|hr|hrs|d)$",
+                RegexOptions.IgnoreCase);
+            if (!match.Success) return TimeSpan.Zero;
+            if (!int.TryParse(match.Groups[1].Value, out var count) || count <= 0)
+            {
+                return TimeSpan.Zero;
+            }
+
+            var unit = match.Groups[2].Value.ToLowerInvariant();
+            if (unit.StartsWith("d")) return TimeSpan.FromDays(count);
+            if (unit.StartsWith("h")) return TimeSpan.FromHours(count);
+            return TimeSpan.FromMinutes(count);
         }
 
         private BarSnapshot BuildSnapshot(int bar, decimal tickSize, bool isClosed)
