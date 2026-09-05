@@ -12,6 +12,49 @@
 
 ---
 
+## 0N. Hybrid ML research — **ตรวจข้อมูลแล้วพบ blocker; ยังไม่ฝึก/ไม่ backtest โมเดล** (2026-09-05)
+
+เจ้าของขอวิจัยคู่ขนานระหว่างรอ independent review 0036: ความน่าจะเป็นขึ้น/ลง,
+reject/วิ่งต่อและช่วงเวลาที่เกิด ร่วมกับ ATAS order flow. **คำสั่งล่าสุดจำกัดเฉพาะ MNQ และ GC**
+ทั้งข้อมูลเข้า, training และ evaluation; ช่วงย้อนหลังนี้ MNQ ใช้ symbol `MNQU6`. งานนี้อยู่ branch
+`codex/hybrid-ml-research` และ **ไม่ปลดล็อก §0M/Phase 2 หรือเปลี่ยน V4/OOS**.
+
+- แผนวิจัย/นิยาม/เกณฑ์ backtest: `docs/experiments/2026-09-05-hybrid-probability-research.md`.
+  เสนอ competing-risk probability/time model + calibrated ML ขนาดเล็ก; BOCPD/path signatures
+  เป็นแนวทางถัดไป; Hawkes/queue model รอ historical tick/DOM จริง. ยังไม่มีผลความแม่นยำ.
+- Gate 0 ที่รันจริง: `docs/queries/hybrid_ml_data_gate0.sql` เป็น SELECT เดียว;
+  Supabase CLI 2.116.0 ผ่าน npm, project `sckdriuwfyittcybnbhz`, 2026-09-05 13:42:56 UTC,
+  ช่วงพัฒนา `[2026-08-28,2026-09-04)` UTC. ผลครบอยู่ใน `docs/experiments/evidence/2026-09-05-hybrid-ml-gate0.json`.
+- มี on-grid closed 5m **2,565 bars**, แต่ **1,255 bars มียอด footprint ticks ไม่ตรงกับ bar**
+  และ **4,561 level rows อยู่นอก high/low** ของ parent bar. ทั้งสอง instrument มีเพียง 6 UTC days;
+  ไม่ใช่จำนวน session/ตัวอย่างอิสระที่พิสูจน์แล้ว. `bars.trades=0` ทั้งชุดนี้.
+- Exact numeric timestamp modulo พบ **7 rows** ที่การ cast epoch เป็น bigint ปัดจนดูเหมือนตรง grid.
+  ผู้ตรวจ 0035 ต้องประเมิน census ข้อนี้ก่อนรับรอง; งานนี้ไม่ได้แก้/apply 0035.
+- SELECT ติดตามความต่อเนื่องหลัง reconciliation (13:45:43 UTC) พบหน้าต่าง 50 prior +10 future
+  เหลือ **MNQ 174 / GC 23**. นี่เป็น conservative availability diagnostic,
+  **ห้ามใช้คุณภาพข้อมูลอนาคตเป็น eligibility rule ณ เวลาส่งสัญญาณ**. ไม่ใช่ model-ready samples.
+- รายละเอียด/คำสั่ง/รหัส evidence: `docs/experiments/2026-09-05-hybrid-ml-data-readiness.md`.
+  **L2: ห้ามอ้างยืนยัน ML จากชุดนี้จนกว่า data contract/provenance ผ่าน**. Grid/reconciliation
+  ไม่พิสูจน์ actual chart period หรือ original snapshot; ห้ามแก้ยอดให้ตรงเองหรือลบหลักฐาน.
+
+**บทบาท:** owner กำหนดโจทย์; GPT/Codex ร่างวิธีและบันทึก Gate 0; model Executor และ Independent
+Reviewer ต้องเป็นคนละ session กับ Proposer/ผู้รัน. ยังไม่มี model fit, accuracy/calibration,
+backtest verdict หรือ production permission จากงานนี้. งานถัดไปคือ raw independent data review,
+แก้/คัดชุดข้อมูลที่มี provenance และ freeze experiment ก่อนเริ่ม model run.
+
+**Verification:** query สองไฟล์รันกับ DB ได้ exit 0; ตรวจ source schema/producer และ JSON/diff.
+Independent raw reviewer ยัง UNVERIFIED: npm EPERM แล้ว retry ถูกยกเลิกก่อนมีผล SELECT;
+ไม่มีตัวเลขอิสระหรือเวลา DB จากผู้ตรวจ. ผล query ที่สำเร็จข้างต้นเป็นของ root recorder เท่านั้น.
+ผลนี้เป็น data diagnostic ไม่ใช่ independent certification ของกลยุทธ์. ไม่มี migration apply,
+data repair, deploy, rule/filter/Telegram change หรือ ATAS DLL install.
+**เอกสารเพิ่ม:** แผนวิจัย, data-readiness report, SELECT queries และ aggregate evidence ตามลิงก์ข้างต้น.
+ผล aggregate เดิมที่ตรวจสี่ตลาดก่อนคำสั่งล่าสุดเก็บไว้ใน local-research-data นอก repo;
+หลักฐาน active ทั้งสองไฟล์รันใหม่และมีเฉพาะ MNQU6/GC. ไม่ได้เปลี่ยน scope ของงานเก่า §0M เป็นต้นไป.
+**Rollback:** revert research commit; ไม่มี model/runtime state ให้ย้อน. ข้อมูล live/ราคาดิบไม่ได้ถูก
+commit เพิ่ม; SQL Editor อาจมี draft SELECT ที่ auto-save จาก browser attempt ซึ่งไม่ใช่ผลที่ใช้รับรอง.
+
+---
+
 ## 0M. GPT/Codex consolidation — **migration 0036 พร้อมส่ง independent review; production ยังไม่ถูกแตะ** (ตรวจ 2026-09-05)
 
 > GPT/Codex รับช่วง **Executor/Recorder** ตามกติกาแยกบทบาทใน §5.21 แล้วตรวจงานที่ค้างจาก

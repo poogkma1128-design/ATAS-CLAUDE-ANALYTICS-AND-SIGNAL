@@ -1,0 +1,37 @@
+{
+  "artifact_type": "parsed SELECT result rows with execution metadata",
+  "project_ref": "sckdriuwfyittcybnbhz",
+  "query_path": "docs/queries/hybrid_ml_reconciled_clock_gate0.sql",
+  "query_git_blob": "e7e6ff3446df2afdfb3685abd1ac73a08fd50ad8",
+  "query_sha256_at_execution": "acd5c28dcedf437e1c5041bb751b52ede713b9b651d261967c59c79f102e6753",
+  "exit_code": 0,
+  "development_start_utc": "2026-08-28T00:00:00Z",
+  "development_end_exclusive_utc": "2026-09-04T00:00:00Z",
+  "target_symbols": [
+    "MNQU6",
+    "GC"
+  ],
+  "model_fit": false,
+  "independent_review": "pending",
+  "rows": [
+    {
+      "contiguous_50_prior": 36,
+      "contiguous_50_prior_10_future": 23,
+      "instrument_id": "a68978dc-e8c1-492c-b671-2e6cb17bdc18",
+      "queried_at": "2026-09-05 13:45:43.799392+00",
+      "reconciled_on_grid_bars": 604,
+      "symbol": "GC",
+      "utc_days": 6
+    },
+    {
+      "contiguous_50_prior": 224,
+      "contiguous_50_prior_10_future": 174,
+      "instrument_id": "4278a637-9877-4479-9722-0abb6401202d",
+      "queried_at": "2026-09-05 13:45:43.799392+00",
+      "reconciled_on_grid_bars": 706,
+      "symbol": "MNQU6",
+      "utc_days": 6
+    }
+  ],
+  "limitation": "Reconciled windows are not certified authentic or independent; future quality is only an availability diagnostic, not a trading eligibility rule."
+}
