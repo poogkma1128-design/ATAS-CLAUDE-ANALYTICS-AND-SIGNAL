@@ -59,7 +59,16 @@ Deno.test("confidence v2 freezes whitelisted signal-time features without a scor
         ignoredFutureOutcome: 99,
       },
     },
-    { sweep: "bullish", zone: "premium", structure: "BOS" },
+    {
+      structure: "up",
+      bos: "bullish",
+      choch: false,
+      sweep: "high",
+      rangePosition: 0.9,
+      zone: "premium",
+      swingHigh: 110,
+      swingLow: 90,
+    },
   );
 
   assertEquals(snapshot.mode, "shadow");
@@ -68,7 +77,7 @@ Deno.test("confidence v2 freezes whitelisted signal-time features without a scor
   assertEquals(snapshot.features.shared.volumeRatioToHistoryMedian, 2);
   assertEquals(snapshot.features.shared.tickRatioToHistoryMedian, 2);
   assertEquals(snapshot.features.shared.closeLocation, 0.9);
-  assertEquals(snapshot.features.shared.priceActionSweep, "bullish");
+  assertEquals(snapshot.features.shared.priceActionSweep, "high");
   assertEquals(snapshot.features.rule, {
     observedRatio: 2.5,
     closeShare: 0.9,

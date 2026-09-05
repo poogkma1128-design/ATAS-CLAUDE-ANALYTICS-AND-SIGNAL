@@ -17,14 +17,32 @@ begin
 end;
 $$;
 
-create or replace function pg_temp.expect_error(label text, statement text)
+create or replace function pg_temp.expect_error(
+  label text,
+  statement text,
+  expected_sqlstate text,
+  expected_message_fragment text default null
+)
 returns void
 language plpgsql
 as $$
+declare actual_state text;
+        actual_message text;
 begin
   begin
     execute statement;
   exception when others then
+    get stacked diagnostics actual_state = returned_sqlstate,
+                            actual_message = message_text;
+    if actual_state <> expected_sqlstate then
+      raise exception 'assertion failed: % returned SQLSTATE %, expected %',
+        label, actual_state, expected_sqlstate;
+    end if;
+    if expected_message_fragment is not null
+       and position(expected_message_fragment in actual_message) = 0 then
+      raise exception 'assertion failed: % returned %, expected message containing %',
+        label, actual_message, expected_message_fragment;
+    end if;
     return;
   end;
   raise exception 'expected statement to be rejected: %', label;
@@ -111,7 +129,8 @@ select pg_temp.expect_error(
   'sweep experiment cannot own rescore artifacts',
   $$select public.freeze_trail_rescore_cohort(
       '34000000-0000-0000-0000-000000000021', 'scorePlan@test', 'bars@test', '5m'
-    )$$
+    )$$,
+  'P0001'
 );
 
 select pg_temp.assert_true(
@@ -149,7 +168,8 @@ select pg_temp.expect_error(
     'resolved', 103, 'target', 34099, 1, false,
     12, 3, 12, 0, 12, 0, 1, 0, 10, 'scorePlan@test', 'bars@test'
   )
-  $sql$
+  $sql$,
+  'P0001'
 );
 
 -- ----------------------------------------------- baseline parity fail-closed
@@ -205,7 +225,8 @@ select pg_temp.expect_error(
        set pnl_ticks = null, r = null
      where run_id = '34000000-0000-0000-0000-000000000022'
        and variant = 'baseline'
-       and direction = 'long'$$
+       and direction = 'long'$$,
+  '23514'
 );
 
 update public.opportunity_results
@@ -264,7 +285,8 @@ select pg_temp.expect_error(
        included, exclusion_reason, status, evaluator_version, data_version)
     values ('34000000-0000-0000-0000-000000000022', 'third', 'T0034', '5m',
       't0034_rule', 'long', '2026-01-02 01:00:00+00', false, 'no_plan',
-      'skipped', 'scorePlan@test', 'bars@test')$$
+      'skipped', 'scorePlan@test', 'bars@test')$$,
+  '23514'
 );
 
 select pg_temp.expect_error(
@@ -275,7 +297,8 @@ select pg_temp.expect_error(
        status, evaluator_version, data_version)
     values ('34000000-0000-0000-0000-000000000022', 'baseline', 'T0034', '5m',
       't0034_rule', 'long', '2026-01-02 01:05:00+00', true, 100, 99, 4, 10,
-      'pending', 'scorePlan@test', 'bars@test')$$
+      'pending', 'scorePlan@test', 'bars@test')$$,
+  '23514'
 );
 
 select pg_temp.expect_error(
@@ -287,7 +310,8 @@ select pg_temp.expect_error(
        status, evaluator_version, data_version)
     values ('34000000-0000-0000-0000-000000000022', 'baseline', 'T0034', '5m',
       't0034_rule', 'long', '2026-01-02 01:06:00+00', true, 100, 99, 103, 0,
-      2, 1, 10, 0.25, 'pending', 'scorePlan@test', 'bars@test')$$
+      2, 1, 10, 0.25, 'pending', 'scorePlan@test', 'bars@test')$$,
+  '23514'
 );
 
 select pg_temp.expect_error(
@@ -299,7 +323,8 @@ select pg_temp.expect_error(
        status, evaluator_version, data_version)
     values ('34000000-0000-0000-0000-000000000022', 'baseline', 'T0034', '5m',
       't0034_rule', 'long', '2026-01-02 01:10:00+00', true, 100, 99, 103, 4,
-      2, 1, 10, 0.25, 'resolved', 'scorePlan@test', 'bars@test')$$
+      2, 1, 10, 0.25, 'resolved', 'scorePlan@test', 'bars@test')$$,
+  '23514'
 );
 
 select pg_temp.expect_error(
@@ -310,7 +335,8 @@ select pg_temp.expect_error(
        evaluator_version, data_version)
     values ('34000000-0000-0000-0000-000000000022', 'baseline', 'T0034', '5m',
       't0034_rule', 'long', '2026-01-02 01:15:00+00', false, 'no_plan',
-      'skipped', true, 'scorePlan@test', 'bars@test')$$
+      'skipped', true, 'scorePlan@test', 'bars@test')$$,
+  '23514'
 );
 
 select pg_temp.expect_error(
@@ -328,7 +354,8 @@ select pg_temp.expect_error(
       100, 99, 103, 4, 2, 1, 10, 0.25,
       'resolved', 103, 'target', 34099, 1, false,
       12, 2.99, 12, 0, 12, 0, 1, 0, 10, 'scorePlan@test', 'bars@test'
-    )$$
+    )$$,
+  '23514'
 );
 
 select pg_temp.expect_error(
@@ -338,7 +365,8 @@ select pg_temp.expect_error(
        included, exclusion_reason, status, evaluator_version, data_version)
     values ('34000000-0000-0000-0000-000000000022', 'baseline', 'T0034', '5m',
       't0034_rule', 'long', '2026-01-02 01:25:00+00', false, 'no_plan',
-      'skipped', 'scorePlan@other', 'bars@other')$$
+      'skipped', 'scorePlan@other', 'bars@other')$$,
+  '23503'
 );
 
 -- ------------------------------------- equal counts, different keys must fail
@@ -375,7 +403,8 @@ select pg_temp.assert_true(
 select pg_temp.expect_error(
   'run cannot finish with equal counts but different keys',
   $$update public.experiments set status = 'done'
-     where id = '34000000-0000-0000-0000-000000000022'$$
+     where id = '34000000-0000-0000-0000-000000000022'$$,
+  'P0001'
 );
 
 delete from public.opportunity_results
@@ -418,7 +447,8 @@ select pg_temp.assert_true(
 select pg_temp.expect_error(
   'run cannot finish when no_trail changes more than trigger',
   $$update public.experiments set status = 'done'
-     where id = '34000000-0000-0000-0000-000000000022'$$
+     where id = '34000000-0000-0000-0000-000000000022'$$,
+  'P0001'
 );
 
 update public.opportunity_results
