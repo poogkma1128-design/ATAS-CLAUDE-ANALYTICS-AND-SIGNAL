@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-04 (Evidence-first signal quality)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-05 (Evidence-first signal quality)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -9,6 +9,49 @@
 > งานค้าง, owner/approval ที่ต้องมี และวิธี rollback เมื่อเกี่ยวข้อง. ห้ามข้ามขั้นนี้แม้งาน
 > จะเล็ก, ถูก merge แล้ว หรือเป็นเพียงการทดลอง. ถ้าไม่มีเอกสารที่ต้องเพิ่ม ให้บันทึกใน
 > Handoff ว่า “ไม่มีเอกสารเพิ่ม” พร้อมเหตุผล.
+
+---
+
+## 0M. GPT/Codex consolidation — **migration 0036 พร้อมส่ง independent review; production ยังไม่ถูกแตะ** (ตรวจ 2026-09-05)
+
+> GPT/Codex รับช่วง **Executor/Recorder** ตามกติกาแยกบทบาทใน §5.21 แล้วตรวจงานที่ค้างจาก
+> `0034`. งานนี้ยังไม่ใช่ independent sign-off และยังไม่ปลดล็อก Phase 2 หรือ production apply.
+>
+> ### สิ่งที่แก้
+>
+> - ย้าย follow-up seal migration จากเลข `0035` เป็น
+>   `0036_seal_counterfactual_artifacts.sql` เพราะ branch ปัจจุบันใช้ `0035` กับ timeframe
+>   quarantine แล้ว; ไม่แก้ migration ที่มีอยู่ย้อนหลัง
+> - ปิด P0/P1/R1 ที่ reviewer รายงาน: `service_role` เขียน manifest ตรงไม่ได้, exclusion
+>   มี census, parity ยึด entry/stop/risk, candidate set ต้องตรงกัน และ artifact ถูก seal หลัง `done`
+> - ปิด bypass เพิ่มที่พบระหว่าง trace: ห้ามย้าย artifact จาก completed run ไป active run และห้าม
+>   reopen/delete completed rescore experiment เพื่อหลบ seal หรือ cascade-delete หลักฐาน
+> - ทำให้ regression 0034 ตรวจ SQLSTATE/ข้อความที่คาดไว้ แทนการยอมรับ error ใดก็ได้
+> - แก้ fixture type ที่ค้างใน `confidence_v2_test.ts` และขยับ web REV เป็น `1.3.2` เพื่อให้
+>   repository checks กลับมาเขียว; ไม่มีการเปลี่ยน signal/business logic
+>
+> ### หลักฐานที่ Executor รันจริง
+>
+> | การตรวจ | ผล |
+> |---|---|
+> | replay migration `0001`→`0036` บน disposable PostgreSQL 17.6 | ✅ ผ่านทุก migration; ก่อน `0035` ใช้ exact census fixture 1,538 bars / 543 signals ตาม fail-closed contract |
+> | SQL regression `0034` + `0036` | ✅ PASS; รวม INSERT/UPDATE/DELETE ด้วย `service_role`, exclusion, plan/risk parity, exact candidate set และ completed-run seal |
+> | `npx --yes deno task test` | ✅ 149 passed, 0 failed |
+> | `npx --yes deno task check` | ✅ ผ่าน |
+> | `npx --yes deno task rev:check` | ✅ ผ่าน (`Indicator REV 1.5.0`, `web 1.3.2`) |
+> | `dotnet build ...AtasSignalBridge.csproj -c Release` | ✅ 0 warnings, 0 errors; ได้ DLL แต่ **ยังไม่ติดตั้งเข้า ATAS** |
+> | `npm ci` + `npm run build` ใน `web` | ✅ Next.js production build ผ่าน รวม lint/type-check/static generation |
+>
+> ### ขอบเขต สถานะ และงานถัดไป
+>
+> **Source status:** พร้อมส่ง independent review บน branch `codex/complete-gpt-handoff-work`.
+> **Production status:** ไม่มี migration apply, Edge Function deploy, data write หรือ ATAS DLL install.
+> Phase 2 `rescore.ts` ยังถูกบล็อกจนกว่า reviewer ที่ไม่ใช่ Executor จะ replay migration/test และรัน
+> counterexample ดิบเองแล้วรับรอง 0036. จากนั้น production apply, `ingest` deploy และ DLL install
+> ยังต้องเป็นคำสั่ง/approval แยกจากเจ้าของ. Reviewer ของ `0035` ต้องตรวจ census จริงก่อน apply ตาม §0L.
+>
+> **Rollback:** ก่อน production ให้ revert commit หรือปิด branch นี้; ยังไม่มี runtime state ให้ย้อน.
+> **เอกสารเพิ่ม:** ไม่มีนอกจาก Handoff เพราะ workflow/setup ไม่เปลี่ยนและยังไม่มีอะไรขึ้น production.
 
 ---
 
@@ -3891,7 +3934,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | L | **ตรวจ deploy ชั้น 3 ของ `ingest` v14** | ✅ **ผ่านแล้ว 2026-09-01** — feed กลับมา 23:54 · 31 แถวหลัง deploy · error 1 แถวเดียวคือ `JWT issued at future` (ข้อ 3.12 ไม่ใช่ของใหม่) และ NQU6 ส่งสำเร็จต่อทันที 10 แถวรวด · `speed_of_tape` ยิงจริง **15 สัญญาณ ประกาศ 0** = การปิดเสียงพิสูจน์แล้วด้วยสัญญาณจริง ไม่ใช่ผ่านแบบว่างเปล่า |
 | M | **ตัดสินชะตา `speed_of_tape`** | **ยังค้าง** — กวาดครบสามพารามิเตอร์และฝั่ง long ติดลบทั้ง 9 ค่าที่วัด (ข้อ 5.18), แต่ query ล่าสุดพบ `telegram_enabled=true`. Evidence-first ลดความเสี่ยงการประกาศแต่ไม่ใช่คำตอบเรื่อง edge; ต้องมี owner decision ว่าปิด long/ทั้งกฎหรือเก็บ shadow |
 | O1 | **ทำให้ `backtest` เขียนผลและสถานะทีละ variant** | ค้างอยู่ · **P1** — ตอนนี้สะสมทุกแถวแล้ว insert ทีเดียวตอนจบ พอ worker ถูกฆ่ากลางทาง **ผลที่รันเสร็จแล้วหายหมด และแถว `experiments` ค้างที่ `running` ตลอดกาล** (ข้อ 3.11) · **กำลังเกิดอยู่จริงตอนนี้:** `standing sweep 2026-09-02` (`96de5127-e16f-40e1-b547-8a56775097eb`) ค้าง `running` โดยมี 0 แถวตั้งแต่ 2026-09-01 21:00 UTC และ `/experiments` แสดงว่ากำลังรัน — ปิดแถวนั้นด้วยมือระหว่างรอ · **อัปเดต 2026-09-02:** แถวที่ค้างถูกปิดด้วยมือแล้ว (ดู `docs/experiments/2026-09-02-trail-counterfactual.md`) **แต่เป็นการเก็บกวาด ไม่ใช่การแก้** — cron `0018` ยังยิง sweep หลาย variant ทุก 21:00 UTC และจะตายแบบเดิมเงียบ ๆ ทุกคืน · หน้าต่างแท่งโตขึ้นเรื่อย ๆ (2,892 แท่งฆ่ารันเมื่อ 1 ก.ย. · ตอนนี้ 3,795) **เพดานจึงต่ำลงทุกวัน** · **stopgap 2026-09-02 (migration 0032):** ลด `maxBars` ของ cron จาก 1000 → **200** เพื่อให้รันจบแทนที่จะตายเงียบทุกคืน — **ไม่ใช่การแก้** และมีราคา: 200 แท่ง 5m คือไม่ถึง 17 ชม./instrument ซึ่ง**สั้นเกินกว่าจะเห็นหลักฐานสะสม** อันเป็นเหตุผลที่ job นี้มีอยู่ · พอ O1 เสร็จให้ดันเพดานกลับขึ้น |
-| O2 | **เก็บ per-opportunity artifact ต่อ variant** | **ยังบล็อก L2 — independent re-review ของ 0034 ไม่ผ่าน (2026-09-03)** · **เจ้าของสั่ง 2026-09-03 06:25 UTC ขยายเงื่อนไข 07:23 UTC: ห้าม apply production จนกว่าจะปิดครบทั้ง 5 ข้อ (P0-1, P0-2, P1-1, P1-2, R1) และผ่าน independent re-run** (ดู §0J) — ผู้ตรวจอิสระ replay `0001`→`0034` บน disposable PostgreSQL 16.13 และรัน vendor test ด้วย `ON_ERROR_STOP=1` (`0034 regression: PASS`) แล้ว **รัน counterexample ดิบเอง** พบ **P0 สองข้อ**: (1) `service_role` เขียน `trail_rescore_runs`/`trail_rescore_expected` ตรง ๆ ได้ (0034 revoke แค่ `anon`/`authenticated`) ⇒ writer freeze manifest ของตัวเองได้ และรันผ่านทุก gate ด้วย denominator ครึ่งเดียวของประชากรจริง · (2) แถว `included=false` แม้แถวเดียวทำให้ parity ไม่ว่างถาวร ⇒ `no_trail` เขียนไม่ได้และ `done` ไม่ได้ ⇒ **exclusion census ใช้ไม่ได้เลย** และ `r_per_opportunity` เท่ากับ `r_per_trade` เสมอ. **P1 สองข้อ**: parity ไม่ยึด `risk_ticks` (baseline เก็บ 1 ขณะ live เป็น 4 ⇒ รายงาน R 12.0000 แทน 3.0000 โดยทุก gate เขียว) และ artifact ไม่ถูกซีลหลัง `done` (แก้ `no_trail` หลังจบได้ 3.0000 → 10.0000 โดย parity/denominator ยังว่าง). ห้าม apply/เขียนข้อมูล/อ้างนัยสำคัญต่อไป · ต้องมี migration ต่อจาก 0034 ที่ปิด P0/P1 แล้ว re-review อีกรอบ · ดู §0I/§0J และ review doc |
+| O2 | **เก็บ per-opportunity artifact ต่อ variant** | **อัปเดต 2026-09-05: migration 0036 + regression พร้อมส่ง independent re-review แล้ว แต่ยังห้าม apply production และ Phase 2 ยังบล็อกจนกว่าจะผ่าน raw re-run** (ดู §0M) · **ยังบล็อก L2 — independent re-review ของ 0034 ไม่ผ่าน (2026-09-03)** · **เจ้าของสั่ง 2026-09-03 06:25 UTC ขยายเงื่อนไข 07:23 UTC: ห้าม apply production จนกว่าจะปิดครบทั้ง 5 ข้อ (P0-1, P0-2, P1-1, P1-2, R1) และผ่าน independent re-run** (ดู §0J) — ผู้ตรวจอิสระ replay `0001`→`0034` บน disposable PostgreSQL 16.13 และรัน vendor test ด้วย `ON_ERROR_STOP=1` (`0034 regression: PASS`) แล้ว **รัน counterexample ดิบเอง** พบ **P0 สองข้อ**: (1) `service_role` เขียน `trail_rescore_runs`/`trail_rescore_expected` ตรง ๆ ได้ (0034 revoke แค่ `anon`/`authenticated`) ⇒ writer freeze manifest ของตัวเองได้ และรันผ่านทุก gate ด้วย denominator ครึ่งเดียวของประชากรจริง · (2) แถว `included=false` แม้แถวเดียวทำให้ parity ไม่ว่างถาวร ⇒ `no_trail` เขียนไม่ได้และ `done` ไม่ได้ ⇒ **exclusion census ใช้ไม่ได้เลย** และ `r_per_opportunity` เท่ากับ `r_per_trade` เสมอ. **P1 สองข้อ**: parity ไม่ยึด `risk_ticks` (baseline เก็บ 1 ขณะ live เป็น 4 ⇒ รายงาน R 12.0000 แทน 3.0000 โดยทุก gate เขียว) และ artifact ไม่ถูกซีลหลัง `done` (แก้ `no_trail` หลังจบได้ 3.0000 → 10.0000 โดย parity/denominator ยังว่าง). ห้าม apply/เขียนข้อมูล/อ้างนัยสำคัญต่อไป · ต้องมี migration ต่อจาก 0034 ที่ปิด P0/P1 แล้ว re-review อีกรอบ · ดู §0I/§0J และ review doc |
 | P | **ทำ Confidence v2 ให้มีความหมาย** | กำลังทำ — migration 0029 และ snapshot อยู่ production ตั้งแต่ v15, ปัจจุบัน `ingest v17`; มี 436 captured / 431 resolved / 16 cohorts. ยังต้อง offline calibration + frozen model + forward shadow + owner approval; `score:null` และห้ามใช้กรอง |
 | N | **ยืนยันความหมายของ `bars.ticks` กับเอกสาร ATAS** | ค้างอยู่ — ข้อมูลชี้ชัดว่าเป็นจำนวนไม้ (`volume ÷ ticks` ≈ 1.1 สัญญา) แต่ยังไม่ได้ยืนยันกับ docs · ถ้าผิด `speed_of_tape` ทั้งกฎต้องรื้อ (ข้อ 5.16) |
 | Q | **Independent raw re-run ของตัวเลข §5.18a** | ค้างอยู่ · **P1 ก่อนเปลี่ยน threshold/rule** — ผู้ตรวจที่ไม่ใช่ผู้เสนอ/ผู้รันต้องใช้ evidence packet, exact experiment IDs, frozen data window และ query commit รัน artifact ดิบซ้ำ. จนกว่าจะเสร็จ ตัวเลขและข้อเสนอทั้งหมดใน §5.18a เป็น `provisional`; คง runtime เดิมและห้ามนำไปเปิด/ปิด Telegram |
@@ -3905,7 +3948,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | W | **ปิดคำถาม `open` ของบาร์ futures** | **เปิดใหม่จาก V2 (§5.27)** — `next_open = close` เป๊ะแค่ 25–32% บน GC/MNQU6/NQU6 (BTCUSDT 74%) · avg abs gap 0.04–0.10R · ไม่มี gap เกิน 1R และ `ingest.ts:221` เขียนค่าที่ ATAS ส่งมาตรง ๆ ⇒ **ยังไม่ใช่ bug ที่พิสูจน์แล้ว** แต่ต้องตรวจกับเอกสาร/พฤติกรรม ATAS ว่า `open` ที่ indicator ส่งคือ open จริงของแท่ง หรือราคาที่ snapshot แรกเห็น · **สำคัญเพราะสมมติฐาน "เข้าที่ `next_open`" ของทุกการทดลองต่อจากนี้ตั้งอยู่บนฟิลด์นี้** |
 | S | **H1 — เทรนเป็นตัวกรอง (ไม่ใช่กฎใหม่)** | **✅ รันแล้ว 2026-09-03 — ผลคือไม่รับ** — §5.24#ซ · policy B (รับเฉพาะ aligned) แพ้ policy A (รับทุกสัญญาณ) แบบขาดลอย: total R 211 vs 653 (−68%) บนประชากร 2,941 ไม้ · ตกเกณฑ์ข้อ 1 ทันที ไม่ต้องตรวจข้อ 2–4 ต่อ · สาเหตุคือ `range` (ไม่มีเทรนชัด) เป็น label ที่ทำ R/ไม้ดีที่สุด (0.2621) และ B ทิ้งทั้งหมด ไม่ใช่เพราะ `counter` แพ้เป็นระบบตามสมมติฐาน (counter ยังบวก 0.1615 เพียงต่ำกว่า aligned เล็กน้อย) · ตรวจครบ 8 กฎแล้วไม่สม่ำเสมอ (3 กฎ counter ดีกว่า, 4 กฎ aligned ดีกว่า) ⇒ ไม่ใช่กฎเดียวพัง · **Claude รันเอง (เจ้าของสั่ง) แทน GPT/Codex ที่ระบุไว้เดิม ⇒ ยังต้องผ่านตรวจอิสระ** ก่อนปิดเรื่องถาวร · ห้ามเปิด filter/หยุดยิงสัญญาณสวนเทรน · query: `docs/queries/h1_trend_filter_result.sql` |
 | S2 | **ล้างข้อมูล `bars` เก่าที่ปนอยู่ใน GC/MNQU6** | **พบระหว่างรัน H1 2026-09-03** — 77 แถวต่อ instrument (5m) ย้อนไปถึง 2026-04-15 กระจาย 79 วันปฏิทิน ไม่ต่อเนื่อง ไม่ใช่ backfill จริง น่าจะเป็นข้อมูลทดสอบ/seed เก่าก่อนยุค evidence-first ที่ไม่เคยถูกล้าง · BTCUSDT/NQU6 ไม่มีปัญหานี้ · **ยังไม่กระทบผลใด ๆ ที่มีอยู่** เพราะทุก query ที่อ้างอิงได้กรองช่วงเวลาไว้แล้ว (H4 ปักหมุด window, H1 กรอง `≥2026-08-28`) แต่**query ในอนาคตที่ไม่กรองวันที่จะเจอปัญหาเดิม** ต้องมีคนตรวจว่าแถวนี้คืออะไรและลบทิ้งถ้ายืนยันว่าเป็นข้อมูลทดสอบ |
-| R | **สร้างวงจรเรียนรู้ offline/shadow (counterfactual "ไม่เลื่อน trailing" + โมเดลที่พิสูจน์ได้)** | **ยังบล็อกที่ Phase 1 (L2)** · **เจ้าของสั่ง 2026-09-03 06:25 UTC ขยายเงื่อนไข 07:23 UTC: ห้าม apply production จนกว่าจะปิดครบทั้ง 5 ข้อ (P0-1, P0-2, P1-1, P1-2, R1)** (ดู §0J) — Phase 0/evidence packet อยู่เดิม. 0034 repair + regression **ผ่าน independent re-review แล้วเมื่อ 2026-09-03 และผลคือ REQUEST CHANGES**: P0 ×2 (writer เขียน frozen manifest เองได้; แถว excluded ทำให้ run เป็นโมฆะถาวร) + P1 ×2 (parity ไม่ยึด `risk_ticks`; artifact ไม่ถูกซีลหลัง `done`). Production ยังไม่มีทั้ง 0033 และ 0034 (migration head = `20260902142002`, ตรวจ read-only 2026-09-03 01:12 UTC). **Phase 2 `rescore.ts` ยังไม่เริ่ม** และเงื่อนไข "ถ้า migration ผ่าน" ยังไม่เกิด. ต้องมี migration ต่อจาก 0034 (ห้ามแก้ 0033/0034 ย้อนหลัง) + regression ที่พิสูจน์ counterexample ทั้งสี่ แล้ว re-review อีกรอบ. ห้าม fit model / เปลี่ยน trail / filter / Telegram เหมือนเดิม; apply production ยังเป็นการอนุมัติแยกของเจ้าของ |
+| R | **สร้างวงจรเรียนรู้ offline/shadow (counterfactual "ไม่เลื่อน trailing" + โมเดลที่พิสูจน์ได้)** | **อัปเดต 2026-09-05: 0036 ปิดรายการที่ reviewer ขอใน source และ regression ผ่านฝั่ง Executor; รอ independent raw re-run ก่อนปลดล็อก Phase 2 หรือ production apply** (ดู §0M) · **ยังบล็อกที่ Phase 1 (L2)** · **เจ้าของสั่ง 2026-09-03 06:25 UTC ขยายเงื่อนไข 07:23 UTC: ห้าม apply production จนกว่าจะปิดครบทั้ง 5 ข้อ (P0-1, P0-2, P1-1, P1-2, R1)** (ดู §0J) — Phase 0/evidence packet อยู่เดิม. 0034 repair + regression **ผ่าน independent re-review แล้วเมื่อ 2026-09-03 และผลคือ REQUEST CHANGES**: P0 ×2 (writer เขียน frozen manifest เองได้; แถว excluded ทำให้ run เป็นโมฆะถาวร) + P1 ×2 (parity ไม่ยึด `risk_ticks`; artifact ไม่ถูกซีลหลัง `done`). Production ยังไม่มีทั้ง 0033 และ 0034 (migration head = `20260902142002`, ตรวจ read-only 2026-09-03 01:12 UTC). **Phase 2 `rescore.ts` ยังไม่เริ่ม** และเงื่อนไข "ถ้า migration ผ่าน" ยังไม่เกิด. ต้องมี migration ต่อจาก 0034 (ห้ามแก้ 0033/0034 ย้อนหลัง) + regression ที่พิสูจน์ counterexample ทั้งสี่ แล้ว re-review อีกรอบ. ห้าม fit model / เปลี่ยน trail / filter / Telegram เหมือนเดิม; apply production ยังเป็นการอนุมัติแยกของเจ้าของ |
 
 **ข้อ A ทำอะไรไป:** เพิ่ม param `minRiskRangeShare` (0.3) กับ `minRiskRangeBars` (20)
 ใน `plan.ts` มี `volatilityFloorTicks()` คำนวณพื้นความเสี่ยงจาก median range ของแท่งก่อนหน้า
