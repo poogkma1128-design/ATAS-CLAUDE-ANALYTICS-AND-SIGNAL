@@ -48,9 +48,13 @@ not offset.** That is worth knowing given §0L's timeframe contamination.
   caught this time because a comparison against an outside source made it visible.
 - **The feed is not continuous on a market that never closes.** Bars recorded per UTC day since
   08-28: 258, 159, 224, 228, **288**, 192, 193, 225. Only 2026-09-02 is complete; 08-30 is missing
-  129 of 288. The terminal being closed is the obvious explanation, and it is a reason not to treat
-  "BTCUSDT sessions" as comparable units — and a reason the archive is worth having, since it has no
-  such gaps.
+  129 of 288. **The owner has confirmed the cause: the chart is not left open continuously**
+  (HANDOFF §3.7b). This is not a feed defect to be fixed, and it has two consequences for research.
+  A "day" in our data is a recording window, not a market session, so counting sessions to open a
+  gate is not comparing like with like. And the gaps are **not random** — they track when someone is
+  at the machine, which is tied to time of day, so a dataset built from them can carry a
+  time-of-day bias that nothing in the pipeline would reveal. The archive has no such gaps, which is
+  the strongest argument in this document for using it.
 
 An earlier count in this session put the 09-05 split at 194/31 rather than 192/33. That count was
 computed from an export rounded to whole units, which turns a close of 79589.5 into an on-grid 79590.
