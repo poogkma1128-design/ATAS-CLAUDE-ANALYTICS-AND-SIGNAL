@@ -12,6 +12,85 @@
 
 ---
 
+## 0U. Strategy Engine Phase 1 — **เขียน isolated causal engine แล้ว · รอ Claude review · ไม่แตะ production** (2026-09-06)
+
+เจ้าของสั่งให้ Codex ตรวจ `docs/STRATEGY_ENGINE_PLAN.md` §5 ก่อน แล้วค่อยเริ่ม Phase 1 ตามบทบาทใน
+§0T. Implementation commit คือ **`62618e7399e7fc26da587f992bd429a5fb6db1a9`** บน branch
+**`codex/strategy-engine-phase-1`**. Phase 1 ตอนนี้เป็น pure backend modules + additive migration
+contract เท่านั้น; **ยังไม่ import เข้าสู่ `ingest.ts`, `runRules()`, `public.signals` หรือ Telegram**.
+
+### 0U.1 ผล design review §5 — แผนเดิมยังไม่พร้อมให้เขียน scoring
+
+Codex พบช่องว่างที่อาจทำให้ implementation choice กลายเป็น trading policy โดยไม่ตั้งใจ และแก้แผนแล้ว:
+
+1. น้ำหนัก 25/20/15/20/10/10 ยังไม่มี contract ของ eligibility, direction, normalization,
+   missing-data และ double-counting ⇒ แยก **eligibility/direction gate** ออกจาก evidence score ก่อน.
+2. Percentile เดิมบอกเพียง trailing window แต่ไม่ระบุ population grain, window/min-sample,
+   decision-bar exclusion, interpolation/tie, null/warm-up และ fallback ⇒ บังคับ freeze ทุกช่องใน
+   immutable strategy version; warm-up = `insufficient_history` และห้าม accept.
+3. NO_TRADE/WATCH/GOOD/STRONG/A+ ยังไม่มี exact boundary/rounding ⇒ ยังห้าม emit numeric strategy
+   score/classification จน owner อนุมัติ contiguous half-open bands.
+4. Weight/transform/threshold/band ต้อง freeze ก่อน development run และห้ามปรับบนช่วงที่ใช้รายงานผล;
+   เปลี่ยนค่าใดต้องสร้าง version ใหม่แล้วเริ่ม walk-forward/OOS ใหม่.
+
+ข้อสรุป: **Phase 1 เดินต่อได้** เพราะยังไม่ตัดสิน trade แต่ **Phase 2 ยัง blocked ที่ scoring contract**.
+
+### 0U.2 สิ่งที่ Phase 1 เพิ่มจริง
+
+- `_shared/market_sessions.ts` — รับ session definition ที่มี version + IANA exchange timezone +
+  trading-day rollover + overlapping windows; DST ถูกแปลงด้วย timezone database, ไม่มี hard-coded NQ/GC
+  session และไม่มี seed ที่แอบกลายเป็น production truth.
+- `_shared/key_levels.ts` — VWAP, VAH/VAL 70%, session POC, previous-day/session/initial-balance H/L;
+  ใช้เฉพาะแท่งปิดที่ `closedAt <= decisionAt`, future/unclosed bar ทำให้ fail, footprint ขาดทำให้ profile
+  ทั้งชุดเป็น null พร้อม `missing_footprint` แทนการคำนวณจากข้อมูลบางส่วน. POC tie เลือกราคาต่ำกว่า;
+  value-area tie ขยายสองด้านพร้อมกัน — เป็น deterministic contract ที่ reviewer ต้องท้าทายได้.
+- `_shared/market_context.ts` — reuse `priceActionContext` เป็น structural bias และจัด volatility regime
+  จาก frozen trailing contract; threshold sample ปิด **ก่อน** decision bar, warm-up ไม่คืน regime.
+- `0037_strategy_engine_phase_1.sql` — เพิ่ม versioned session definitions, context columns บน `bars`
+  และ append-only `key_levels`; active/retired session definition แก้ย้อนหลังไม่ได้, RLS เปิด, authenticated
+  อ่านอย่างเดียว, service role เพิ่ม key-level row ได้แต่ update/delete ไม่ได้.
+- เพิ่ม Deno tests 14 กรณีและ SQL regression `supabase/tests/0037_strategy_engine_phase_1_test.sql`.
+
+### 0U.3 หลักฐานที่รันจริง
+
+| คำสั่ง | ผล |
+|---|---|
+| `npx --yes deno task test` | **PASS 163 tests, 0 failed** |
+| `npx --yes deno task check` | **PASS** entry points ทั้ง 4 |
+| `npx --yes deno lint <6 Phase-1 files>` | **PASS** |
+| disposable PostgreSQL replay: `0001_schema.sql` → `0002_rls.sql` → `0037_strategy_engine_phase_1.sql` → `0037_strategy_engine_phase_1_test.sql` | **PASS ทั้ง 4 ไฟล์** |
+| `git diff --cached --check` ก่อน commit | **PASS** |
+
+Raw executable review artifacts:
+
+- `supabase/functions/_shared/market_sessions_test.ts`
+- `supabase/functions/_shared/key_levels_test.ts` — มีตัวอย่าง profile ที่คำนวณมือได้: volume 10/40/50,
+  VWAP 100.4, POC 101, VAL 100, VAH 101
+- `supabase/functions/_shared/market_context_test.ts`
+- `supabase/tests/0037_strategy_engine_phase_1_test.sql`
+
+สิ่งที่ล้มเหลว/ข้ามอย่างเปิดเผย: เครื่องนี้ไม่มี `deno`, `docker`, `psql` ใน PATH จึงใช้ `npx deno`
+และ disposable `embedded-postgres` ใต้ `.tmp`; ลบ `.tmp` แล้วหลังทดสอบ. `deno lint` ทั้ง repo ยัง fail
+จากปัญหาเดิม (`no-import-prefix` ในไฟล์เดิมและ unused `ctx`) จึงรายงาน targeted lint แยก; ไม่แก้ unrelated
+code. **ไม่ได้รัน migration chain 0003–0036 ซ้ำใน disposable DB** เพราะ Phase 1 schema พึ่งเพียง 0001/0002;
+full-chain/linked dry-run ยังเป็นหน้าที่ reviewer ก่อนอนุมัติ queue.
+
+### 0U.4 Production / ข้อห้าม / งานค้าง
+
+**Production status: ไม่ apply migration, ไม่ deploy Edge Function, ไม่เขียน Supabase data, ไม่แก้ rule,
+ไม่สร้าง signal, ไม่ส่ง Telegram, ไม่แก้หรือ install ATAS DLL.** Migration 0037 ห้าม apply ข้าม 0033–0036.
+
+ก่อน integration ต้องมี owner-approved version ของเวลา Asia/Europe/US pre-market/US open/US regular/
+power hour/initial balance แยกตาม instrument และตัดสิน NQ vs MNQ; ก่อน Phase 2 ต้องอนุมัติ scoring contract
+และ exact band boundaries ใน §5. Phase 1 ยัง **UNVERIFIED โดย independent reviewer** จน Claude checkout
+commit `62618e7`, rerun tests/SQL, คำนวณตัวอย่าง 2–3 แท่งด้วยมือ, ตรวจ DST/causality/missing-footprint,
+และยืนยันด้วย diff ว่าไม่มี import path ไป `ingest`, `signals` หรือ Telegram.
+
+Rollback ตอนนี้ทำได้ด้วยการ revert implementation commit + handoff commit บน branch นี้; ไม่มี database
+rollback/deploy rollback เพราะ migration 0037 ยังไม่เคย apply.
+
+---
+
 ## 0T. กติกาแบ่งงาน Codex เขียน / Claude ตรวจ สำหรับ Strategy Engine (ตัดสิน 2026-09-06)
 
 เจ้าของสั่งให้ **Codex เป็นผู้เขียน และ Claude เป็นผู้ตรวจ** สำหรับงาน Strategy Engine (§0S).

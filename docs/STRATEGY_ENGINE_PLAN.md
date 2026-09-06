@@ -1,8 +1,9 @@
 # Plan — confluence strategy engine for NQ and GC
 
-**Status: proposal. Nothing here is built, no migration is written, no file is changed.** This
-document exists so the owner can approve a scope, and so whoever implements it knows what already
-exists and must not be rewritten.
+**Status: Phase 1 implementation prepared in `62618e7`, not integrated or applied. Phases 2–5 remain
+proposal-only.** The Phase 1 code is isolated from ingest/signals/Telegram and migration 0037 remains
+unapplied pending the existing migration queue, an owner-approved session definition and independent
+Claude review. This document remains the scope contract for what must not be rewritten.
 
 The requested target is: ATAS sends order-flow features → the backend decides → Supabase records →
 Telegram announces, with three named strategies backtested per instrument and no single indicator
@@ -107,13 +108,14 @@ Phases 1–5 can be built while this is unresolved. They just cannot be *validat
 All backend, no ATAS change, computed from bars and footprints already stored.
 
 **Key level engine.** VWAP, VAH, VAL, session POC, previous-day high/low, session high/low, initial
-balance high/low. None of these exist anywhere in the repository today — the grep for `vwap`,
-`vah`, `value_area` and `initial_balance` returns nothing. Everything needed to compute them is
-already in `public.bars` and `public.cluster_levels`.
+balance high/low. None existed before Phase 1. Commit `62618e7` adds the isolated causal calculator
+and migration contract; nothing calls or persists it yet. The stored inputs remain `public.bars` and
+`public.cluster_levels`.
 
-**Session engine.** No session concept exists. Asia, Europe, US pre-market, US open, US regular and
-power hour must be defined in **exchange time with daylight saving handled explicitly**, then stamped
-on every bar and signal. A session boundary that silently shifts by an hour twice a year would
+**Session engine.** No production session concept is active. Phase 1 adds an isolated stamper and
+versioned definition schema. Asia, Europe, US pre-market, US open, US regular and power hour must be
+defined in **exchange time with daylight saving handled explicitly**, then stamped on every bar and
+signal in a later reviewed integration. A boundary that silently shifts by an hour twice a year would
 corrupt every session comparison built on top of it.
 
 **Market context.** Trend/bias and volatility regime, so "trend pullback" has something to read.
@@ -122,24 +124,64 @@ corrupt every session comparison built on top of it.
 decision bar's close. This is the same discipline the ML work already enforces in
 `research/hybrid_ml/dataset.py`, and the same class of error §0L was.
 
+**Phase 1 implementation contract (Codex design review, 2026-09-06).** Session windows are data,
+not constants hidden in an evaluator. Each definition carries an immutable version, IANA exchange
+time zone, trading-day rollover minute and ordered windows. Phase 1 deliberately seeds no NQ/GC
+times: Asia/Europe segmentation and the precise US-open/initial-balance convention are owner trading
+definitions, not facts an implementer may invent. Until an independently reviewed definition is
+activated, the pure engine can be tested but the ingest path must not stamp production bars.
+
+Key levels are point-in-time results bound to a decision bar, session-definition version and engine
+version. A future bar is an error, not a row to silently discard. A missing footprint nulls the whole
+VWAP/value-area/session-POC profile and records `missing_footprint`; partial volume must never be
+presented as a complete profile. Market volatility uses a versioned trailing-window contract, excludes
+the decision bar from its thresholds, emits `insufficient_history` during warm-up, and does not feed
+any existing rule or signal in Phase 1.
+
 ## 5. Phase 2 — strategy layer, scoring, and schema
 
 Three strategies, each with an identity and a version, as requested: `NQ_PULLBACK_V1`,
 `NQ_REVERSAL_V1`, `GC_SWEEP_V1`.
 
 **Adaptive thresholds.** Every rule today uses fixed parameters — `volumeMultiple: 3`,
-`minRateRatio: 2`, and so on. The request is percentile thresholds per instrument. Two traps:
+`minRateRatio: 2`, and so on. The request is percentile thresholds per instrument. The complete
+contract must be frozen before an evaluator is written:
 
-- The percentile must be computed from a **trailing window ending at the decision bar**. Computing it
-  over the whole dataset leaks the future into the threshold and inflates every backtest.
-- Percentiles need a stored rolling distribution, or they get recomputed per bar over a long window.
-  Decide which before writing it; the second is simpler and may be fast enough at 288 bars a day.
+- The reference population is keyed by instrument, timeframe, feature, direction (when polarity
+  matters) and strategy-version. NQ and MNQ are never pooled implicitly.
+- The sample is a fixed-length trailing window of bars that **closed before the decision bar**. The
+  decision bar and every later bar are excluded. Whole-dataset percentiles are forbidden leakage.
+- Window length, minimum sample count, percentile, interpolation/tie method, null/non-finite handling
+  and winsorisation (if any) live in the immutable strategy version. Phase 1 uses `nearest_rank` for
+  volatility; a different method requires a new version rather than an in-place edit.
+- Warm-up or missing feature history produces `insufficient_history`. It does not fall back to a
+  global threshold, zero, or a hand-tuned constant, and cannot become an accepted candidate.
+- Start with per-bar recomputation because it is the smaller auditable implementation. A stored rolling
+  distribution is an optimisation only after parity tests prove identical results bar by bar.
 
-**Scoring.** Location 25, absorption 20, divergence 15, stacked imbalance 20, delta acceleration 10,
-volume/big trades 10, with the NO_TRADE / WATCH / GOOD / STRONG / A+ bands. These weights are a
-starting hypothesis. **They must be frozen in a versioned row before the backtest that judges them**,
-or the exercise becomes fitting weights to the evaluation set — the mistake the protocol names
-explicitly and the one v1's ML contract was built to avoid.
+**Scoring.** The proposed Location 25, absorption 20, divergence 15, stacked imbalance 20, delta
+acceleration 10 and volume/big-trades 10 are a starting hypothesis, not yet a scoring contract.
+Before Phase 2 code exists, its versioned row must freeze all of the following:
+
+1. **Eligibility and direction first.** Location/session eligibility, required data, directional
+   agreement and hard rejection reasons are evaluated separately from evidence strength. A high
+   absolute score cannot rescue an ineligible or directionally contradictory candidate.
+2. **One normalized component per concept.** Each component is explicitly mapped to `[0,1]`, states
+   whether it supports long, short or either direction, and names its source features. Overlapping
+   detectors may not double-count the same raw event without an explicit dependency rule.
+3. **Missing is not zero evidence.** Every component declares required/optional status. A missing
+   required component rejects with a closed vocabulary; an optional component uses a frozen
+   renormalisation rule. The implementation records both raw features and normalized contributions.
+4. **Exact arithmetic.** Weights are non-negative and total 100. The raw weighted score, rounding
+   mode and precision are stored. NO_TRADE / WATCH / GOOD / STRONG / A+ are contiguous, non-overlapping
+   half-open intervals with exact boundaries in the same immutable version.
+5. **No fitting on the reported period.** Weights, component transforms, percentile contracts and
+   band boundaries are frozen before the development run, then held fixed through walk-forward and
+   final OOS evaluation. Changing one creates a new version and restarts evaluation.
+
+Until these fields and the exact band boundaries are owner-approved, no numeric strategy score or
+classification is allowed. This closes the ambiguity found in the §5 design review rather than
+letting implementation choices silently become trading policy.
 
 **Logging rejected candidates.** The request is to log every candidate including rejections. This is
 worth doing and has a cost: it is a row per bar per strategy rather than a row per signal, and it
