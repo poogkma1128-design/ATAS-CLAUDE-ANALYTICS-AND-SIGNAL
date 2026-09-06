@@ -3,11 +3,11 @@
 Owner asked to continue training with **all the data there is**, and separately whether historical
 replay can be pulled from ATAS. This document answers both.
 
-**Actual status: the pipeline is widened, tested and pre-flighted against the live database, but the
-fit on real rows has not been run.** No v2 accuracy, calibration or comparison number exists yet, and
-this session produced none. The reason is stated in full under *What could not be run here*, together
-with the two commands that complete it. Nothing below is an independent review, and nothing below
-changes production.
+**Actual status: run, replayed, and negative.** The owner executed the run on the machine holding the
+credentials. Across the eight market-and-task cells, the frequency baseline scores better than or
+equivalent to every fitted model in seven; one cell favours boosting on 66 scored candidates. The
+widened scope did not surface an edge — it removed one that v1 appeared to show. Nothing here is an
+independent review, and nothing here changes production.
 
 ## What changed
 
@@ -87,11 +87,12 @@ this experiment: `tick_size` is the unit under `minRiskTicks`, the risk floor an
 `public.signals`. Someone with the terminal open should compare the value ATAS reports against the
 contract spec before the next statistic is quoted in ticks.
 
-## What was verified here
+## What was verified while building it
 
-Python 3.11.15 with the pinned dependencies (`pip check` clean). The recorded v1 run used 3.12.14;
-that difference is a deviation to note when comparing binaries, and the v1 regression below was run
-under 3.11.15 on both sides so it isolates the code change.
+These are the authoring session's checks on the code, before the owner ran the real thing. Python
+3.11.15 with the pinned dependencies (`pip check` clean); the real run used 3.12.14, as v1 did. The
+v1 regression ran under 3.11.15 on both sides, so it isolates the code change rather than the
+interpreter.
 
 | Check | Result |
 |---|---|
@@ -100,33 +101,165 @@ under 3.11.15 on both sides so it isolates the code change.
 | Synthetic four-instrument v2 run over the real v2 date scope | ✅ 24/24 cells fitted, 20,736 ledger rows, 82,275 prediction rows, 13 s |
 | `verify_artifacts` replay of that v2 run | ✅ `engineering_replay_pass`, 24 artifacts and 360 metric rows recomputed |
 | v2 export SQL executed against the live database | ✅ returns the census in the table above; SELECT-only |
-| `export_snapshot.ps1` (now config-driven) | ⚠️ **not executed** — no PowerShell and no Supabase credentials in this container |
+| `export_snapshot.ps1` and `extract_snapshot.py` against a stubbed CLI and a 9.47 MB reply | ✅ every wrapper shape extracts; nine malformed replies each refused |
 
 The synthetic snapshots are random walks written for the test. They prove the pipeline, the scope
 plumbing and the replay path. **They prove nothing about the market.**
 
-## What could not be run here, and why
+## Where the run happened
 
-The fit on real rows did not happen in this session. The session runs in a cloud container that has
-no Supabase credentials; the only database access is a read-only tool whose results come back into
-the conversation rather than to disk. `public.bars` and `public.cluster_levels` are readable by the
-`authenticated` role only, so there is no anonymous path to bulk-download them either. Exporting
-7,303 rows by hand through the conversation would mean retyping the dataset, which is exactly how a
-silent transcription error gets into research evidence. That was not done.
+Not in the authoring session. That session runs in a cloud container with no Supabase credentials;
+its only database access is a read-only tool whose results return into the conversation rather than
+to disk, and `public.bars` and `public.cluster_levels` are readable by the `authenticated` role only,
+so there was no anonymous bulk path either. Exporting 7,303 rows by hand through a conversation
+would have meant retyping the dataset, which is how a silent transcription error gets into research
+evidence. It was not done. The owner ran it where v1 ran, on the machine holding the credentials and
+the local research directory; the commands are in `research/hybrid_ml/README.md`.
 
-The run therefore belongs where v1's ran — the machine that holds the credentials and the local
-research directory:
+The export needed two attempts for reasons unrelated to the data: the Supabase CLI returned the
+result rows as a bare JSON array rather than the wrapper the shell script expected, and Windows
+PowerShell 5.1 would not parse the roughly nine-megabyte reply the way PowerShell 7 does. Parsing
+now lives in `research/hybrid_ml/extract_snapshot.py`, and the shell script only runs the query and
+saves the reply. Neither attempt changed a row: both are SELECTs, and the raw reply from the first
+attempt is what the second one parsed.
 
-```powershell
-& research/hybrid_ml/export_snapshot.ps1 -OutputDirectory E:\GPT\local-research-data\hybrid-ml\snapshot-v2 -Config research/hybrid_ml/config_v2.json
-& E:\GPT\local-research-data\hybrid-ml\venv\Scripts\python.exe -m research.hybrid_ml.run --snapshot E:\GPT\local-research-data\hybrid-ml\snapshot-v2\snapshot.json --config research/hybrid_ml/config_v2.json --output E:\GPT\local-research-data\hybrid-ml\run-v2
-& E:\GPT\local-research-data\hybrid-ml\venv\Scripts\python.exe -m research.hybrid_ml.verify_artifacts E:\GPT\local-research-data\hybrid-ml\run-v2 --result E:\GPT\local-research-data\hybrid-ml\verification-v2.json
-```
+## Results
 
-On this container the equivalent 10,368-row synthetic run took 13 seconds, so the real one is a
-sub-minute job. Report the resulting `summary.json` back and the results section of this document can
-be filled in — with the same rule v1 used: no winner is declared, and accuracy is never reported as a
-win rate.
+Run `2da55b96-1b8d-403d-9c82-f75daa3f4e4d`, Python 3.12.14, source at `56e265c` (working tree not
+clean at run time, recorded as `source_dirty: true`). Snapshot SHA256
+`01b848db3e6f5305c4eeb6d4bb27ed3b48c1fcf4f65d97b10caf6b464b6b25ab`, **7,303 raw bars**, matching the
+pre-flight census above exactly. **24/24 model cells fitted.** `verify_artifacts` returned
+`engineering_replay_pass` over 24 artifacts, 360 metric rows, 25,245 prediction rows and 14,606
+ledger rows — which is 7,303 × 2, one candidate per bar per task, so no bar was silently dropped
+from the accounting. That replay is the recorder's own; it is not independent review.
+
+### Selected candidates (eligible, not purged)
+
+| market | task | train | calibration | evaluation |
+|---|---|---:|---:|---:|
+| MNQU6 | direction | 427 | 204 | 178 |
+| MNQU6 | level | 213 | 107 | 111 |
+| GC | direction | 400 | 117 | 129 |
+| GC | level | 159 | 44 | 72 |
+| NQU6 | direction | 488 | 52 | 123 |
+| NQU6 | level | 252 | 31 | 68 |
+| BTCUSDT | direction | 814 | 169 | 294 |
+| BTCUSDT | level | 376 | 85 | 136 |
+| **total** | | **3,129** | **809** | **1,111** |
+
+5,049 of 14,606 candidate slots survived (34.6%). The rest were excluded with a recorded reason —
+off-grid bars, footprint that does not reconcile, missing predecessors — or purged at a partition
+boundary. That is the cost of the wider scope being honest about the data it was handed: **7,303
+bars did not become 7,303 usable samples.**
+
+### Evaluation partition, 50-minute horizon
+
+Lower Brier and log loss are better. Accuracy counts four classes and **is not a win rate**.
+
+| market / task | variant | Brier | log loss | accuracy | scored/candidates |
+|---|---|---:|---:|---:|---:|
+| MNQU6 / direction | baseline raw | **0.5668** | **0.9389** | 38.73% | 173/178 |
+| | logistic raw | 0.5962 | 0.9930 | 42.77% | 173/178 |
+| | logistic temperature | 0.5883 | 0.9723 | 42.77% | 173/178 |
+| | boosting raw | 0.6148 | 1.1064 | 39.88% | 173/178 |
+| | boosting temperature | 0.6113 | 1.0978 | 39.88% | 173/178 |
+| MNQU6 / level | baseline raw | **0.5138** | 0.8210 | 54.72% | 106/111 |
+| | logistic raw | 0.5207 | 0.8026 | 51.89% | 106/111 |
+| | logistic temperature | 0.5211 | 0.8035 | 51.89% | 106/111 |
+| | boosting raw | 0.5328 | **0.8018** | 53.77% | 106/111 |
+| | boosting temperature | 0.5427 | 0.8173 | 53.77% | 106/111 |
+| GC / direction | baseline raw | 0.6620 | **1.1817** | 37.50% | 120/129 |
+| | logistic raw | **0.6548** | 1.2432 | 39.17% | 120/129 |
+| | logistic temperature | 0.6572 | 1.2472 | 38.33% | 120/129 |
+| | boosting raw | 0.7104 | 1.3088 | 41.67% | 120/129 |
+| | boosting temperature | 0.7104 | 1.3080 | 41.67% | 120/129 |
+| GC / level | baseline raw | **0.6321** | **1.2002** | 40.91% | 66/72 |
+| | logistic raw | 0.6653 | 1.3884 | 42.42% | 66/72 |
+| | logistic temperature | 0.6659 | 1.3722 | 43.94% | 66/72 |
+| | boosting raw | 0.6546 | 1.6193 | 53.03% | 66/72 |
+| | boosting temperature | 0.6547 | 1.6180 | 53.03% | 66/72 |
+| NQU6 / direction | baseline raw | **0.5182** | **0.7940** | 39.50% | 119/123 |
+| | logistic raw | 0.5957 | 0.8903 | 42.02% | 119/123 |
+| | logistic temperature | 0.6140 | 0.9288 | 42.02% | 119/123 |
+| | boosting raw | 0.6334 | 0.9194 | 45.38% | 119/123 |
+| | boosting temperature | 0.6534 | 0.9575 | 45.38% | 119/123 |
+| NQU6 / level | baseline raw | 0.5260 | 0.8301 | 34.85% | 66/68 |
+| | logistic raw | 0.5302 | 0.7896 | 51.52% | 66/68 |
+| | logistic temperature | 0.5723 | 0.8900 | 51.52% | 66/68 |
+| | boosting raw | **0.4527** | **0.6879** | 68.18% | 66/68 |
+| | boosting temperature | 0.4541 | 0.6931 | 68.18% | 66/68 |
+| BTCUSDT / direction | baseline raw | **0.5459** | **0.8771** | 46.40% | 278/294 |
+| | logistic raw | 0.5495 | 0.9020 | 47.12% | 278/294 |
+| | logistic temperature | 0.5519 | 0.9176 | 47.12% | 278/294 |
+| | boosting raw | 0.5748 | 1.0036 | 44.24% | 278/294 |
+| | boosting temperature | 0.5837 | 1.0310 | 44.24% | 278/294 |
+| BTCUSDT / level | baseline raw | 0.5378 | **0.8599** | 53.54% | 127/136 |
+| | logistic raw | 0.5424 | 1.0809 | 48.82% | 127/136 |
+| | logistic temperature | 0.5427 | 1.0259 | 48.82% | 127/136 |
+| | boosting raw | 0.5565 | 1.1580 | 55.12% | 127/136 |
+| | boosting temperature | **0.5350** | 1.0278 | 58.27% | 127/136 |
+
+### Reading it
+
+The baseline is the weakest thing in the run: a per-time-bin event frequency with no features at all.
+Comparing the best ML variant in each cell against it, on both proper scoring rules:
+
+| market / task | best ML Brier vs baseline | best ML log loss vs baseline | reading |
+|---|---:|---:|---|
+| MNQU6 / direction | +0.0215 worse | +0.0334 worse | baseline |
+| MNQU6 / level | +0.0069 worse | −0.0192 better | split |
+| GC / direction | −0.0072 better | +0.0615 worse | split |
+| GC / level | +0.0225 worse | +0.1882 worse | baseline |
+| NQU6 / direction | +0.0775 worse | +0.0963 worse | baseline |
+| NQU6 / level | **−0.0733 better** | **−0.1422 better** | boosting, n=66 |
+| BTCUSDT / direction | +0.0036 worse | +0.0249 worse | baseline |
+| BTCUSDT / level | −0.0028 better | +0.1679 worse | baseline |
+
+**Seven of eight cells give the featureless baseline the better or equivalent probability.** The
+eleven footprint and price features did not add usable information on this data. The exception,
+NQU6 level with boosting, is the smallest evaluation cell in the run — 66 scored candidates on a
+market that v1 never touched. With eight cells scored, one looking good is what chance produces; it
+is a hypothesis for the next dataset, not a result.
+
+**Accuracy moved the other way from the scores, repeatedly.** GC level boosting reaches 53.03%
+accuracy against the baseline's 40.91% while its log loss degrades from 1.20 to 1.62; BTCUSDT level
+boosting reaches 58.27% against 53.54% with log loss degrading from 0.86 to 1.03. A model that picks
+the right class more often while its probabilities get worse is more confident than it has earned.
+Calibrated probability is the entire output of this system, so accuracy improvements of this shape
+are a warning, not a result — which is why the frozen v1 contract reports all three and refuses to
+call accuracy a win rate.
+
+### What v2 says about v1
+
+v1 observed that MNQU6 level ML had a lower Brier than its baseline: 0.5353 for temperature-scaled
+boosting against 0.5725. That was the single most encouraging number in the v1 report.
+
+With more data and an evaluation window v1 never scored, **it reverses**: baseline 0.5138 against
+0.5427 for the same estimator. The v1 observation does not survive contact with more data.
+
+This is the run's most useful outcome. It is also exactly what the v1 report said its own numbers
+could not establish, so the frozen contract behaved as intended rather than being rescued after the
+fact. GC level, which v1 already scored in the baseline's favour, stayed there.
+
+### What this does not establish
+
+No significance is claimed, and none can be from this run. Candidates overlap heavily — one per
+5-minute bar, each looking 50 minutes ahead — so the scored rows are not independent draws; the
+evaluation spans one to two UTC days per market; per-opportunity artifacts and session-by-instrument
+block resampling do not exist yet (`EXPERIMENT_REVIEW_PROTOCOL.md` §5). "The baseline scores better"
+is an observation about this interval, not proof that these features are worthless. Equally, nothing
+here supports promoting any model, and no model is promoted. There is still no cost, fill, latency or
+P&L backtest, and the timeframe contamination and source-provenance gaps recorded above are unchanged.
+
+### The cheapest way to learn more
+
+Sample size is the binding constraint: the largest evaluation cell in this run is 294 candidates.
+BTCUSDT is the one market where that can change without buying anything — Binance publishes years of
+public data, and `aggTrades` carry the buyer-maker flag, so delta, POC and a genuine footprint can be
+reconstructed rather than approximated. That is the path from a few hundred overlapping candidates to
+tens of thousands, which is what separates "these features carry nothing" from "this interval was too
+short to tell". It needs its own table, ingest path, Gate 0 and independent review before a single
+row of it is trained on.
 
 ## Can historical replay be pulled from the ATAS API?
 
@@ -163,10 +296,18 @@ before a single row is trained on — the same rule that closed V3.1. None of it
 
 ## Roles, boundaries, rollback
 
-Proposer and Executor for this change are the same session, so this is not independent review and
-cannot approve itself. Independent reviewer remains unassigned; a reviewer should re-run the tests,
-repeat the v1 byte-identical regression, run the export SELECT themselves, and check that the scope
-widening did not quietly change the measurement.
+Proposer and Recorder for this change are the same session, which also wrote the reading above, so
+this is not independent review and cannot approve itself. The owner executed the run; the reported
+numbers were relayed from that machine's `report_scores` output, and the authoritative artifacts —
+`snapshot.json`, `candidates.jsonl`, `predictions.jsonl`, `summary.json`, the twelve model files and
+`verification-v2.json` — are local to it, under `E:\GPT\local-research-data\hybrid-ml\run-v2` with
+run id `2da55b96-1b8d-403d-9c82-f75daa3f4e4d`.
+
+Independent reviewer remains unassigned. A reviewer should re-run the tests, repeat the v1
+byte-identical regression, run the export SELECT themselves, check that the scope widening did not
+quietly change the measurement, and read the scores off `summary.json` directly rather than off this
+document. The negative reading deserves the same scrutiny a positive one would get: a bug that
+handicaps the fitted models would produce exactly this table.
 
 No production change: no migration applied (0035 still unapplied), no Edge Function deployed, no data
 written, no rule, filter, Telegram or ATAS DLL change, no `public.experiments` row. Every database
