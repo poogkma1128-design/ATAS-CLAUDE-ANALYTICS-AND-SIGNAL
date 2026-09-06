@@ -6,6 +6,7 @@ available at the decision; future bars are checked for OHLC validity only.
 from __future__ import annotations
 
 from collections import Counter, defaultdict
+from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, ROUND_CEILING, ROUND_FLOOR
 import math
@@ -31,6 +32,40 @@ def timestamp(value):
     if result.tzinfo is None:
         raise ValueError("Timestamp must include timezone")
     return result.astimezone(timezone.utc)
+
+
+@dataclass(frozen=True)
+class Scope:
+    """Which instruments and which decision-time partitions a frozen run may read.
+
+    Everything else - features, barriers, horizon, purging rule - stays fixed in code.
+    Scope is the only thing v2 widens, so a wider run cannot quietly become a different
+    experiment: it is the same measurement applied to more of the same feed.
+    """
+    symbols: tuple
+    start: datetime
+    train_end: datetime
+    cal_end: datetime
+    end: datetime
+
+    def __post_init__(self):
+        if not self.symbols or len(set(self.symbols)) != len(self.symbols):
+            raise ValueError("Scope needs a non-empty set of distinct symbols")
+        if not self.start < self.train_end < self.cal_end < self.end:
+            raise ValueError("Scope partitions must be strictly ordered in time")
+        for moment in (self.start, self.train_end, self.cal_end, self.end):
+            if moment.tzinfo is None:
+                raise ValueError("Scope boundaries must be timezone aware")
+
+
+def scope_from_config(config):
+    return Scope(tuple(config["target_symbols"]), timestamp(config["development_start"]),
+                 timestamp(config["train_end"]), timestamp(config["calibration_end"]),
+                 timestamp(config["development_end_exclusive"]))
+
+
+# The frozen v1 scope stays the default so a v1 call site behaves exactly as it did.
+DEFAULT_SCOPE = Scope(SYMBOLS, START, TRAIN_END, CAL_END, END)
 
 
 def iso(value):
@@ -88,15 +123,15 @@ def footprint_reason(row):
     return None
 
 
-def split_at(decision_time):
-    if not START <= decision_time < END:
+def split_at(decision_time, scope=DEFAULT_SCOPE):
+    if not scope.start <= decision_time < scope.end:
         return "outside_window", True
-    if decision_time < TRAIN_END:
-        name, boundary = "train", TRAIN_END
-    elif decision_time < CAL_END:
-        name, boundary = "calibration", CAL_END
+    if decision_time < scope.train_end:
+        name, boundary = "train", scope.train_end
+    elif decision_time < scope.cal_end:
+        name, boundary = "calibration", scope.cal_end
     else:
-        name, boundary = "evaluation", END
+        name, boundary = "evaluation", scope.end
     # Fixed maximum horizon, never the (possibly early) observed event time.
     return name, decision_time + 10 * STEP >= boundary
 
@@ -139,14 +174,14 @@ def horizon_label(candidate, horizon):
     return None
 
 
-def build_candidates(rows):
+def build_candidates(rows, scope=DEFAULT_SCOPE):
     clocks = defaultdict(dict)
     for row in rows:
-        if row.get("symbol") not in SYMBOLS:
+        if row.get("symbol") not in scope.symbols:
             raise ValueError("Snapshot contains an out-of-scope instrument")
         group = (row["symbol"], row["instrument_id"], row.get("exchange"))
         t = timestamp(row["opened_at"])
-        if not START <= t < END:
+        if not scope.start <= t < scope.end:
             raise ValueError("Snapshot contains rows outside frozen development window")
         if t in clocks[group]:
             raise ValueError("Duplicate instrument timestamp; source must be unambiguous")
@@ -159,7 +194,7 @@ def build_candidates(rows):
     for group, clock in sorted(clocks.items(), key=lambda item: str(item[0])):
         for t, row in sorted(clock.items()):
             decision = t + STEP
-            partition, purged = split_at(decision)
+            partition, purged = split_at(decision, scope)
             base = {"bar_id": row["id"], "instrument_id": row["instrument_id"],
                     "symbol": row["symbol"], "exchange": row.get("exchange"),
                     "opened_at": iso(t), "decision_time": iso(decision),

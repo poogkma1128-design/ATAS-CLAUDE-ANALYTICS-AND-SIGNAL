@@ -17,13 +17,31 @@ import numpy as np
 from sklearn.exceptions import ConvergenceWarning
 from threadpoolctl import threadpool_limits
 
-from .dataset import (FEATURES, LEVEL_FEATURES, SYMBOLS, START, END, TRAIN_END, CAL_END,
-                      build_candidates, candidate_census, horizon_label, iso, timestamp)
+from .dataset import (DEFAULT_SCOPE, FEATURES, LEVEL_FEATURES, SYMBOLS, START, END, TRAIN_END,
+                      CAL_END, build_candidates, candidate_census, horizon_label, iso,
+                      scope_from_config, timestamp)
 from .models import fit_model, calibrate, predict_features, metrics
+
+# A config schema names the one export schema it is allowed to read.
+SCHEMAS = {"hybrid-ml-exploratory-v1": "hybrid-ml-training-export-v1",
+           "hybrid-ml-exploratory-v2": "hybrid-ml-training-export-v2"}
+DEFAULT_QUERIES = {"hybrid-ml-exploratory-v1": "docs/queries/hybrid_ml_training_export_v1.sql"}
+# Everything a wider scope must not change. Only the instruments and the partition
+# boundaries move between v1 and v2; the measurement itself stays frozen.
+INVARIANTS = {"lookback": 12, "horizon": 10, "bar_minutes": 5, "barrier_multiplier": 1.0,
+              "report_horizons": [3, 6, 10], "tasks": ["direction", "level"],
+              "features": list(FEATURES), "level_extra_features": list(LEVEL_FEATURES[-2:]),
+              "hyperparameter_sweep": False, "production_approved": False, "epsilon": 1e-9}
 
 
 def digest(path):
     return hashlib.sha256(Path(path).read_bytes()).hexdigest()
+
+
+def source_label(path, repo):
+    """Name a hashed input by its repository path, or by where it really came from."""
+    path = Path(path).resolve()
+    return str(path.relative_to(repo)) if path.is_relative_to(repo) else str(path)
 
 
 def save_json(path, obj):
@@ -31,19 +49,28 @@ def save_json(path, obj):
 
 
 def validate_config(c):
-    # Dataset v1 is deliberately a frozen measurement, not a parameter-search API.
-    expected = {"schema_version": "hybrid-ml-exploratory-v1", "target_symbols": list(SYMBOLS),
-                "lookback": 12, "horizon": 10, "bar_minutes": 5, "barrier_multiplier": 1.0,
-                "report_horizons": [3, 6, 10], "tasks": ["direction", "level"],
-                "features": list(FEATURES), "level_extra_features": list(LEVEL_FEATURES[-2:]),
-                "hyperparameter_sweep": False, "production_approved": False, "epsilon": 1e-9}
-    for key, value in expected.items():
+    # Neither dataset is a parameter-search API. v1 is a frozen measurement whose scope is
+    # pinned in code; v2 may name a wider scope and nothing else.
+    schema = c.get("schema_version")
+    if schema not in SCHEMAS:
+        raise ValueError("Unknown config schema_version")
+    for key, value in INVARIANTS.items():
         if c.get(key) != value:
-            raise ValueError(f"Frozen v1 config mismatch: {key}")
-    for key, value in [("development_start", START), ("development_end_exclusive", END),
-                       ("train_end", TRAIN_END), ("calibration_end", CAL_END), ("evaluation_end", END)]:
-        if timestamp(c[key]) != value:
-            raise ValueError(f"Frozen v1 time mismatch: {key}")
+            raise ValueError(f"Frozen config mismatch: {key}")
+    if schema == "hybrid-ml-exploratory-v1":
+        if c.get("target_symbols") != list(SYMBOLS):
+            raise ValueError("Frozen v1 config mismatch: target_symbols")
+        for key, value in [("development_start", START), ("development_end_exclusive", END),
+                           ("train_end", TRAIN_END), ("calibration_end", CAL_END), ("evaluation_end", END)]:
+            if timestamp(c[key]) != value:
+                raise ValueError(f"Frozen v1 time mismatch: {key}")
+        return DEFAULT_SCOPE
+    scope = scope_from_config(c)  # Scope rejects an empty, duplicated or unordered scope.
+    if timestamp(c["evaluation_end"]) != scope.end:
+        raise ValueError("Frozen v2 time mismatch: evaluation_end")
+    if not isinstance(c.get("export_query"), str) or not c["export_query"]:
+        raise ValueError("v2 config must name the export query its snapshot came from")
+    return scope
 
 
 def feature_census(selected, names):
@@ -65,27 +92,36 @@ def run(snapshot_path, config_path, output_path):
     if output.exists():
         raise FileExistsError("Refusing to overwrite an experiment directory")
     config = json.loads(config_path.read_text(encoding="utf-8"))
-    validate_config(config)
+    scope = validate_config(config)
     data = json.loads(snapshot_path.read_text(encoding="utf-8"))
-    if data.get("schema_version") != "hybrid-ml-training-export-v1":
+    if data.get("schema_version") != SCHEMAS[config["schema_version"]]:
         raise ValueError("Unsupported snapshot schema")
     rows = data["rows"]
-    if len(rows) != data["row_count"] or {r["symbol"] for r in rows} != set(SYMBOLS):
+    if len(rows) != data["row_count"] or {r["symbol"] for r in rows} != set(scope.symbols):
         raise ValueError("Incomplete or out-of-scope snapshot")
+    if (timestamp(data["development_start"]) != scope.start
+            or timestamp(data["development_end_exclusive"]) != scope.end):
+        raise ValueError("Snapshot window does not match the config scope")
+    query = repo / config.get("export_query", DEFAULT_QUERIES.get(config["schema_version"], ""))
+    if not query.is_file():
+        raise ValueError("Export query named by the config does not exist")
     output.mkdir(parents=True)
     source_files = sorted(Path(__file__).parent.glob("*.py")) + [config_path, Path(__file__).parent/"requirements.txt",
-                  repo/"docs/queries/hybrid_ml_training_export_v1.sql"]
+                  query]
     manifest = {"run_id": str(uuid.uuid4()), "status": "running", "started_at": iso(datetime.now(timezone.utc)),
                 "snapshot_sha256": digest(snapshot_path), "snapshot_path": str(snapshot_path.resolve()),
-                "snapshot_executed_at": data["executed_at"], "source_hashes": {str(p.relative_to(repo)): digest(p) for p in source_files},
+                "snapshot_executed_at": data["executed_at"], "source_hashes": {source_label(p, repo): digest(p) for p in source_files},
                 "git_head": subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=repo, text=True).strip(),
                 "source_dirty": bool(subprocess.check_output(["git", "status", "--porcelain"], cwd=repo, text=True)),
                 "python": platform.python_version(), "libraries": {n: importlib.metadata.version(n) for n in
                     ["numpy", "scipy", "scikit-learn", "joblib", "threadpoolctl"]},
-                "config": config, "independent_review": "pending", "production_approved": False}
+                "config": config, "independent_review": "pending", "production_approved": False,
+                "scope": {"symbols": list(scope.symbols), "start": iso(scope.start),
+                          "train_end": iso(scope.train_end), "calibration_end": iso(scope.cal_end),
+                          "end": iso(scope.end)}}
     save_json(output/"manifest.json", manifest)
     try:
-        ledger = build_candidates(rows)
+        ledger = build_candidates(rows, scope)
         with (output/"candidates.jsonl").open("w", encoding="utf-8") as f:
             for c in ledger:
                 f.write(json.dumps(c, ensure_ascii=False, allow_nan=False) + "\n")
@@ -101,7 +137,7 @@ def run(snapshot_path, config_path, output_path):
                        "Forecast replay only; no trade fills, fees, net P&L or deployable accuracy claim."]}
         predictions = output/"predictions.jsonl"
         with predictions.open("w", encoding="utf-8") as predfile, threadpool_limits(limits=1):
-            for symbol in SYMBOLS:
+            for symbol in scope.symbols:
                 for task in config["tasks"]:
                     candidates = [c for c in selected if c["symbol"] == symbol and c["task"] == task]
                     train = [c for c in candidates if c["partition"] == "train"]
