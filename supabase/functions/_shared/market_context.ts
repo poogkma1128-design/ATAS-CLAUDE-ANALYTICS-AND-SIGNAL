@@ -10,6 +10,8 @@ export interface VolatilityContract {
   version: string;
   lookbackBars: number;
   minSamples: number;
+  /** Maximum close-to-close spacing allowed inside the trailing sample. */
+  maxBarSpacingMs: number;
   lowPercentile: number;
   highPercentile: number;
   method: "nearest_rank";
@@ -74,6 +76,9 @@ function validateContract(contract: VolatilityContract): void {
   ) {
     throw new Error("minSamples must be in [1, lookbackBars]");
   }
+  if (!Number.isSafeInteger(contract.maxBarSpacingMs) || contract.maxBarSpacingMs < 1) {
+    throw new Error("maxBarSpacingMs must be a positive integer");
+  }
   if (
     !(contract.lowPercentile > 0 && contract.lowPercentile < contract.highPercentile &&
       contract.highPercentile < 1)
@@ -137,11 +142,28 @@ export function computeMarketContext(
     ? "neutral"
     : null;
 
-  const ranges = ordered.map((bar, index) =>
-    trueRange(bar, index > 0 ? ordered[index - 1].close : null)
+  // Walk backward from the decision bar so a feed gap resets the usable tail.
+  // The first range in a tail uses its own high-low because no adjacent prior
+  // close exists inside that causal sample.
+  const contiguousTail: CausalMarketBar[] = [];
+  let nextCloseMs = decisionMs;
+  for (let index = ordered.length - 1; index >= 0; index--) {
+    const bar = ordered[index];
+    const closeMs = Date.parse(bar.closedAt);
+    const spacingMs = nextCloseMs - closeMs;
+    if (spacingMs <= 0 || spacingMs > contract.maxBarSpacingMs) break;
+    contiguousTail.unshift(bar);
+    nextCloseMs = closeMs;
+    if (contiguousTail.length === contract.lookbackBars) break;
+  }
+
+  const samples = contiguousTail.map((bar, index) =>
+    trueRange(bar, index > 0 ? contiguousTail[index - 1].close : null)
+  ).sort((a, b) => a - b);
+  const currentRange = trueRange(
+    decisionBar,
+    contiguousTail.at(-1)?.close ?? null,
   );
-  const samples = ranges.slice(-contract.lookbackBars).sort((a, b) => a - b);
-  const currentRange = trueRange(decisionBar, ordered.at(-1)?.close ?? null);
   const enough = samples.length >= contract.minSamples;
   const lowThreshold = enough ? nearestRank(samples, contract.lowPercentile) : null;
   const highThreshold = enough ? nearestRank(samples, contract.highPercentile) : null;
@@ -155,7 +177,7 @@ export function computeMarketContext(
     : "normal";
 
   return {
-    version: `market_context@1+${contract.version}`,
+    version: `market_context@2+${contract.version}`,
     decisionAt: decisionBar.closedAt,
     bias,
     priceAction,

@@ -1,13 +1,14 @@
 # Plan — confluence strategy engine for NQ and GC
 
-**Status: Phase 1 implementation prepared in `62618e7`, not integrated or applied. Numeric Phase 2
+**Status: Phase 1 implementation prepared in `62618e7` and its three P1 repairs are implemented on
+`codex/strategy-engine-phase-1-repair`; neither is integrated or applied. Numeric Phase 2
 scoring is REJECTED AS WRITTEN by the design review in
 `docs/reviews/2026-09-06-strategy-engine-section-5-design-review.md`; only a boolean-first design may
 proceed. Phases 3–5 remain proposal-only.** Phase 1 is isolated from ingest/signals/Telegram and
 migration 0037 remains unapplied pending the existing migration queue, an owner-approved session
-definition and the three P1 repairs from Claude's independent review at `acc3a64` (footprint
-reconciliation, bar adjacency and per-window time zones). The repaired Phase 1 must be re-reviewed
-before integration. This document remains the scope contract for what must not be rewritten.
+definition and independent re-review of the repairs requested at `acc3a64` (footprint reconciliation,
+bar adjacency and per-window time zones). This document remains the scope contract for what must not
+be rewritten.
 
 The requested target is: ATAS sends order-flow features → the backend decides → Supabase records →
 Telegram announces, with three named strategies backtested per instrument and no single indicator
@@ -119,10 +120,12 @@ and migration contract; nothing calls or persists it yet. The stored inputs rema
 `public.cluster_levels`.
 
 **Session engine.** No production session concept is active. Phase 1 adds an isolated stamper and
-versioned definition schema. Asia, Europe, US pre-market, US open, US regular and power hour must be
-defined in **exchange time with daylight saving handled explicitly**, then stamped on every bar and
-signal in a later reviewed integration. A boundary that silently shifts by an hour twice a year would
-corrupt every session comparison built on top of it.
+versioned definition schema. Each Asia, Europe, US pre-market, US open, US regular and power-hour
+window owns an IANA time zone for the market it names; the definition-level time zone is used only for
+the instrument's trading-day rollover. This keeps Tokyo anchored to `Asia/Tokyo`, London to
+`Europe/London` and US windows to the owner-approved US/exchange zone instead of shifting all windows
+with one market's daylight-saving rule. Bars and signals are stamped only in a later reviewed
+integration.
 
 **Market context.** Trend/bias and volatility regime, so "trend pullback" has something to read.
 
@@ -130,19 +133,23 @@ corrupt every session comparison built on top of it.
 decision bar's close. This is the same discipline the ML work already enforces in
 `research/hybrid_ml/dataset.py`, and the same class of error §0L was.
 
-**Phase 1 implementation contract (Codex design review, 2026-09-06).** Session windows are data,
-not constants hidden in an evaluator. Each definition carries an immutable version, IANA exchange
-time zone, trading-day rollover minute and ordered windows. Phase 1 deliberately seeds no NQ/GC
-times: Asia/Europe segmentation and the precise US-open/initial-balance convention are owner trading
-definitions, not facts an implementer may invent. Until an independently reviewed definition is
-activated, the pure engine can be tested but the ingest path must not stamp production bars.
+**Phase 1 implementation contract (Codex design review, repaired 2026-09-07).** Session windows are
+data, not constants hidden in an evaluator. Each definition carries an immutable version, an IANA
+trading-day time zone, a rollover minute and ordered windows whose own IANA time zones are required.
+Phase 1 deliberately seeds no NQ/GC times: Asia/Europe segmentation and the precise US-open/
+initial-balance convention are owner trading definitions, not facts an implementer may invent. Until
+an independently reviewed definition is activated, the pure engine can be tested but the ingest path
+must not stamp production bars.
 
 Key levels are point-in-time results bound to a decision bar, session-definition version and engine
-version. A future bar is an error, not a row to silently discard. A missing footprint nulls the whole
-VWAP/value-area/session-POC profile and records `missing_footprint`; partial volume must never be
-presented as a complete profile. Market volatility uses a versioned trailing-window contract, excludes
-the decision bar from its thresholds, emits `insufficient_history` during warm-up, and does not feed
-any existing rule or signal in Phase 1.
+version. A future bar is an error, not a row to silently discard. A missing footprint, a level outside
+its own bar/with invalid fields, or a level-tick sum that differs from the bar tick count nulls the
+whole VWAP/value-area/session-POC profile and records respectively `missing_footprint`,
+`invalid_footprint_levels` or `footprint_tick_mismatch`; partial or unreconciled volume must never be
+presented as complete. Market volatility uses a versioned trailing-window contract with a frozen
+maximum bar spacing, excludes the decision bar from its thresholds, resets at a feed gap and emits
+`insufficient_history` when the contiguous tail is shorter than `minSamples`. It does not feed any
+existing rule or signal in Phase 1.
 
 ## 5. Phase 2 — strategy layer, scoring, and schema
 

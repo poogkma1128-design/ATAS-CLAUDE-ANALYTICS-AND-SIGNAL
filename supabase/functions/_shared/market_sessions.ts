@@ -10,25 +10,28 @@ export type SessionKey =
 
 export interface SessionWindow {
   key: SessionKey;
-  /** Inclusive exchange-local minute, 0..1439. */
+  /** IANA time zone for the market named by this window. */
+  timeZone: string;
+  /** Inclusive window-local minute, 0..1439. */
   startMinute: number;
-  /** Exclusive exchange-local minute, 0..1439. May wrap midnight. */
+  /** Exclusive window-local minute, 0..1439. May wrap midnight. */
   endMinute: number;
 }
 
 export interface SessionDefinition {
   version: string;
-  exchangeTimeZone: string;
-  /** Minute at which the next named trading day begins. */
+  /** IANA time zone used only to name the instrument's trading day. */
+  tradingDayTimeZone: string;
+  /** Local minute in tradingDayTimeZone at which the next trading day begins. */
   tradingDayRolloverMinute: number;
   windows: SessionWindow[];
 }
 
 export interface SessionStamp {
   definitionVersion: string;
-  exchangeTimeZone: string;
-  exchangeDate: string;
-  exchangeMinute: number;
+  tradingDayTimeZone: string;
+  tradingDayLocalDate: string;
+  tradingDayLocalMinute: number;
   tradingDay: string;
   sessionTags: SessionKey[];
 }
@@ -89,13 +92,17 @@ export function validateSessionDefinition(definition: SessionDefinition): void {
   }
 
   // Construction validates the IANA identifier on every supported runtime.
-  formatter(definition.exchangeTimeZone).format(new Date(0));
+  formatter(definition.tradingDayTimeZone).format(new Date(0));
 
   const keys = new Set<string>();
   for (const window of definition.windows) {
     if (!window.key.trim()) throw new Error("session window key is required");
     if (keys.has(window.key)) throw new Error(`duplicate session window: ${window.key}`);
     keys.add(window.key);
+    if (!window.timeZone.trim()) {
+      throw new Error(`${window.key}.timeZone is required`);
+    }
+    formatter(window.timeZone).format(new Date(0));
     for (
       const [name, value] of [
         ["startMinute", window.startMinute],
@@ -113,8 +120,8 @@ export function validateSessionDefinition(definition: SessionDefinition): void {
 }
 
 /**
- * Stamps an instant in exchange time. Intl applies the IANA time-zone rules, so
- * the same local session time remains stable across daylight-saving changes.
+ * Names the trading day in the instrument's time zone, then evaluates every
+ * session window in that window's own IANA time zone.
  */
 export function stampSession(
   instantIso: string,
@@ -126,9 +133,9 @@ export function stampSession(
     throw new Error("instantIso must be an ISO timestamp");
   }
 
-  const local = localParts(instant, definition.exchangeTimeZone);
+  const local = localParts(instant, definition.tradingDayTimeZone);
   const minute = local.hour * 60 + local.minute;
-  const exchangeDate = isoDate(local.year, local.month, local.day);
+  const localDate = isoDate(local.year, local.month, local.day);
   const tradingDay = isoDate(
     local.year,
     local.month,
@@ -141,12 +148,13 @@ export function stampSession(
 
   return {
     definitionVersion: definition.version,
-    exchangeTimeZone: definition.exchangeTimeZone,
-    exchangeDate,
-    exchangeMinute: minute,
+    tradingDayTimeZone: definition.tradingDayTimeZone,
+    tradingDayLocalDate: localDate,
+    tradingDayLocalMinute: minute,
     tradingDay,
-    sessionTags: definition.windows.filter((window) => inWindow(minute, window)).map((
-      w,
-    ) => w.key),
+    sessionTags: definition.windows.filter((window) => {
+      const windowLocal = localParts(instant, window.timeZone);
+      return inWindow(windowLocal.hour * 60 + windowLocal.minute, window);
+    }).map((window) => window.key),
   };
 }

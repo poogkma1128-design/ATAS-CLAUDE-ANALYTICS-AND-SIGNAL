@@ -34,6 +34,7 @@ const contract = {
   version: "test-vol-v1",
   lookbackBars: 4,
   minSamples: 4,
+  maxBarSpacingMs: 5 * 60_000,
   lowPercentile: 0.25,
   highPercentile: 0.75,
   method: "nearest_rank" as const,
@@ -58,6 +59,50 @@ Deno.test("market context: warm-up is explicit and emits no regime", () => {
   assertEquals(result.volatility.status, "insufficient_history");
   assertEquals(result.volatility.regime, null);
   assertEquals(result.volatility.lowThreshold, null);
+});
+
+Deno.test("market context: a gap before the decision bar fails closed", () => {
+  const history = [bar(0, 0.5), bar(1, 0.5), bar(2, 0.5), bar(3, 0.5)];
+  const decision = bar(4, 0.5, {
+    openedAt: "2026-09-07T17:00:00.000Z",
+    closedAt: "2026-09-07T17:05:00.000Z",
+    open: 120,
+    high: 120.25,
+    low: 119.75,
+    close: 120,
+  });
+  const result = computeMarketContext(decision, history, contract);
+
+  assertEquals(result.volatility.status, "insufficient_history");
+  assertEquals(result.volatility.sampleCount, 0);
+  assertEquals(result.volatility.trueRange, 0.5);
+  assertEquals(result.volatility.regime, null);
+  assertEquals(result.volatility.lowThreshold, null);
+  assertEquals(result.volatility.highThreshold, null);
+});
+
+Deno.test("market context: a gap inside the required lookback resets the sample", () => {
+  const history = [
+    bar(0, 2),
+    bar(1, 3),
+    bar(2, 4, {
+      openedAt: "2026-09-07T15:00:00.000Z",
+      closedAt: "2026-09-07T15:05:00.000Z",
+    }),
+    bar(3, 5, {
+      openedAt: "2026-09-07T15:05:00.000Z",
+      closedAt: "2026-09-07T15:10:00.000Z",
+    }),
+  ];
+  const decision = bar(4, 6, {
+    openedAt: "2026-09-07T15:10:00.000Z",
+    closedAt: "2026-09-07T15:15:00.000Z",
+  });
+  const result = computeMarketContext(decision, history, contract);
+
+  assertEquals(result.volatility.status, "insufficient_history");
+  assertEquals(result.volatility.sampleCount, 2);
+  assertEquals(result.volatility.regime, null);
 });
 
 Deno.test("market context: future history fails closed", () => {

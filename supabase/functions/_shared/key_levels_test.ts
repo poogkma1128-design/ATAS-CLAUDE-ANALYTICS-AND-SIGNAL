@@ -14,6 +14,7 @@ function bar(overrides: Partial<CausalLevelBar>): CausalLevelBar {
     isClosed: true,
     high: 101,
     low: 99,
+    ticks: 0,
     tradingDay: "2026-09-07",
     sessionTags: ["us_regular", "initial_balance"],
     levels: [],
@@ -35,7 +36,7 @@ Deno.test("key levels: hand-calculated profile and ranges use only causal bars",
         sessionTags: ["us_regular"],
         levels: [level(100, 1)],
       }),
-      bar({ levels: [level(99, 10), level(100, 20)] }),
+      bar({ levels: [level(99, 10), level(100, 20)], ticks: 2 }),
       bar({
         openedAt: "2026-09-07T13:35:00Z",
         closedAt: "2026-09-07T13:40:00Z",
@@ -43,6 +44,7 @@ Deno.test("key levels: hand-calculated profile and ranges use only causal bars",
         low: 100,
         sessionTags: ["us_regular"],
         levels: [level(100, 20), level(101, 50)],
+        ticks: 2,
       }),
     ],
     "2026-09-07T13:40:00Z",
@@ -76,6 +78,34 @@ Deno.test("key levels: a missing footprint nulls the whole profile", () => {
   assertEquals(result.vah, null);
   assertEquals(result.val, null);
   assertEquals(result.sessionPoc, null);
+});
+
+Deno.test("key levels: a level outside its own bar rejects the whole profile", () => {
+  const result = computeKeyLevels(
+    [bar({ levels: [level(102, 10)], ticks: 1 })],
+    "2026-09-07T13:35:00Z",
+    "2026-09-07",
+    options,
+  );
+
+  assertEquals(result.profileStatus, "invalid_footprint_levels");
+  assertEquals(result.vwap, null);
+  assertEquals(result.sessionPoc, null);
+  assertEquals(result.diagnostics.rejectedProfileBars.invalid_footprint_levels, 1);
+});
+
+Deno.test("key levels: a footprint tick mismatch rejects the whole profile", () => {
+  const result = computeKeyLevels(
+    [bar({ levels: [level(100, 10), level(101, 20)], ticks: 3 })],
+    "2026-09-07T13:35:00Z",
+    "2026-09-07",
+    options,
+  );
+
+  assertEquals(result.profileStatus, "footprint_tick_mismatch");
+  assertEquals(result.vah, null);
+  assertEquals(result.val, null);
+  assertEquals(result.diagnostics.rejectedProfileBars.footprint_tick_mismatch, 1);
 });
 
 Deno.test("key levels: future bars fail closed instead of being silently dropped", () => {
