@@ -8,7 +8,7 @@ import joblib
 import numpy as np
 from threadpoolctl import threadpool_limits
 
-from .dataset import build_candidates, horizon_label
+from .dataset import build_candidates, horizon_label, scope_from_config
 from .models import predict_features
 from .run import digest, save_json
 
@@ -26,7 +26,9 @@ def verify(run_directory, result_path=None):
         assert digest(repo/filename) == sha, filename
     data = json.loads(Path(manifest["snapshot_path"]).read_text(encoding="utf-8"))
     ledger = [json.loads(line) for line in (path/"candidates.jsonl").read_text(encoding="utf-8").splitlines()]
-    assert build_candidates(data["rows"]) == ledger
+    # Rebuild under the run's own recorded scope, so a v2 run is replayed as v2 and a
+    # v1 run stays exactly as v1: the config carries both instruments and boundaries.
+    assert build_candidates(data["rows"], scope_from_config(manifest["config"])) == ledger
     selected = {c["candidate_id"]: c for c in ledger if c["eligible"] and not c["purged"]}
     predictions = [json.loads(line) for line in (path/"predictions.jsonl").read_text(encoding="utf-8").splitlines()]
     summary = json.loads((path/"summary.json").read_text(encoding="utf-8"))

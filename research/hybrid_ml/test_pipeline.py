@@ -1,8 +1,10 @@
 """Synthetic causality, time split, censoring, and estimator regression checks."""
 import copy
-from datetime import timedelta
+from datetime import datetime, timedelta, timezone
 import json
 from pathlib import Path
+import shutil
+import tempfile
 import unittest
 
 import numpy as np
@@ -11,7 +13,7 @@ from threadpoolctl import threadpool_limits
 from research.hybrid_ml import dataset as d
 from research.hybrid_ml.models import (cumulative_probabilities, fit_model, calibrate,
                                       predict_features, risk_rows, metrics)
-from research.hybrid_ml.run import validate_config
+from research.hybrid_ml.run import run, validate_config
 
 
 def rows(n=55, start=d.START, symbol="MNQU6"):
@@ -210,6 +212,124 @@ class ModelTests(unittest.TestCase):
             bad = dict(self.config, **{key: value})
             with self.assertRaises(ValueError):
                 validate_config(bad)
+
+
+def walk(n, start, symbol, instrument, tick=.25, seed=7):
+    """Deterministic random walk so both barriers are reachable and classes vary."""
+    rng = np.random.default_rng(seed)
+    out, price = [], 100.
+    for i in range(n):
+        step = float(rng.normal(0, 4 * tick))
+        close = round((price + step) / tick) * tick
+        high, low = max(price, close) + 2 * tick, min(price, close) - 2 * tick
+        poc = round(((high + low) / 2) / tick) * tick
+        ask, bid = 12. + i % 5, 8. + i % 3
+        out.append(dict(id=f"{symbol}-{i}", instrument_id=instrument, symbol=symbol,
+                        exchange="test", tick_size=tick, timeframe_sec=300, timeframe="5m",
+                        is_closed=True, opened_at=d.iso(start + i * d.STEP), open=price,
+                        high=high, low=low, close=close, volume=ask + bid, ask_volume=ask,
+                        bid_volume=bid, ticks=10, level_count=3, level_volume_sum=ask + bid,
+                        ask_sum=ask, bid_sum=bid, tick_sum=10, max_level_volume=6.,
+                        derived_poc=poc, outside_level_count=0, invalid_level_count=0))
+        price = close
+    return out
+
+
+class ScopeTests(unittest.TestCase):
+    """v2 widens which instruments and days are read; it may widen nothing else."""
+
+    def setUp(self):
+        self.v2 = json.loads(Path(__file__).with_name("config_v2.json").read_text(encoding="utf-8"))
+
+    def test_v2_config_yields_its_declared_scope(self):
+        scope = validate_config(self.v2)
+        self.assertEqual(scope.symbols, ("MNQU6", "GC", "NQU6", "BTCUSDT"))
+        self.assertEqual(scope.start, datetime(2026, 8, 28, tzinfo=timezone.utc))
+        self.assertEqual(scope.train_end, datetime(2026, 9, 3, tzinfo=timezone.utc))
+        self.assertEqual(scope.cal_end, datetime(2026, 9, 4, tzinfo=timezone.utc))
+        self.assertEqual(scope.end, datetime(2026, 9, 6, tzinfo=timezone.utc))
+        self.assertEqual(validate_config(json.loads(
+            Path(__file__).with_name("config_v1.json").read_text(encoding="utf-8"))), d.DEFAULT_SCOPE)
+
+    def test_v2_rejects_a_changed_measurement_or_a_broken_scope(self):
+        for key, value in [("lookback", 50), ("horizon", 20), ("features", []),
+                           ("hyperparameter_sweep", True), ("production_approved", True),
+                           ("report_horizons", [3, 6, 12]), ("export_query", ""),
+                           ("target_symbols", []), ("target_symbols", ["GC", "GC"]),
+                           ("train_end", "2026-09-07T00:00:00Z"),
+                           ("evaluation_end", "2026-09-05T00:00:00Z"),
+                           ("schema_version", "hybrid-ml-exploratory-v3")]:
+            with self.assertRaises(ValueError, msg=key):
+                validate_config(dict(self.v2, **{key: value}))
+
+    def test_scope_admits_only_its_own_instruments_and_days(self):
+        scope = validate_config(self.v2)
+        source = walk(40, scope.train_end - timedelta(hours=2), "NQU6", "NQU6-test-id")
+        ledger = d.build_candidates(source, scope)  # v1's default scope would reject NQU6
+        self.assertTrue(any(c["eligible"] for c in ledger))
+        with self.assertRaises(ValueError):
+            d.build_candidates(source)
+        with self.assertRaises(ValueError):
+            d.build_candidates(walk(5, scope.end, "NQU6", "NQU6-test-id"), scope)
+        self.assertEqual(d.split_at(scope.train_end - timedelta(minutes=50), scope), ("train", True))
+        self.assertEqual(d.split_at(scope.train_end - timedelta(minutes=55), scope), ("train", False))
+        self.assertEqual(d.split_at(scope.cal_end, scope), ("evaluation", False))
+        self.assertEqual(d.split_at(scope.end, scope), ("outside_window", True))
+        # The same decision time partitions differently under v1, which is the whole point.
+        self.assertEqual(d.split_at(scope.train_end)[0], "evaluation")
+
+
+class RunnerTests(unittest.TestCase):
+    """End to end on a synthetic multi-instrument snapshot; no database is touched."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hybrid-ml-test-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        start = datetime(2026, 8, 28, tzinfo=timezone.utc)
+        self.config = dict(json.loads(Path(__file__).with_name("config_v2.json").read_text(encoding="utf-8")),
+                           target_symbols=["MNQU6", "NQU6"],
+                           development_start=d.iso(start),
+                           train_end=d.iso(start + timedelta(hours=8)),
+                           calibration_end=d.iso(start + timedelta(hours=11)),
+                           evaluation_end=d.iso(start + timedelta(hours=14)),
+                           development_end_exclusive=d.iso(start + timedelta(hours=14)))
+        self.config_path = self.tmp / "config_test.json"
+        self.config_path.write_text(json.dumps(self.config), encoding="utf-8")
+        rows = (walk(168, start, "MNQU6", "MNQU6-test-id", seed=11)
+                + walk(168, start, "NQU6", "NQU6-test-id", seed=13))
+        self.snapshot = self.tmp / "snapshot.json"
+        self.snapshot.write_text(json.dumps({
+            "schema_version": "hybrid-ml-training-export-v2",
+            "executed_at": "2026-09-06T00:00:00Z", "project_ref": "test",
+            "target_symbols": self.config["target_symbols"],
+            "development_start": self.config["development_start"],
+            "development_end_exclusive": self.config["development_end_exclusive"],
+            "row_count": len(rows), "rows": rows,
+            "limitations": ["Synthetic snapshot for a pipeline test; not market data."]}),
+            encoding="utf-8")
+
+    def test_multi_instrument_run_completes_and_records_its_scope(self):
+        with threadpool_limits(limits=1):
+            result = run(self.snapshot, self.config_path, self.tmp / "run")
+        self.assertEqual(result["status"], "completed_exploratory")
+        summary = json.loads((self.tmp / "run" / "summary.json").read_text(encoding="utf-8"))
+        manifest = json.loads((self.tmp / "run" / "manifest.json").read_text(encoding="utf-8"))
+        self.assertEqual(manifest["scope"]["symbols"], ["MNQU6", "NQU6"])
+        self.assertEqual(len(summary["cells"]), 2 * 2 * 3)  # symbols x tasks x estimators
+        self.assertEqual({c["symbol"] for c in summary["cells"]}, {"MNQU6", "NQU6"})
+        self.assertGreater(sum(c["fit_status"] == "fitted" for c in summary["cells"]), 0)
+        partitions = {c["partition"] for c in summary["candidate_census"]}
+        self.assertTrue({"train", "calibration", "evaluation"} <= partitions)
+
+    def test_runner_refuses_a_repository_output_and_a_mismatched_snapshot(self):
+        repo = Path(__file__).resolve().parents[2]
+        with self.assertRaises(ValueError):
+            run(self.snapshot, self.config_path, repo / "unwanted-run")
+        narrowed = self.tmp / "config_narrow.json"
+        narrowed.write_text(json.dumps(dict(self.config, target_symbols=["MNQU6"])), encoding="utf-8")
+        with self.assertRaises(ValueError):
+            run(self.snapshot, narrowed, self.tmp / "run-narrow")
+        self.assertFalse((repo / "unwanted-run").exists())
 
 
 if __name__ == "__main__":

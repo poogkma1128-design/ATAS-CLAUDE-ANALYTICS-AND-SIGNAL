@@ -12,6 +12,70 @@
 
 ---
 
+## 0P. ML v2 ขยาย scope ครบ 4 ตลาด — **ไปป์ไลน์พร้อมและตรวจแล้ว แต่ยังไม่ได้ฝึกกับข้อมูลจริง** (2026-09-06)
+
+เจ้าของสั่ง "train ML ต่อ ด้วยทั้งหมดที่มี" และถามว่าดึง replay ย้อนหลังจาก ATAS API ได้ไหม.
+งานนี้ขยาย **scope อย่างเดียว** ไม่แตะสูตร: feature, barrier, horizon, purge, estimator,
+hyperparameter, seed เหมือน v1 ทุกตัว และไม่มีค่าไหนถูกเลือกจากการดูคะแนน evaluation.
+รายงานเต็ม: `docs/experiments/2026-09-06-hybrid-ml-training-v2.md`.
+
+| | v1 (รันไปแล้ว) | v2 (ยังไม่รัน) |
+|---|---|---|
+| ตลาด | MNQU6, GC | + **NQU6, BTCUSDT** |
+| ช่วง UTC | 08-28 → 09-04 | 08-28 → **09-06** |
+| train / calibration / evaluation | <09-02 / 09-02 / 09-03 | <09-03 / 09-03 / **09-04→09-06** |
+| แถวที่ SELECT คืน | 3,382 | **7,303** |
+| model cells | 12 | 24 |
+
+**🔴 สิ่งที่ยังไม่ได้ทำ — ต้องรันบนเครื่องเจ้าของ:** เซสชันนี้อยู่บน cloud container ที่**ไม่มี
+credential ของ Supabase**; ตาราง`bars`/`cluster_levels` เปิดให้อ่านเฉพาะ role `authenticated`
+(ตรวจ pg_policies แล้ว) และเครื่องมือ read-only ที่มีคืนผลเข้าบทสนทนา ไม่ลงดิสก์ ⇒ การดึง 7,303 แถว
+ออกมาต้อง "พิมพ์ซ้ำ" ซึ่งเป็นทางที่ทำให้ข้อมูลวิจัยเพี้ยนแบบเงียบ ๆ **จึงไม่ทำ**. รันจริงด้วย 3 คำสั่ง
+ใน README (export → run → verify); เทียบจากรัน synthetic 10,368 แถวที่นี่ใช้ **13 วินาที**
+⇒ ของจริงไม่ถึงนาที. ส่ง `summary.json` กลับมาแล้วจะเติมผลลงเอกสารให้.
+
+**ตรวจแล้วที่นี่ (Python 3.11.15, `pip check` ผ่าน; v1 เดิมใช้ 3.12.14 — เป็นข้อต่างที่ต้องบันทึก):**
+
+| การตรวจ | ผล |
+|---|---|
+| `unittest research.hybrid_ml.test_pipeline` | ✅ **24 ผ่าน** (เดิม 19 · เพิ่ม 5 เรื่อง scope/config/multi-instrument) |
+| regression v1: snapshot เดิม รันด้วยโค้ดก่อนแก้ vs หลังแก้ | ✅ **artifact ตรงกันทุกไบต์ 15/15** รวม model binary ทั้ง 12 |
+| รัน v2 synthetic 4 ตลาดบนช่วงวันจริง | ✅ 24/24 cells · ledger 20,736 · prediction 82,275 |
+| `verify_artifacts` replay ของรันนั้น | ✅ `engineering_replay_pass` |
+| v2 export SQL ยิงกับ DB จริง | ✅ ได้ census ตามตารางล่าง (SELECT อย่างเดียว) |
+| `export_snapshot.ps1` (แก้ให้อ่าน scope จาก config) | ⚠️ **ยังไม่ได้รัน** — container ไม่มี PowerShell/credential |
+
+**Census จาก DB จริง 2026-09-06 (read-only):** MNQU6 2,242 · GC 1,642 · NQU6 1,162 · BTCUSDT 2,257
+= **7,303 แถว** · **off-grid 1,307 แถว** (คือการปนเปื้อน §0L ที่ยังไม่ถูก quarantine เพราะ 0035
+ยังไม่ apply — export เก็บไว้และติดธง แล้วตัวสร้าง candidate ตัดทิ้งด้วยเหตุผล `off_grid`
+นับไว้ใน ledger ไม่ได้ลบเงียบ) · footprint tick mismatch 2,235 · level นอก high/low 1,593
+⇒ **แถวที่ใช้ได้จริงจะน้อยกว่า 7,303 มาก** รู้ตัวเลขแน่ตอนรันเท่านั้น.
+ตรวจ pre-flight แล้ว: 1 instrument identity ต่อ symbol และไม่มี timestamp ซ้ำ (สองเงื่อนไขที่จะทำให้รันล้ม).
+
+**⚠️ เจอระหว่างทาง ไม่ได้แก้ (ของเดิม มีมาตั้งแต่ v1):** `instruments.tick_size` ที่ ATAS ส่งมาคือ
+**MNQU6 0.75 · GC 0.30 · NQU6 0.25 · BTCUSDT 10.0** — สามตัวไม่ตรง tick มาตรฐานของสัญญา
+(MNQ 0.25, GC 0.10) และสองตัวแรกเป็น **3 เท่า** พอดี. เรื่องนี้ใหญ่กว่างาน ML เพราะ `tick_size`
+คือหน่วยของ `minRiskTicks`, พื้นความเสี่ยง และ **R ทุกตัวใน `public.signals`**. ต้องมีคนเปิด ATAS
+เทียบกับสเปกสัญญาก่อนอ้างสถิติที่นับเป็น tick อีก — ที่นี่ตรวจไม่ได้เพราะไม่เห็นหน้าจอ.
+
+**คำตอบเรื่อง ATAS API / Replay: ดึงย้อนหลังแบบมีประโยชน์ไม่ได้ และเคยวัดไปแล้ว.** ATAS ไม่มี REST/
+cloud API สำหรับข้อมูลย้อนหลัง — มีแต่ .NET SDK ที่รันในโปรแกรม (ก็คือ indicator ตัวนี้เอง) และเห็นได้
+แค่เท่าที่ผู้ให้ข้อมูลส่งมา. เจ้าของเช็กเองแล้ว 2026-09-03: **M5 ลึกแค่ ~3-4 วัน สั้นกว่าที่ Supabase
+มีอยู่** ⇒ backfill ได้ 0 แท่งใหม่ (§ญ.11 + แถว AA §7.2). Market Replay ก็ผูกกับ retention เดียวกัน
+และการยิงแท่งเก่าเข้า `ingest` จะรันกฎวันนี้ทับแล้วเขียน `public.signals` = ปนเปื้อนสถิติทั้งหมด **ห้าม**.
+ถ้าอยากได้ประวัติจริงต้องเปลี่ยนแหล่ง: **BTCUSDT ใช้ข้อมูลสาธารณะของ Binance ได้ฟรีย้อนหลังเป็นปี
+และ `aggTrades` มีธงฝั่งผู้เคาะ ⇒ สร้าง delta/POC/footprint ขึ้นใหม่ได้จริง** (คุ้มที่สุด) · ส่วน
+NQ/MNQ/GC ต้องซื้อ (Databento, CME DataMine, dxFeed/Rithmic/CQG ที่ลึกกว่า). ทุกทางต้องลง
+**ตารางแยก + Gate 0 + independent review** ก่อนเอาไปเทรน เหมือนกติกาที่ปิด V3.1.
+
+**บทบาท/rollback:** Proposer กับ Executor เป็นเซสชันเดียวกัน ⇒ **ไม่ใช่ independent review และ
+อนุมัติตัวเองไม่ได้**; ผู้ตรวจอิสระยังไม่มี. **ไม่มี production change:** ไม่ apply migration
+(0035 ยังค้าง), ไม่ deploy, ไม่เขียนข้อมูล, ไม่แตะ rule/filter/Telegram/ATAS DLL, ไม่มีแถว
+`public.experiments` — ทุกคำสั่ง DB เป็น SELECT. rollback = revert commit ไม่มี state ให้ย้อน.
+**เอกสารเพิ่ม:** รายงาน v2, `config_v2.json`, `hybrid_ml_training_export_v2.sql`, README ของ pipeline.
+
+---
+
 ## 0O. MNQ / GC ML — **ฝึกทดลองและ forecast replay เสร็จ; ยังไม่รับรองใช้จริง** (2026-09-06)
 
 เจ้าของสั่ง **"ฝีกเลย"** หลังรับทราบ §0N แล้วสั่งทำต่อ: ดำเนินการฝึก offline เฉพาะ MNQ (`MNQU6`)
