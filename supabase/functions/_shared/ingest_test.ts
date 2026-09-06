@@ -532,6 +532,66 @@ Deno.test("ingest: a database error is surfaced, not swallowed", async () => {
   assertEquals(message, "instrument upsert failed: permission denied");
 });
 
+Deno.test("ingest: a known instrument keeps its curated tick, whatever the chart says", async () => {
+  // The bridge sends the chart's price step as `tickSize`. On the owner's
+  // charts that is not the contract tick (HANDOFF §0Y: MNQU6 reported 0.75
+  // against a real 0.25), and `tick_size` divides every MAE/MFE and R-multiple
+  // in the database. So an instrument that already exists must not have its
+  // tick rewritten by an ingest, or a corrected value silently reverts the
+  // next time the terminal is opened.
+  const client = new StubClient()
+    .queue("instruments.select", { data: [{ id: "inst-1" }], error: null })
+    .queue("rules.select", { data: [], error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    });
+
+  await ingest(client.asClient(), payload());
+
+  assertEquals(client.callsFor("instruments", "upsert").length, 0);
+  assertEquals(client.callsFor("instruments", "select").length, 1);
+});
+
+Deno.test("ingest: an unknown instrument is still seeded from the payload", async () => {
+  // The lookup returning nothing is the one case where the payload's tick is
+  // the only value available, so a brand-new symbol still gets a row.
+  const client = new StubClient()
+    .queue("instruments.select", { data: [], error: null })
+    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("rules.select", { data: [], error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    });
+
+  await ingest(client.asClient(), payload());
+
+  const rows = client.callsFor("instruments", "upsert");
+  assertEquals(rows.length, 1);
+  const row = rows[0].ops[0].args[0] as Record<string, unknown>;
+  assertEquals(row.symbol, "ES");
+  assertEquals(row.tick_size, 0.25);
+});
+
+Deno.test("ingest: a failed instrument lookup is surfaced, not treated as absent", async () => {
+  // Swallowing this would make a permissions error look like a new symbol and
+  // seed the wrong tick over a curated one.
+  const client = new StubClient().queue("instruments.select", {
+    data: null,
+    error: { message: "permission denied" },
+  });
+
+  let message = "";
+  try {
+    await ingest(client.asClient(), payload());
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+
+  assertEquals(message, "instrument lookup failed: permission denied");
+});
+
 Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
   // Startup backfill arrives as one request carrying the whole visible history.
   // Those bars closed long ago, so their signals belong in the database and the

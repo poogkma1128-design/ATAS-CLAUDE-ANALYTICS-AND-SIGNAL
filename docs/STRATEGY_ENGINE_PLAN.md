@@ -98,11 +98,34 @@ Four things must be settled before results from this engine mean anything:
    Production migration head is still `20260902142002`; **0033, 0034, 0035 and 0036 are all
    unapplied**, and 0034/0036 are blocked on independent review. Every migration this plan proposes
    queues behind them.
-2. **`tick_size` is wrong or at least not what its name says** — MNQU6 0.75, GC 0.30, BTCUSDT 10.0,
-   against contract ticks of 0.25, 0.10 and 0.1. `plan.ts` computes stop, target and every R-multiple
-   directly from it. Confirm against the terminal before any R number from this engine is trusted.
-3. **NQ or MNQ.** The request says NQ; most data is MNQU6. They are different contracts with
-   different tick values, and pooling them silently would be its own contamination.
+2. **`tick_size` is confirmed wrong on three of four instruments, including the chosen one.** This is
+   no longer a suspicion. The smallest gap between distinct traded prices in the footprint levels the
+   same feed recorded settles it (`docs/queries/instrument_tick_identity.sql`):
+
+   | symbol | recorded `tick_size` | observed price step | ratio | verdict |
+   |---|---:|---:|---:|---|
+   | **MNQU6** | **0.75** | **0.25** | **3×** | **DISAGREES** — the chosen instrument |
+   | GC | 0.30 | 0.10 | 3× | DISAGREES |
+   | BTCUSDT | 10.00 | 0.10 | 100× | DISAGREES |
+   | NQU6 | 0.25 | 0.25 | 1× | agrees |
+
+   `tick_value` is **null on all four**, so no money figure can be computed at all. `plan.ts` computes
+   stop, target and every R-multiple from `tick_size`; migration 0003 divides by it for every MAE/MFE
+   in ticks. Every tick-denominated statistic already stored for MNQU6 — 1,391 signals with outcomes,
+   the largest such population in the database — was computed against a tick three times too large.
+
+   **Root cause and fix are written, not yet applied.** The bridge sends ATAS's chart price step and
+   `upsertInstrument()` wrote it over the row on every ingest, so the value could not simply be
+   corrected in place. `ingest.ts` now treats the tick as curated, and migration 0038 stamps
+   `signal_outcomes.tick_size_used`, corrects the three instruments, and adds a trigger that holds the
+   value against any blind overwrite — so the correction no longer depends on a deployment staying
+   current. Per the owner's decision no stored measurement is rewritten; the corrected reading comes
+   from the `signal_outcomes_true_ticks` view. `tick_value` stays null because nothing ever observed
+   it. 0038 queues behind 0033-0036 like everything else. See HANDOFF §0Z.
+3. **NQ or MNQ — decided: MNQ (`MNQU6`).** Owner decision, 2026-09-06. They are separate order books,
+   not one feed recorded twice: across 1,162 bars sharing a timestamp, OHLC matches on 31 and volume
+   and ticks match on **zero**. Pooling them stays forbidden. What the choice costs and buys is in
+   §10 item 1.
 4. **Where NQ and GC history comes from.** The Binance archive solves BTCUSDT only. For NQ and GC the
    options are: keep collecting live (slow, and gapped whenever the terminal is off), or buy history
    (Databento, CME DataMine, a deeper broker feed). This is a spending decision, not a technical one.
@@ -146,8 +169,11 @@ any existing rule or signal in Phase 1.
 
 ## 5. Phase 2 — strategy layer, scoring, and schema
 
-Three strategies, each with an identity and a version, as requested: `NQ_PULLBACK_V1`,
-`NQ_REVERSAL_V1`, `GC_SWEEP_V1`.
+Three strategies, each with an identity and a version: `MNQ_PULLBACK_V1`, `MNQ_REVERSAL_V1`,
+`GC_SWEEP_V1`. The first two were named `NQ_*` while the instrument was undecided; the owner chose
+MNQ on 2026-09-06 (§3 item 3, §10 item 1), so they are bound to `MNQU6` and the names follow. Review
+artifacts dated before that decision still carry the old names; they are point-in-time records and are
+not rewritten.
 
 **Adaptive thresholds.** Every rule today uses fixed parameters — `volumeMultiple: 3`,
 `minRateRatio: 2`, and so on. The request is percentile thresholds per instrument. The complete
@@ -209,7 +235,8 @@ The formal review answers the four remaining acceptance questions and has the co
   only after Gate 0 and a frozen score contract. Phase 2C may gate live decisions only after forward/OOS
   evidence, independent raw re-run, rollback and written owner L3 approval.
 
-Migration 0038 must therefore include an explicit `decision_mode` (`boolean`, `score_shadow`,
+The strategy-version migration (0039 since 0038 was taken by the tick correction) must therefore
+include an explicit `decision_mode` (`boolean`, `score_shadow`,
 `score_gate`) and database constraints: boolean rows require score/classification null; shadow scores
 cannot determine live acceptance; only a separately owner-approved score-gate version may do so.
 
@@ -223,10 +250,11 @@ Proposed migrations, in order, numbered from the next free slot:
 | # | Adds |
 |---|---|
 | 0037 | `key_levels`, session definitions, and session/context columns on `bars` |
-| 0038 | `strategies` + `strategy_versions` with `decision_mode`; nullable score fields and mode constraints; no score-gate seed; later signal fields remain integration-only |
-| 0039 | `strategy_candidates` — every evaluated candidate, accepted or rejected, with its features |
-| 0040 | `news_events` + `signals.news_state` |
-| 0041 | metric columns on `experiment_results` (§6) |
+| 0038 | *(taken)* `signal_outcomes.tick_size_used`, the tick correction and the metadata trigger — see HANDOFF §0Z |
+| 0039 | `strategies` + `strategy_versions` with `decision_mode`; nullable score fields and mode constraints; no score-gate seed; later signal fields remain integration-only |
+| 0040 | `strategy_candidates` — every evaluated candidate, accepted or rejected, with its features |
+| 0041 | `news_events` + `signals.news_state` |
+| 0042 | metric columns on `experiment_results` (§6) |
 
 All five are additive. None alters an existing column, and none may be written before the four
 unapplied migrations ahead of them are resolved.
@@ -287,7 +315,20 @@ rather than two. Everything else in this plan is backend-only, which is what the
 
 ## 10. Decisions the owner has to make before phase 2
 
-1. NQ or MNQ, or both as separate instruments.
+1. ~~NQ or MNQ, or both as separate instruments.~~ **Decided 2026-09-06: MNQ (`MNQU6`).** The two NQ
+   strategies bind to `MNQU6`; `NQU6` is neither pooled with it nor a fallback, and its 442 signals
+   stay out of the strategy family unless separately registered. What follows from the choice:
+   - **It is the better-evidenced instrument.** MNQU6 holds 6 usable US-regular blocks against NQU6's
+     4, and 1,391 signals with outcomes against 442 (`docs/queries/strategy_block_census.sql`).
+   - **It is also the one whose recorded tick is wrong** — 0.75 against an observed 0.25 (§3 item 2).
+     NQU6's recorded tick is correct, so this decision moves the strategy onto the broken row. The
+     tick must be corrected, and the tick-denominated history already derived from it triaged, before
+     any location predicate measured in ticks or any R figure means anything.
+   - **After-cost validation gets harder, not easier.** A micro contract's tick is worth a tenth of
+     the full-size one while commission per contract is not a tenth, so cost is a much larger share of
+     each tick. The after-cost SESOI in item 5 must be set for MNQ specifically; a threshold that
+     clears on NQ can fail on MNQ on identical price behaviour. This cannot be computed at all today:
+     `tick_value` is null on every instrument.
 2. Whether to buy NQ/GC history, keep collecting, or accept that validation waits.
 3. Whether rejected-candidate logging starts now (more data for later, more rows) or after phase 3.
 4. Whether the four unapplied migrations get resolved first, or this plan's migrations are written
