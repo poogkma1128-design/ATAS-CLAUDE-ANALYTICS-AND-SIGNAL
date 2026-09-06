@@ -12,7 +12,7 @@
 
 ---
 
-## 0V. ปิด acceptance review §5 ที่เหลือ — **REJECT numeric scoring as written · เลือก boolean-first** (2026-09-06)
+## 0W. ปิด acceptance review §5 ที่เหลือ — **REJECT numeric scoring as written · เลือก boolean-first** (2026-09-06)
 
 เจ้าของส่งข้อทักท้วงว่าการตรวจ §5 ก่อนหน้า (`62618e7` / §0U.1) ตอบเพียง 4 จาก 8 ข้อและไม่มี
 formal verdict ใน `docs/reviews/`. Codex ตรวจต่อและบันทึกฉบับ standalone แล้วที่
@@ -34,11 +34,71 @@ formal verdict ใน `docs/reviews/`. Codex ตรวจต่อและบ�
 
 **Verdict:** `REJECT AS WRITTEN at L2` สำหรับ numeric score/bands และห้ามเริ่ม implementation ส่วนนั้น.
 อนุญาตเฉพาะการออกแบบ Phase 2A boolean/candidate logging หลัง prerequisite เดิมครบ. Phase 1 ใน
-`62618e7` ไม่ถูก reject เพราะ isolated และไม่ตัดสิน trade แต่ยังรอ Claude independent review ตาม §0U.
+`62618e7` ไม่ถูก reject เพราะ isolated และไม่ตัดสิน trade; Claude review แล้วเป็น `ENDORSE WITH CHANGES`
+ตาม §0V และพบ P1 สามข้อที่ต้องแก้/ตรวจซ้ำก่อน integrate.
 
 รอบนี้แก้เฉพาะเอกสาร: ไม่แก้ code/migration, ไม่อ่านหรือเขียน Supabase, ไม่ deploy, ไม่เปลี่ยน rule,
 signal, Telegram หรือ ATAS. Verification ที่เกี่ยวข้องคือ `git diff --check` และตรวจ cross-reference;
 ไม่ rerun code tests เพราะไม่มี executable file เปลี่ยน. Rollback = revert documentation commit นี้.
+
+---
+
+## 0V. Independent review ของ Phase 1 — **ENDORSE WITH CHANGES · P1 สามข้อต้องแก้ก่อน integrate** (2026-09-06)
+
+Claude (คนละเซสชันกับผู้เขียนโค้ด) ตรวจ commit `62618e7`/`55dfa95` ตาม §0T.4 แล้ว.
+รายงานเต็ม: `docs/reviews/2026-09-06-strategy-engine-phase-1-independent-review.md`.
+
+**คำตัดสิน: ENDORSE WITH CHANGES — ไม่ต้อง revert อะไร** เพราะ 0037 ยังไม่ apply และไม่มีโมดูลไหน
+ถูก import เข้าสาย signal ⇒ สถานะที่ merge แล้วเป็น inert. แต่ **ห้ามเอา output ไปใช้จนกว่าจะแก้ 3 ข้อ**.
+
+### 0V.1 P1 สามข้อ
+
+1. **profile คำนวณจาก footprint ที่ไม่ reconcile กับแท่งตัวเอง** — `key_levels.ts` ตรวจแค่ finite/ไม่ติดลบ
+   ไม่ได้ตรวจว่าราคาของ level อยู่ใน high/low ของแท่ง. วัดจากข้อมูลจริง (on-grid ตั้งแต่ 28 ส.ค.):
+   **GC 36.3% ของแท่งมี level อยู่นอก high/low · 52.1% มี tick sum ไม่ตรงแท่ง** · MNQU6 29.9%/42.6% ·
+   NQU6 27.4%/35.1% · BTC 14.2%/20.4% · และ **level ที่วอลุ่มหนักสุดอยู่นอกช่วงแท่งเอง 2.21% (MNQU6)
+   / 2.09% (GC)** ⇒ ราคาที่แท่งไม่เคยเทรดเข้าไปอยู่ใน VWAP/POC/VAH/VAL. **รีโปมีมาตรฐานนี้อยู่แล้ว**:
+   `research/hybrid_ml/dataset.py` ตัดแท่งพวกนี้ด้วย `invalid_footprint_levels` /
+   `footprint_tick_mismatch` — Phase 1 ไม่มีกฎเทียบเท่า
+2. **ช่องว่างของฟีดทำให้แท่งธรรมดากลายเป็น regime "high"** — true range คำนวณกับแท่งก่อนหน้า
+   *ในอาร์เรย์* โดยไม่เช็กว่าติดกันจริง. พิสูจน์ด้วยโมดูลเอง: แท่งเดียวกันช่วง 0.5 เท่ากัน
+   ถ้าห่างจากแท่งก่อน 5 นาที → TR 0.50 regime `normal` แต่ถ้าห่าง 5 ชม. → **TR 20.40 regime `high`**
+   ⇒ ตลาดไม่ได้ผันผวน แค่ไม่ได้เปิดกราฟ (§3.7b). `dataset.py` กันด้วยกฎ 13 แท่งติดกันอยู่แล้ว
+3. **session ที่ตั้งชื่อด้วยเวลาท้องถิ่นของตลาดแม่ ไม่ตามตลาดที่มันตั้งชื่อตาม** — **ข้อนี้เป็นความผิดของแผน
+   ที่ Claude เขียนเอง ไม่ใช่ของโค้ด** (โค้ดทำตามแผนถูกต้อง). หน้าต่าง 19:00–23:00 `America/Chicago`
+   ครอบเวลาโตเกียว **10:00 ในฤดูหนาว แต่ 09:00 ในฤดูร้อน** เพราะญี่ปุ่นไม่มี DST ⇒ การเทียบผลข้าม
+   ช่วง DST คือการเทียบคนละอย่าง. ต้องให้ **แต่ละ window มี timezone ของตัวเอง** ซึ่งกระทบ schema 0037
+   ⇒ **แก้ก่อน apply ง่ายกว่าแก้ทีหลัง**
+
+### 0V.2 สิ่งที่ตรวจแล้วผ่านจริง (ตรวจเอง ไม่ใช่เชื่อรายงาน)
+
+causality fail-closed ทั้งสองโมดูล · **ไม่มี look-ahead ใน percentile sample** (แท่งตัดสินไม่อยู่ใน
+distribution — ข้อที่ผมกังวลที่สุดและโค้ดสะอาด) · **DST ถูกต้องจริง** (8 มี.ค. 2026 ชิคาโก: 07:30Z→01:30,
+08:30Z→03:30 ชั่วโมง 02:00 หายไปถูกต้อง) · **คำนวณมือตรงกับโค้ด** (VWAP 100.4/POC 101/VAL 100/VAH 101) ·
+**isolation จริง** (import โดยเทสต์ตัวเองเท่านั้น) · warm-up ไม่ fallback ·
+**ข้อกังวลว่า missing-footprint จะทำให้ใช้ไม่ได้ → วัดแล้วไม่จริง: 0 แท่งที่ไม่มี footprint**
+
+### 0V.3 หลักฐานที่รันเอง
+
+`deno task test` **163 passed 0 failed** (ตรงกับที่ Codex อ้าง) · `deno task check` ผ่าน · lint ผ่าน ·
+disposable PostgreSQL 16.13 replay `0001→0002→0037→regression` **ผ่านทั้งสี่** ·
+replay ทุก migration `0001–0037`: 0037 + regression ผ่าน, **0035 ล้มตามที่ออกแบบ** (census guard
+รายงาน "found 0 bars and 0 signals, expected 1538 and 543") ส่วน 0005/0017/0018/0019/0021/0022/0032
+ล้มเพราะไม่มี `pg_cron`/`pg_net` = ข้อจำกัดเครื่อง
+
+**ตรวจไม่ได้ (บอกตรง ๆ):** replay chain เต็มพร้อม `pg_cron`/`pg_net` · ไม่ได้รันกับข้อมูล production
+end-to-end เพราะเซสชันนี้ไม่มี credential · ไม่ได้ build/ติดตั้ง ATAS DLL
+
+### 0V.4 ผลตรวจ §5 ยังไม่ครบสัญญา
+
+Codex ตอบ 4 จาก 8 ข้อ และเพิ่มข้อที่ Claude ไม่ได้นึกถึงเอง (**"missing is not zero evidence"**) ซึ่งดีจริง
+แต่ **ข้อ 1, 6, 7, 8 ยังไม่ตอบ** — ทั้งสี่ข้อคือคำถามว่า *"ควรมีระบบคะแนนไหม"* โดยเฉพาะข้อ 8
+(score หรือ boolean) ที่สัญญาบังคับให้ตอบชัดเพราะขัดกับสเปกและเป็นการตัดสินของเจ้าของ ·
+ไม่มีคำตัดสินรูปแบบ ENDORSE/REJECT และไม่ได้เขียนไฟล์ลง `docs/reviews/`
+
+**งานที่ต้องแก้:** P1 ทั้งสาม + ตัดสิน convention ของ value area (P2) + ตอบข้อ 1/6/7/8 ก่อนอนุมัติ
+scoring contract. ข้อ 1–3 แก้โค้ดและ 0037 ⇒ **ต้อง re-review อีกรอบ** · **Production ไม่ถูกแตะ**
+ทุกคำสั่งกับ project จริงเป็น SELECT อย่างเดียว
 
 ---
 
@@ -186,6 +246,30 @@ Claude จะตรวจได้แค่ **"ทำตามแผนหรื
 3. **artifact ดิบ** หรือพาธของมัน (snapshot, summary.json, ผล query) — ไม่ใช่แค่ตัวเลขที่สรุปมา
 4. **สิ่งที่ยังไม่ได้ทำ / ที่ล้มเหลว / ที่ข้าม** พร้อมเหตุผล — การละเว้นที่ไม่บอกคือสิ่งที่ตรวจไม่เจอ
 5. ยืนยันว่าไม่แตะ production (migration/deploy/rule/Telegram/DLL) หรือถ้าแตะ แตะอะไร
+
+### 0T.6 งานชิ้นแรกถูกสั่งแล้ว: Codex ตรวจแผน §5 (2026-09-06)
+
+เจ้าของสั่งให้เริ่มจากการตรวจแผนก่อนตาม §0T.2. **review contract อยู่ใน §13 ของ
+`docs/STRATEGY_ENGINE_PLAN.md`** พร้อมก๊อปไปใช้ได้เลย — รูปแบบเดียวกับ standalone review contract
+ของ ML v1.
+
+ใน §13 มี **"ข้อที่ผู้เขียนแผนไม่มั่นใจที่สุด" 8 ข้อ** ที่ Claude เขียนเปิดเผยไว้เอง โดยข้อที่หนักที่สุดคือ:
+
+- **ข้อ 1** — สูตรให้คะแนนที่เขียนด้วยมืออาจซ้ำรอยความล้มเหลวที่รู้อยู่แล้ว: §5.19 พิสูจน์ว่า
+  `signals.confidence` ที่เขียนด้วยมือ **ทำนาย R จริงไม่ได้** และ `confidence_v2.ts` เขียนเตือนไว้เองว่า
+  การเอาสูตรมือมาติดป้ายว่าเป็นความน่าจะเป็นคือการทำผิดซ้ำ ⇒ **ทำไม 6 ตัวเลขที่เดาเอาถึงจะสำเร็จ
+  ในเมื่อ 1 ตัวเลขล้มเหลวไปแล้ว?**
+- **ข้อ 2** — ตัวแปรอิสระ ~16 ตัว บนข้อมูลสัปดาห์เดียวที่มีรู · แผนบอกให้ freeze ก่อนรัน
+  แต่**ไม่ได้บอกว่าถ้า v1 ล้มแล้วทำยังไงต่อ** ⇒ ครั้งที่สองคือการ optimize บนชุดประเมิน
+- **ข้อ 3** — คะแนนบวกกันโดยถือว่าปัจจัยเป็นอิสระ ทั้งที่ absorption + stacked imbalance +
+  divergence บนแท่งเดียวกันคือ**ปรากฏการณ์เดียวมองสามมุม** ไม่ใช่สามเสียง
+- **ข้อ 8** — **ระบบคะแนนอาจยังไม่จำเป็น**: boolean confluence (A และ B และ C) ไม่มี weight ให้จูนเลย
+  overfit ยากกว่ามาก และ backtest ได้ทันที ⇒ ถามตรง ๆ ว่า score ให้อะไรเพิ่มที่ boolean ไม่ให้
+  ที่ขนาดตัวอย่างเท่านี้ (**ขัดกับสเปกที่สั่งให้ใช้ scoring ⇒ เป็นเรื่องที่เจ้าของต้องตัดสิน
+  ไม่ใช่เปลี่ยนเงียบ ๆ**)
+
+**ผลตรวจให้ลงที่ `docs/reviews/` ตามแบบสอง review ของ migration ที่มีอยู่** แล้วบันทึกคำตัดสิน
+(ENDORSE / ENDORSE WITH CHANGES / REJECT) และสิ่งที่เปลี่ยนลง HANDOFF
 
 **สถานะ:** เป็นกติกาที่เจ้าของสั่ง ยังไม่มีใครเริ่มเขียนโค้ด Phase ไหน · ไม่แตะ production ·
 เอกสารนี้ไม่ได้ลดข้อบังคับใด ๆ ใน `AGENTS.md` หรือ `docs/EXPERIMENT_REVIEW_PROTOCOL.md`

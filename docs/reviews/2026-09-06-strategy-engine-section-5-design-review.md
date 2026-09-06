@@ -23,13 +23,16 @@ weights and five score labels are ready to become executable policy.
 
 | Contract item | Status | Where answered |
 |---|---|---|
-| 1. Why should six hand-assigned weights succeed after legacy `confidence` failed? | **Closed below: there is no evidence; weights are quarantined** | Finding D1 |
-| 2–5. Causal percentile population/window; eligibility and direction; missing/warm-up; exact arithmetic/version freeze | **Closed in the first amendment** | `STRATEGY_ENGINE_PLAN.md` §5 and `62618e7` |
-| 6. Three strategies on one dataset create multiple comparisons | **Closed below: one registered family with FWER control** | Finding D2 |
-| 7. High score bands on little data repeat the V4 gate failure | **Closed below: power gate precedes every performance verdict** | Finding D3 |
-| 8. Score-first or boolean-first | **Closed below: boolean-first** | Finding D4 |
+| 1. Why should six hand-assigned weights succeed after legacy `confidence` failed? | **Closed: there is no evidence; weights are quarantined** | Doubt 1 |
+| 2. Sixteen parameters and no fresh data for a second attempt | **Closed: boolean first; every later attempt needs a new frozen version and untouched interval** | Doubt 2 |
+| 3. Correlated components are counted as independent votes | **Closed: dependency families and ablations precede any score** | Doubt 3 |
+| 4. Location 25 is undefined and tick truth is suspect | **Closed: no graded score; versioned per-instrument boolean location contract first** | Doubt 4 |
+| 5. Percentile population is unspecified | **Closed: fixed grain and no post-hoc session/regime split** | Doubt 5 |
+| 6. Three strategies on one dataset create multiple comparisons | **Closed: one registered family with FWER control** | Doubt 6 |
+| 7. High score bands on little data repeat the V4 gate failure | **Closed: power gate precedes every performance verdict** | Doubt 7 |
+| 8. Score-first or boolean-first | **Closed: boolean-first** | Doubt 8 |
 
-## D1 — the six weights have no earned advantage
+## Doubt 1 — the six weights have no earned advantage (**P0 for numeric scoring**)
 
 HANDOFF §5.19 records why a hand-written scalar is not evidence merely because it ranges from 0 to 1.
 For the three largest rule cohorts, legacy `corr(confidence, R)` was 0.013, 0.051 and 0.027; the repo
@@ -53,7 +56,52 @@ Decision:
 Thus the answer to item 1 is: **the weights are not expected or allowed to succeed by assumption;
 they must earn incremental value, and until then no numeric score exists.**
 
-## D2 — all three strategies are one hypothesis family
+## Doubt 2 — parameter retries need genuinely fresh data (**P0 for numeric scoring**)
+
+Freezing sixteen choices once prevents in-run editing but does not make a failed v1 retry independent.
+Changing weights, transforms, percentiles, windows or bands after seeing v1 consumes that interval as
+development data. Calling the next row “v2” does not restore blindness.
+
+Decision: Phase 2A has no numeric weights or bands. Before Phase 2B, reserve development,
+walk-forward and final OOS boundaries and an attempt budget. Every failed/aborted/superseded version
+is recorded. A changed score contract gets a new version and may use old data only for development;
+its verdict requires a later untouched interval. If the available history cannot support that split,
+the score remains unbuilt/underpowered rather than being retried on the same week.
+
+## Doubt 3 — correlated evidence is not additive evidence (**P1 before score backtest**)
+
+The plan's straight 20+20+15 addition can award three votes to one auction event observed as
+absorption, imbalance and delta divergence. Direction/eligibility may require several observations,
+but it must not claim they are independent strength.
+
+Decision: the frozen feature contract groups components into named dependency families and records
+their shared raw inputs. A future score must define one family-level transform (or an explicit capped
+interaction) instead of blindly summing members. It must compare component/family ablations on OOS
+data. Phase 2A avoids the claim entirely: its boolean requirements are predicates, not probability or
+three independent likelihood contributions.
+
+## Doubt 4 — location is undefined while tick identity is unresolved (**P0 for location scoring**)
+
+“Location = 25” cannot be implemented until distance, unit and instrument meaning are fixed. The repo
+also records that stored `tick_size` may actually be chart price step for MNQ/GC/BTC, so a shared
+tick-distance grade could compare different quantities.
+
+Decision: Phase 2A uses a versioned, per-instrument boolean location predicate against named Phase 1
+levels, with its distance unit and tolerance explicit. It may not depend on stored `tick_size` until
+the identity gate is resolved; price/range-normalized alternatives must still be frozen separately
+per instrument. A graded location component is deferred to Phase 2B and must beat that boolean
+predicate in the same incremental OOS test as the full score.
+
+## Doubt 5 — the percentile population has one frozen grain (**P1 before threshold backtest**)
+
+Decision: the default population is instrument × timeframe × feature × direction when polarity
+matters × strategy version, using bars closed before the decision bar. It is not split by session or
+volatility regime in v1. Such a split is a new hypothesis/version and is allowed only if the power
+gate passes for every resulting cell before outcomes are read. Window length, minimum samples,
+nearest-rank/tie/null behavior and warm-up rejection remain frozen as specified in §5; NQ and MNQ are
+never pooled implicitly.
+
+## Doubt 6 — all three strategies are one hypothesis family (**P1 before backtest**)
 
 `NQ_PULLBACK_V1`, `NQ_REVERSAL_V1` and `GC_SWEEP_V1` are evaluated on the same historical programme
 and share bars/features. Reporting the best unadjusted result would be selection over three chances.
@@ -72,7 +120,7 @@ Decision:
 - Selecting the best development strategy requires an untouched final OOS interval. The selected
   winner cannot certify itself on the data that selected it.
 
-## D3 — no sample-size gate, no score-band verdict
+## Doubt 7 — no sample-size gate, no score-band verdict (**P1 before verdict**)
 
 An A+ label on five observations is typography, not evidence. The fix is not another arbitrary
 `n >= constant`; it is a frozen power contract tied to the economic question.
@@ -95,14 +143,14 @@ allowed. Empty/small A+ cells are not pooled post hoc and band boundaries are no
 counts. This directly prevents a repeat of the V4 situation where code readiness was mistaken for an
 answer before the pre-registered information gate opened.
 
-## D4 — boolean-first is the chosen contract
+## Doubt 8 — boolean-first is the chosen contract (**P0 for numeric scoring**)
 
 The phases are now explicit:
 
 | Stage | Output | May affect live signals? | Exit condition |
 |---|---|---|---|
 | **2A boolean** | `eligible`, direction, rejection reasons, raw frozen features; `score = null`, `classification = null` | No; candidate table only | deterministic tests + independent review |
-| **2B score shadow** | frozen component transforms/contributions and numeric score, still non-actionable | No | Gate 0, adequate power, walk-forward and final OOS advantage over 2A after D2 correction |
+| **2B score shadow** | frozen component transforms/contributions and numeric score, still non-actionable | No | Gate 0, adequate power, walk-forward and final OOS advantage over 2A after doubt 6 correction |
 | **2C score gate** | score band may participate in acceptance | Only after written owner approval | independent raw re-run, forward evidence, rollback and L3 approval |
 
 The database contract must encode the stage. A nullable score is not an implementation omission:
