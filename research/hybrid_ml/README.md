@@ -34,11 +34,20 @@ python -m venv E:\GPT\local-research-data\hybrid-ml\venv
 ```
 
 Read-only new export using existing Supabase authentication (choose a new output directory). The
-config decides the scope, and the script picks the matching query and refuses a mismatched result:
+export is **two steps**: the script runs the SELECT and saves the reply verbatim, then the extractor
+parses and validates it. The script deliberately does not parse the result — the CLI has shipped
+several wrappers around the same column, and Windows PowerShell 5.1 and PowerShell 7 disagree about
+large JSON documents, which broke the export twice. One tested Python implementation does it instead.
 
 ```powershell
 & research/hybrid_ml/export_snapshot.ps1 -OutputDirectory E:\GPT\local-research-data\hybrid-ml\snapshot-v2 -Config research/hybrid_ml/config_v2.json
+& E:\GPT\local-research-data\hybrid-ml\venv\Scripts\python.exe -m research.hybrid_ml.extract_snapshot --cli-output E:\GPT\local-research-data\hybrid-ml\snapshot-v2\cli-output.json --config research/hybrid_ml/config_v2.json --output-directory E:\GPT\local-research-data\hybrid-ml\snapshot-v2
 ```
+
+The script prints that second command with the paths already filled in, and also writes it to
+`next_step.txt` in the snapshot directory. The extractor finds the exported column under any wrapper
+the CLI used, then refuses — never repairs — a reply whose schema, symbols, window or row count
+disagrees with the config. `cli-output.json` is kept either way, so a failed export is still evidence.
 
 Then train and replay that snapshot (the two commands the v2 run needs):
 

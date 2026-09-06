@@ -87,6 +87,19 @@ NQ/MNQ/GC ต้องซื้อ (Databento, CME DataMine, dxFeed/Rithmic/CQG 
 ⇒ ยังไม่ได้พิสูจน์บน 5.1 จริง; ถ้า `ConvertTo-Json` ช้ามากหรือล้มเพราะ payload ~2 เท่าของ v1
 ต้องทำทางแยกแบบ streaming เพิ่ม.
 
+**🔧 แก้รอบสอง — ย้ายการแกะ JSON ออกจาก PowerShell ทั้งหมด (2026-09-06):** ข้อจำกัดข้างบนเกิดจริง.
+เจ้าของรันแล้วล้มซ้ำ **ทั้งที่ CLI ยิง SELECT สำเร็จและคืน bare array ตามที่รองรับไว้แล้ว** — คำตอบจริง
+เป็น JSON แบบจัดย่อหน้าขนาด **~9 MB** และ PowerShell 5.1 ตีความต่างจาก PowerShell 7 ที่ใช้ตรวจ
+(`$resultRows.Count` ออกมาว่าง แปลว่า `ConvertFrom-Json` ไม่ได้คืนสิ่งที่ 7 คืน). แก้ด้วยการ**เลิกให้
+PowerShell แตะ payload ก้อนใหญ่**: `export_snapshot.ps1` เหลือหน้าที่ยิง SELECT + เซฟ `cli-output.json`
+ดิบ ๆ + พิมพ์คำสั่งขั้นถัดไป (และเขียนไว้ใน `next_step.txt`); ตัวแกะ/ตรวจย้ายไป
+`research/hybrid_ml/extract_snapshot.py` ซึ่งหา column ได้ทุกรูปแบบ wrapper แล้ว**ปฏิเสธ ไม่ซ่อม**
+เมื่อ schema/symbol/ช่วงเวลา/row_count ไม่ตรง config. **export จึงเป็น 2 คำสั่ง** (ดู README).
+**ตรวจโดยรันจริง:** สร้าง cli-output.json จำลองขนาด **9.47 MB** แบบ bare array จัดย่อหน้าเหมือนของจริง
+แล้วรันครบสาย export→extract→train→verify→report ผ่านหมด (24/24 cells, replay pass) ·
+unit test **27 ผ่าน** (เดิม 24 · เพิ่ม 3 เรื่อง wrapper 3 แบบ, การปฏิเสธ 9 กรณี, และ chain) ·
+ข้อดีสำคัญ: **ไฟล์ดิบที่ดึงมาแล้วใช้ต่อได้เลย ไม่ต้องยิง SELECT ใหม่**.
+
 ---
 
 ## 0O. MNQ / GC ML — **ฝึกทดลองและ forecast replay เสร็จ; ยังไม่รับรองใช้จริง** (2026-09-06)

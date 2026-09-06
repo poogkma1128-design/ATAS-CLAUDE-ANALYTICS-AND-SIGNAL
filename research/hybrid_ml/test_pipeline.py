@@ -13,6 +13,7 @@ from threadpoolctl import threadpool_limits
 from research.hybrid_ml import dataset as d
 from research.hybrid_ml.models import (cumulative_probabilities, fit_model, calibrate,
                                       predict_features, risk_rows, metrics)
+from research.hybrid_ml.extract_snapshot import extract, find_artifact
 from research.hybrid_ml.report_scores import report
 from research.hybrid_ml.run import run, validate_config
 
@@ -337,6 +338,81 @@ class RunnerTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             run(self.snapshot, narrowed, self.tmp / "run-narrow")
         self.assertFalse((repo / "unwanted-run").exists())
+
+
+class ExtractTests(unittest.TestCase):
+    """The CLI wraps the same column differently between versions; accept them all."""
+
+    def setUp(self):
+        self.tmp = Path(tempfile.mkdtemp(prefix="hybrid-ml-extract-"))
+        self.addCleanup(shutil.rmtree, self.tmp, ignore_errors=True)
+        self.config_path = Path(__file__).with_name("config_v2.json")
+        config = json.loads(self.config_path.read_text(encoding="utf-8"))
+        self.artifact = {"schema_version": "hybrid-ml-training-export-v2",
+                         "executed_at": "2026-09-06T05:41:00Z", "project_ref": "test",
+                         "target_symbols": config["target_symbols"],
+                         "development_start": config["development_start"],
+                         "development_end_exclusive": config["development_end_exclusive"],
+                         "row_count": 4, "limitations": ["test"],
+                         "rows": [{"symbol": s, "close": 100.25} for s in config["target_symbols"]]}
+
+    def reply(self, name, payload, indent=2):
+        path = self.tmp / f"{name}.json"
+        path.write_text(json.dumps(payload, indent=indent), encoding="utf-8")
+        return path
+
+    def test_every_wrapper_yields_the_same_snapshot(self):
+        shapes = {"bare_array": [{"hybrid_ml_training_export": self.artifact}],
+                  "wrapper_rows": {"rows": [{"hybrid_ml_training_export": self.artifact}]},
+                  "single_object": {"hybrid_ml_training_export": self.artifact}}
+        written = {}
+        for name, payload in shapes.items():
+            manifest = extract(self.reply(name, payload), self.config_path, self.tmp / name)
+            self.assertEqual(manifest["row_count"], 4)
+            written[name] = json.loads((self.tmp / name / "snapshot.json").read_text(encoding="utf-8"))
+        self.assertEqual(list(written.values()), [self.artifact] * 3)
+        # The artifact carries its own `rows`; the search must not descend into them.
+        self.assertEqual(find_artifact({"hybrid_ml_training_export": self.artifact}), self.artifact)
+
+    def test_refusals_never_repair_a_reply(self):
+        config = json.loads(self.config_path.read_text(encoding="utf-8"))
+        cases = {
+            "row_count": dict(self.artifact, row_count=99),
+            "missing_symbol": dict(self.artifact, row_count=1, rows=[{"symbol": "GC"}]),
+            "extra_symbol": dict(self.artifact, row_count=5,
+                                 rows=self.artifact["rows"] + [{"symbol": "ES"}]),
+            "window": dict(self.artifact, development_end_exclusive="2026-09-09T00:00:00Z"),
+            "schema": dict(self.artifact, schema_version="hybrid-ml-training-export-v1"),
+            "no_rows": dict(self.artifact, row_count=0, rows=[]),
+        }
+        for name, artifact in cases.items():
+            with self.assertRaises(ValueError, msg=name):
+                extract(self.reply(name, [{"hybrid_ml_training_export": artifact}]),
+                        self.config_path, self.tmp / f"out_{name}")
+        (self.tmp / "junk.json").write_text("Initialising login role...\nnot json", encoding="utf-8")
+        (self.tmp / "blank.json").write_text("   ", encoding="utf-8")
+        for name in ("junk", "blank"):
+            with self.assertRaises(ValueError, msg=name):
+                extract(self.tmp / f"{name}.json", self.config_path, self.tmp / f"out_{name}")
+        with self.assertRaises(ValueError):  # no artifact column anywhere
+            extract(self.reply("wrong_column", [{"something_else": 1}]),
+                    self.config_path, self.tmp / "out_wrong_column")
+        good = self.reply("good", [{"hybrid_ml_training_export": self.artifact}])
+        extract(good, self.config_path, self.tmp / "out_good")
+        with self.assertRaises(FileExistsError):
+            extract(good, self.config_path, self.tmp / "out_good")
+        with self.assertRaises(ValueError):
+            extract(good, self.config_path, Path(__file__).resolve().parents[2] / "unwanted")
+        self.assertFalse((Path(__file__).resolve().parents[2] / "unwanted").exists())
+        self.assertEqual(config["schema_version"], "hybrid-ml-exploratory-v2")
+
+    def test_extracted_snapshot_runs(self):
+        manifest = extract(self.reply("chain", [{"hybrid_ml_training_export": self.artifact}]),
+                           self.config_path, self.tmp / "chain")
+        snapshot = json.loads(Path(manifest["snapshot_path"]).read_text(encoding="utf-8"))
+        self.assertEqual(snapshot["schema_version"], "hybrid-ml-training-export-v2")
+        self.assertEqual(len(snapshot["rows"]), snapshot["row_count"])
+        self.assertEqual(snapshot["rows"][0]["close"], 100.25)  # exact, not re-serialised
 
 
 if __name__ == "__main__":
