@@ -12,6 +12,50 @@
 
 ---
 
+## 0S. แผน Confluence Strategy Engine (NQ/GC) — **ข้อเสนอ ยังไม่แก้โค้ดแม้บรรทัดเดียว** (2026-09-06)
+
+เจ้าของขอเปลี่ยนรูปแบบเป็นระบบ Signal ที่ใช้ Order Flow หลายปัจจัยร่วมกัน (confluence) + scoring +
+backtest 3 strategy แยก NQ/GC. **สรุปว่าต้องแก้อะไรบ้าง** อยู่ใน `docs/STRATEGY_ENGINE_PLAN.md`
+(ตรวจโค้ดจริงก่อนเขียน ไม่ได้เดา).
+
+**✅ ข่าวดี — สถาปัตยกรรมที่ขอมีอยู่แล้ว ไม่ต้องรื้อ:** backend ตัดสินสัญญาณอยู่แล้ว (`_shared/ingest.ts`
+→ `runRules()`), แก้กฎที่ `public.rules.params` ผ่านหน้า `/rules` โดยไม่ต้อง compile, มี detector
+ครบ 8 ตัวรวม absorption / delta_divergence / stacked_imbalance, มี backtest runner
+(`functions/backtest/index.ts`) ที่**แตะ Telegram ไม่ได้โดยโครงสร้าง**, มี MAE/MFE ต่อไม้แล้ว,
+มี `plan.ts` คิด entry/SL/TP/trail, และมี `confidence_v2` ที่เป็น feature contract สำหรับ ML
+โดย `score` เป็น null ตั้งใจ ⇒ **งานส่วนใหญ่คือ "เพิ่ม" ไม่ใช่ "เขียนใหม่"**
+
+**🔑 การเปลี่ยนเชิงโครงสร้างมีข้อเดียว: แยก "Rule = ตัวตรวจจับ" ออกจาก "Strategy = ตัวตัดสิน"**
+วันนี้กฎเดียวยิงเองได้และถึง Telegram ได้ ซึ่ง**สเปกใหม่ห้ามชัดเจน** ⇒ `runRules()` ต้องคืน
+*หลักฐาน* แทน *สัญญาณ* แล้วมีชั้น strategy อ่านหลักฐานทั้งหมด + context มาให้คะแนน
+
+**สิ่งที่ยังไม่มีเลยและต้องสร้าง:** VWAP / VAH / VAL / prev-day H,L / session H,L / Initial Balance
+(grep ทั้ง repo ไม่เจอสักที่), แนวคิด session, adaptive threshold แบบ percentile (ตอนนี้ค่าคงที่หมด),
+news filter, ตาราง strategy/score/candidate ที่ถูก reject, และ metric ครึ่งหนึ่งของที่ขอ
+(profit factor, expectancy, Sharpe, holding time, R distribution, commission/slippage) รวมถึง
+**walk-forward + OOS ซึ่ง runner ปัจจุบันไม่มีแนวคิดนี้เลย**
+
+**⚙️ ต้องแก้ C# แค่ 2 ฟีเจอร์:** volume/sec (ต้องรู้เวลาในแท่ง) กับ big trades
+(`BarInput.trades` ส่งมา **0 ทุกแท่งตลอดมา** — HANDOFF 5.16) · ที่เหลือ backend ล้วน
+
+**🔴 คอขวดจริงคือข้อมูล ไม่ใช่โค้ด:** acceptance criteria ข้อแรกของสเปกเองคือ "มี dataset เพียงพอ" แต่
+เรามี 7,612 แท่งรวมทุกตลาด · **NQU6 มีแค่ 1,162 แท่งและหยุดตั้งแต่ 4 ก.ย.** · ATAS backfill ได้แค่ 3–4 วัน ·
+ฟีดมีรูเพราะไม่ได้เปิดกราฟค้าง (§3.7b) ⇒ การแบ่งผลตาม strategy × ตลาด × ทิศ × session × regime ×
+วัน × news = หลายสิบช่อง จะเหลือช่องละไม่กี่ไม้ **⇒ สร้าง engine ได้ แต่ validate ไม่ได้**
+และ **archive ของ Binance ช่วยเฉพาะ BTC ไม่ช่วย NQ/GC** ⇒ ถ้าจะเอา NQ/GC ต้องซื้อหรือรอเก็บสด
+
+**⛓️ ข้อจำกัดลำดับ migration:** production head ยังเป็น `20260902142002` ⇒ **0033, 0034, 0035, 0036
+ยังไม่ apply ทั้งหมด** (0034/0036 ติด independent review, 0035 ติด census) · migration ใหม่ที่แผนเสนอ
+(0037–0041) **ต่อคิวอยู่หลังทั้งสี่ตัวนั้น**
+
+**เรื่องที่รอเจ้าของตัดสิน 4 ข้อ:** NQ หรือ MNQ (ข้อมูลส่วนใหญ่เป็น MNQU6 แต่สเปกเขียน NQ) ·
+จะซื้อประวัติ NQ/GC ไหม · จะเริ่มเก็บ candidate ที่ถูก reject เลยไหม · จะเคลียร์ migration ค้างก่อนไหม
+
+**สถานะ:** ข้อเสนอ · ยังไม่แตะโค้ด ไม่มี migration ไม่มี deploy ไม่มีอะไรต้อง rollback ·
+ผู้เสนอคือเซสชันเดียวกับที่ทำ §0Q/§0R ⇒ ไม่ใช่ independent review
+
+---
+
 ## 0R. BTCUSDT — **พบว่าฟีดคือ Binance PERPETUAL ไม่ใช่ spot (พิสูจน์แล้ว) · แผนดึงประวัติ = ข้อเสนอ รอเจ้าของตัดสิน** (2026-09-06)
 
 เจ้าของขอให้ร่างแผนดึงข้อมูล BTCUSDT ย้อนหลังจาก Binance. **ยังไม่สร้างอะไรทั้งสิ้น** — ไม่โหลดข้อมูลจำนวนมาก,
