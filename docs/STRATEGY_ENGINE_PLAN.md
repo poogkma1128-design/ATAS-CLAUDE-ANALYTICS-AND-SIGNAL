@@ -240,3 +240,84 @@ decides scope. Whoever implements a phase records it in `docs/HANDOFF.md` per th
 and the strategy scoring layer in particular needs a reviewer who did not write it before any of its
 numbers are used to judge a strategy. Nothing here changes production; if the plan is rejected,
 nothing needs rolling back.
+
+## 13. Design review contract — §5, before any phase starts
+
+Per HANDOFF §0T.2: this document was written by Claude, so Claude reviewing an implementation of it
+checks conformance rather than whether the design is right. §5 is where a wrong design is hardest to
+detect afterwards, so it is challenged first, by a session that did not write it. This is the same
+shape as §0H, where Codex challenged the §5.21 draft and changed two things before endorsing it.
+
+### Claims the author is least sure of
+
+Listing these is not an invitation to stop at them. They are where the author expects to be wrong,
+and a review that only confirms them has not done its job.
+
+1. **A hand-written weighted score may repeat a known failure.** HANDOFF §5.19 established that the
+   existing hand-written `signals.confidence` does not predict realised R, and
+   `_shared/confidence_v2.ts` says in its own docstring that re-labelling another hand-written
+   formula as a probability would repeat that error. §5 proposes exactly that, with six weights
+   instead of one. **Why would six hand-picked numbers succeed where one did not?**
+2. **Sixteen free parameters against one week of gapped data.** Six weights, four band edges, the
+   percentile levels, and the window length. §5 says freeze them before the run — but says nothing
+   about what happens when the frozen v1 fails. Any second attempt is optimisation on the evaluation
+   set unless fresh data is reserved for it, and there is not enough data to reserve any.
+3. **The score sums components that are not independent.** Absorption at a level, a stacked imbalance
+   at that same level and a delta divergence on the same bar are one phenomenon seen three ways, not
+   three votes. Adding 20 + 20 + 15 treats them as independent evidence, which over-counts.
+4. **"Location = 25" is undefined.** Graded on distance in ticks, in ATR, or binary at/near a level?
+   Tick size differs per instrument and the recorded `tick_size` values are themselves under
+   suspicion (§0Q, §0R), so a tick-based grade may not be comparable across NQ and GC at all.
+5. **The percentile's population is unspecified.** Per instrument only, or per instrument × session,
+   or × volatility regime? Each choice is another parameter, and the finer the split the fewer
+   observations feed each percentile.
+6. **Three strategies scored on the same bars is a multiple comparison.** Ranking three and reporting
+   the winner is a selection process; with cells this small the winner can be noise, exactly as
+   NQU6/level was in §0Q.
+7. **A high score bar on thin data reproduces the V4 gate problem** — a threshold that is defensible
+   and fires almost never, leaving nothing to evaluate.
+8. **The scoring layer may be premature.** A strict boolean confluence — location AND absorption AND
+   divergence AND stacked imbalance, no weights at all — has zero tunable weights, is far harder to
+   overfit, and can be backtested immediately. **Does the score buy anything the boolean does not,
+   at this sample size?** The author does not know, and the request's own instruction is to use
+   scoring rather than binary conditions, so this needs the owner's decision rather than a silent
+   substitution.
+
+### The contract
+
+```text
+ROLE: Independent design reviewer of section 5 of docs/STRATEGY_ENGINE_PLAN.md.
+You did not write that document and are not implementing it yet.
+OBJECTIVE: Decide whether section 5's design is sound enough to build, and say what must change first.
+PROBLEM: The plan proposes a weighted confluence score with roughly sixteen free parameters, to be
+validated on about one week of gapped data, in a repository where a previous hand-written confidence
+number was already shown not to predict realised R.
+CURRENT CONTEXT: Repository E:\GPT\ATAS-CLAUDE-ANALYTICS-AND-SIGNAL, default branch.
+Read AGENTS.md, docs/EXPERIMENT_REVIEW_PROTOCOL.md, docs/STRATEGY_ENGINE_PLAN.md in full, and
+HANDOFF sections 0L, 0Q, 0R, 0S, 0T, 3.7b, 5.19 and 5.21 before reviewing. Read
+supabase/functions/_shared/confidence_v2.ts, rules/index.ts and rules/*.ts, since section 5 builds
+on them.
+IN SCOPE: The design in section 5 only - the rule/strategy split as it affects scoring, adaptive
+thresholds, the score and its bands, rejected-candidate logging, and the five proposed migrations.
+Also in scope: whether a simpler design answers the same question at this sample size.
+OUT OF SCOPE: Implementing anything. Changing production. Applying a migration. Phases 1, 3, 4 and 5
+except where they constrain section 5. Re-litigating whether the ML result in section 0Q was right.
+CONSTRAINTS: Read-only. No migration is applied, no Edge Function deployed, no rule parameter
+changed, no data written. Note that migrations 0033-0036 are unapplied in production (head
+20260902142002), so anything proposed queues behind them.
+TASK: For each of the eight numbered doubts in section 13, state whether it is real, and why.
+Then find what the list misses. For every finding give severity (P0 blocks building, P1 must change
+before the backtest, P2 worth doing), the exact claim in the plan it contradicts, and a concrete
+alternative rather than only an objection.
+IMPLEMENTATION RULES: Cite file and line, or the plan's section, for every claim. Where a claim is
+empirical, name the query or artifact that would settle it rather than asserting it. Do not approve
+your own later implementation on the strength of this review.
+DELIVERABLES: A verdict of ENDORSE / ENDORSE WITH CHANGES / REJECT, the findings by severity, and
+an explicit answer to doubt 8 - score or boolean first, and on what evidence.
+ACCEPTANCE CRITERIA: Every one of the eight doubts is addressed; at least the leakage, parameter
+count and correlated-component questions get a concrete design answer; no finding rests on narrative
+alone where an artifact could settle it; and the review states plainly what it could not check.
+```
+
+The review's output belongs in `docs/reviews/`, named for its date and subject, following the two
+migration reviews already there. HANDOFF gets the verdict and what changed as a result.
