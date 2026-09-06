@@ -1,8 +1,9 @@
 # Plan — confluence strategy engine for NQ and GC
 
-**Status: proposal. Nothing here is built, no migration is written, no file is changed.** This
-document exists so the owner can approve a scope, and so whoever implements it knows what already
-exists and must not be rewritten.
+**Status: Phase 1 implementation prepared in `62618e7`, not integrated or applied. Phases 2–5 remain
+proposal-only.** The Phase 1 code is isolated from ingest/signals/Telegram and migration 0037 remains
+unapplied pending the existing migration queue, an owner-approved session definition and independent
+Claude review. This document remains the scope contract for what must not be rewritten.
 
 The requested target is: ATAS sends order-flow features → the backend decides → Supabase records →
 Telegram announces, with three named strategies backtested per instrument and no single indicator
@@ -107,13 +108,14 @@ Phases 1–5 can be built while this is unresolved. They just cannot be *validat
 All backend, no ATAS change, computed from bars and footprints already stored.
 
 **Key level engine.** VWAP, VAH, VAL, session POC, previous-day high/low, session high/low, initial
-balance high/low. None of these exist anywhere in the repository today — the grep for `vwap`,
-`vah`, `value_area` and `initial_balance` returns nothing. Everything needed to compute them is
-already in `public.bars` and `public.cluster_levels`.
+balance high/low. None existed before Phase 1. Commit `62618e7` adds the isolated causal calculator
+and migration contract; nothing calls or persists it yet. The stored inputs remain `public.bars` and
+`public.cluster_levels`.
 
-**Session engine.** No session concept exists. Asia, Europe, US pre-market, US open, US regular and
-power hour must be defined in **exchange time with daylight saving handled explicitly**, then stamped
-on every bar and signal. A session boundary that silently shifts by an hour twice a year would
+**Session engine.** No production session concept is active. Phase 1 adds an isolated stamper and
+versioned definition schema. Asia, Europe, US pre-market, US open, US regular and power hour must be
+defined in **exchange time with daylight saving handled explicitly**, then stamped on every bar and
+signal in a later reviewed integration. A boundary that silently shifts by an hour twice a year would
 corrupt every session comparison built on top of it.
 
 **Market context.** Trend/bias and volatility regime, so "trend pullback" has something to read.
