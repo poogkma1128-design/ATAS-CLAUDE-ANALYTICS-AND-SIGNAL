@@ -1,9 +1,12 @@
 # Plan — confluence strategy engine for NQ and GC
 
-**Status: Phase 1 implementation prepared in `62618e7`, not integrated or applied. Phases 2–5 remain
-proposal-only.** The Phase 1 code is isolated from ingest/signals/Telegram and migration 0037 remains
-unapplied pending the existing migration queue, an owner-approved session definition and independent
-Claude review. This document remains the scope contract for what must not be rewritten.
+**Status: Phase 1 implementation prepared in `62618e7`, not integrated or applied. Numeric Phase 2
+scoring is REJECTED AS WRITTEN by the design review in
+`docs/reviews/2026-09-06-strategy-engine-section-5-design-review.md`; only a boolean-first design may
+proceed. Phases 3–5 remain proposal-only.** Phase 1 is isolated from ingest/signals/Telegram and
+migration 0037 remains unapplied pending the existing migration queue, an owner-approved session
+definition and independent Claude review. This document remains the scope contract for what must not
+be rewritten.
 
 The requested target is: ATAS sends order-flow features → the backend decides → Supabase records →
 Telegram announces, with three named strategies backtested per instrument and no single indicator
@@ -44,8 +47,9 @@ So the change is not "add more rules". It is to split one concept into two:
 
 - **Rule = detector.** Answers "is absorption present on this bar, and how strong?" Produces
   *evidence*, never a trade.
-- **Strategy = decision.** Reads all the evidence for a bar plus market context, scores confluence,
-  and emits at most one signal, carrying its own identity and version.
+- **Strategy = decision.** Reads all the evidence for a bar plus market context. Phase 2A makes a
+  versioned boolean eligibility/direction decision; only a separately validated later version may
+  score confluence. It emits at most one signal, carrying its own identity and version.
 
 Concretely, in `_shared/rules/index.ts`, `runRules()` currently returns `EvaluatedSignal[]` — one per
 rule, each already a tradeable signal. It would return `RuleEvidence[]` instead, and a new
@@ -58,9 +62,10 @@ bar closes
   └─ feature engine        → market context (trend, volatility, session, news state)
   └─ key level engine      → VWAP, VAH/VAL/POC, prev day H/L, session H/L, IB H/L
   └─ rule evaluators       → evidence: absorption?, divergence?, stacked imbalance?, …
-        └─ strategy engine → per strategy: location + confluence → score 0..100
+        └─ strategy engine → Phase 2A: eligible + direction + rejection reasons; score = null
               └─ risk engine (plan.ts, unchanged)
-                    └─ classification gate → signal, or a logged rejection
+                    └─ boolean gate → later signal integration, or a logged rejection
+        └─ Phase 2B only after its gates → shadow score, never a live gate
 ```
 
 `confidence_v2` is the right starting point for the scoring layer rather than a fresh invention: it
@@ -183,6 +188,30 @@ Until these fields and the exact band boundaries are owner-approved, no numeric 
 classification is allowed. This closes the ambiguity found in the §5 design review rather than
 letting implementation choices silently become trading policy.
 
+### §5 design-review closure: boolean first, numeric score must earn promotion
+
+The formal review answers the four remaining acceptance questions and has the controlling verdict:
+**REJECT AS WRITTEN for numeric scoring.** Its decisions are part of this plan:
+
+- The hand-assigned 25/20/15/20/10/10 weights have no presumed advantage after legacy `confidence`
+  failed to rank outcomes (§5.19). Phase 2A does not store or execute them. A later score must beat an
+  eligibility-only boolean baseline and equal-weight/evidence-count baseline on untouched OOS data,
+  with component ablations and after-cost outcomes.
+- The three strategies form one confirmatory family. Register one primary contrast each, resample them
+  jointly by session × instrument and control family-wise alpha 0.05 with Holm adjustment. All other
+  slices are descriptive unless separately registered and charged to a new error budget.
+- A score band on inadequate data is `UNDERPOWERED`, not GOOD/STRONG/A+. Before outcomes are read,
+  freeze the after-cost SESOI, conservative planning alpha `0.05 / 3`, target power ≥0.80, block unit,
+  calculated minimum blocks/opportunities and data boundaries. No ranking or edge claim before it passes.
+- **The contract chooses boolean-first.** Phase 2A records `eligible`, direction, closed rejection
+  reasons and raw features with `score=null`/`classification=null`. Phase 2B may compute a shadow score
+  only after Gate 0 and a frozen score contract. Phase 2C may gate live decisions only after forward/OOS
+  evidence, independent raw re-run, rollback and written owner L3 approval.
+
+Migration 0038 must therefore include an explicit `decision_mode` (`boolean`, `score_shadow`,
+`score_gate`) and database constraints: boolean rows require score/classification null; shadow scores
+cannot determine live acceptance; only a separately owner-approved score-gate version may do so.
+
 **Logging rejected candidates.** The request is to log every candidate including rejections. This is
 worth doing and has a cost: it is a row per bar per strategy rather than a row per signal, and it
 must not travel through the signal dedupe path or Telegram. A separate table, with the same frozen
@@ -193,7 +222,7 @@ Proposed migrations, in order, numbered from the next free slot:
 | # | Adds |
 |---|---|
 | 0037 | `key_levels`, session definitions, and session/context columns on `bars` |
-| 0038 | `strategies` + `strategy_versions`; `signals.strategy_id`, `strategy_version`, `score`, `score_breakdown`, `classification` |
+| 0038 | `strategies` + `strategy_versions` with `decision_mode`; nullable score fields and mode constraints; no score-gate seed; later signal fields remain integration-only |
 | 0039 | `strategy_candidates` — every evaluated candidate, accepted or rejected, with its features |
 | 0040 | `news_events` + `signals.news_state` |
 | 0041 | metric columns on `experiment_results` (§6) |
@@ -262,6 +291,9 @@ rather than two. Everything else in this plan is backend-only, which is what the
 3. Whether rejected-candidate logging starts now (more data for later, more rows) or after phase 3.
 4. Whether the four unapplied migrations get resolved first, or this plan's migrations are written
    and left unapplied behind them.
+5. The exact boolean requirements/rejection vocabulary per strategy and the after-cost SESOI used to
+   calculate the Phase 2B information gate. Hand weights and band boundaries are not an owner decision
+   yet because the review requires evidence before either can be promoted from a hypothesis.
 
 ## 11. How this plan can fail
 

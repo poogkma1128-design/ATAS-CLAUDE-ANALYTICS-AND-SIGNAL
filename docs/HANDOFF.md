@@ -12,6 +12,36 @@
 
 ---
 
+## 0V. ปิด acceptance review §5 ที่เหลือ — **REJECT numeric scoring as written · เลือก boolean-first** (2026-09-06)
+
+เจ้าของส่งข้อทักท้วงว่าการตรวจ §5 ก่อนหน้า (`62618e7` / §0U.1) ตอบเพียง 4 จาก 8 ข้อและไม่มี
+formal verdict ใน `docs/reviews/`. Codex ตรวจต่อและบันทึกฉบับ standalone แล้วที่
+`docs/reviews/2026-09-06-strategy-engine-section-5-design-review.md`.
+
+คำตอบ 4 ข้อที่ขาด:
+
+1. **น้ำหนักมือหกตัวไม่มีเหตุผลให้เชื่อว่าจะสำเร็จ** หลัง legacy `confidence` ไม่ rank outcome
+   (§5.19 corr ของสาม cohort ใหญ่ = 0.013/0.051/0.027). จึง quarantine 25/20/15/20/10/10;
+   score ในอนาคตต้องชนะ boolean + equal-weight baselines บน untouched OOS หลัง costs/multiplicity.
+2. **สาม strategy = hypothesis family เดียว:** primary contrast หนึ่งตัวต่อ strategy, joint
+   session × instrument block resampling, family alpha 0.05 และ Holm adjustment; slice อื่น descriptive.
+3. **ข้อมูลน้อย = `UNDERPOWERED`:** ห้ามเรียก GOOD/STRONG/A+ หรือเลือก best strategy จนตรึง SESOI,
+   costs, planning alpha 0.05/3, power ≥0.80, block unit, minimum blocks/opportunities และ OOS boundary
+   *ก่อน* อ่าน outcome แล้ว gate ผ่าน.
+4. **เลือก boolean-first ชัดเจน:** Phase 2A เก็บ eligibility/direction/rejection/raw features โดย
+   `score=null`; Phase 2B score-shadow ต้องผ่าน Gate 0; Phase 2C score-gate ต้องมี forward/OOS,
+   independent re-run, rollback และ owner L3 approval.
+
+**Verdict:** `REJECT AS WRITTEN at L2` สำหรับ numeric score/bands และห้ามเริ่ม implementation ส่วนนั้น.
+อนุญาตเฉพาะการออกแบบ Phase 2A boolean/candidate logging หลัง prerequisite เดิมครบ. Phase 1 ใน
+`62618e7` ไม่ถูก reject เพราะ isolated และไม่ตัดสิน trade แต่ยังรอ Claude independent review ตาม §0U.
+
+รอบนี้แก้เฉพาะเอกสาร: ไม่แก้ code/migration, ไม่อ่านหรือเขียน Supabase, ไม่ deploy, ไม่เปลี่ยน rule,
+signal, Telegram หรือ ATAS. Verification ที่เกี่ยวข้องคือ `git diff --check` และตรวจ cross-reference;
+ไม่ rerun code tests เพราะไม่มี executable file เปลี่ยน. Rollback = revert documentation commit นี้.
+
+---
+
 ## 0U. Strategy Engine Phase 1 — **เขียน isolated causal engine แล้ว · รอ Claude review · ไม่แตะ production** (2026-09-06)
 
 เจ้าของสั่งให้ Codex ตรวจ `docs/STRATEGY_ENGINE_PLAN.md` §5 ก่อน แล้วค่อยเริ่ม Phase 1 ตามบทบาทใน
