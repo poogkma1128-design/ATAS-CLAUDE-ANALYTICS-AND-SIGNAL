@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-05 (Evidence-first signal quality)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-06 (Evidence-first signal quality)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -9,6 +9,44 @@
 > งานค้าง, owner/approval ที่ต้องมี และวิธี rollback เมื่อเกี่ยวข้อง. ห้ามข้ามขั้นนี้แม้งาน
 > จะเล็ก, ถูก merge แล้ว หรือเป็นเพียงการทดลอง. ถ้าไม่มีเอกสารที่ต้องเพิ่ม ให้บันทึกใน
 > Handoff ว่า “ไม่มีเอกสารเพิ่ม” พร้อมเหตุผล.
+
+---
+
+## 0O. MNQ / GC ML — **ฝึกทดลองและ forecast replay เสร็จ; ยังไม่รับรองใช้จริง** (2026-09-06)
+
+เจ้าของสั่ง **"ฝีกเลย"** หลังรับทราบ §0N แล้วสั่งทำต่อ: ดำเนินการฝึก offline เฉพาะ MNQ (`MNQU6`)
+และ GC บน snapshot ช่วง `[2026-08-28,2026-09-04)` UTC. ปัญหา provenance/period/footprint เดิม
+ยังไม่ได้รับการแก้ไข; การฝึกนี้ไม่ใช่การปลดล็อก scientific validation, V4/OOS หรือ production.
+
+- โค้ด: `research/hybrid_ml/` — causal candidate/label builder, baseline/logistic/boosting hazards,
+  calibration แยกเวลา, runner, model loader และตัวตรวจ artifacts. Export เป็น SELECT-only
+  `docs/queries/hybrid_ml_training_export_v1.sql`; raw data/models อยู่ `E:\GPT\local-research-data\hybrid-ml`.
+- Snapshot **3,382 bars**, export 2026-09-06 03:50:19 UTC. Final local run ID
+  `80c96e5d-7054-4df6-8330-d62a608a4c12`, รัน 03:59:05–03:59:09 UTC; ไม่มี DB experiment row.
+- **ฝึกครบ 12/12 ชุด** (8 ML +4 frequency baselines); 8 calibration fits; รายงาน 20 raw/calibrated
+  variants ครบทุก horizon 15/30/50 นาที. ไม่มี parameter sweep, deploy หรือการเลือกผู้ชนะจาก test.
+- Train ก่อน 2 Sep UTC, calibration วันที่ 2, evaluation วันที่ 3; purge ตาม maximum 50-minute
+  horizon. รายงาน censoring/ambiguity และ exclusions ครบ. ใช้ price lookback 12 (ต้องมี13 predecessors)
+  กับ current footprint; ต่างจาก census 50-bar full-footprint เดิมโดย freeze ก่อน export outcomes.
+- Evaluation ที่50นาที: MNQ direction **202/204**, level **107/107**; GC direction **113/117**,
+  level **43/44** (scored/eligible). ไม่ใช่ independent sample counts หรือ pristine OOS.
+  GC ML มี Brier/log loss แย่กว่า baseline ในรอบนี้; MNQ level บางคะแนนดีขึ้นแต่ไม่ได้พิสูจน์ edge.
+- รายงานครบ: `docs/experiments/2026-09-06-hybrid-ml-training-v1.md`; complete aggregate packet:
+  `docs/experiments/evidence/2026-09-06-hybrid-ml-training-v1.json`. วิธีรัน/โหลดโมเดลอยู่
+  `research/hybrid_ml/README.md`. ไม่รายงาน accuracy เป็น win rate และยังไม่มี cost/P&L backtest.
+
+**Verification:** 19 synthetic tests ผ่าน, `pip check` ผ่าน; โหลดโมเดล12ชุดกลับมาทำนายซ้ำ,
+ตรวจ ledger6,764 rows / predictions8,315 rows / metrics180 rows ตรงกัน. นี่เป็น engineering replay
+โดย recorder คนเดิม **ไม่ใช่ independent sign-off**. Initial run `06817a4b-894b-48d7-b847-26affba12f3a`
+เก็บไว้; final rerun แก้ relative config path และ default inference temperature โดยคะแนนทุกชุดเท่าเดิม.
+
+**Roles/งานถัดไป:** Proposer คือ draft เดิม; agent Executor เริ่ม candidate builder แต่หยุดก่อน fit;
+root รับต่อ implementation/run ตามคำสั่งเจ้าของ จึงมี role overlap และห้ามอนุมัติผลตัวเอง.
+Independent reviewer ยัง unassigned; ต้องตรวจ raw artifacts/SQL ซ้ำ และตรวจ data provenance/ข้อมูล
+ที่ยาวขึ้นกับ forward window ใหม่ก่อนอ้างความแม่นยำหรือเปิดใช้. ดู standalone review contract ในรายงาน.
+**Deploy/rollback:** ไม่มี production/database mutation/Telegram/ATAS DLL change. Revert source commit
+ได้โดยไม่มี runtime model state; เก็บ local snapshots/runs เดิมไว้เป็นหลักฐาน. เอกสารและ source
+เผยแพร่บน branch `codex/hybrid-ml-research`; ไม่ใช่ merged production change.
 
 ---
 

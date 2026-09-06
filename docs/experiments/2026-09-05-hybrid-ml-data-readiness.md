@@ -1,5 +1,8 @@
 # MNQ / GC hybrid ML data readiness — observed data defects, model run not started
 
+Historical Gate 0 record: the owner subsequently requested an exploratory fit despite these defects.
+The executed run is in `2026-09-06-hybrid-ml-training-v1.md`; the source-quality findings here remain unresolved.
+
 Gate 0 run ID (local evidence, **not** a `public.experiments` ID):
 `a533b89c-616f-4812-a139-88fdaad89dc1`.
 

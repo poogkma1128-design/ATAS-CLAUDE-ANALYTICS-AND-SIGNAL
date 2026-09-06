@@ -1,6 +1,8 @@
 # MNQ / GC hybrid probability research: direction, rejection/continuation and event time
 
 Status: **design + data-readiness work; no model trained, no edge verdict, no production switch**.
+This is the original September 5 design-stage status. Subsequent owner-authorized exploratory training
+is recorded in `2026-09-06-hybrid-ml-training-v1.md`; it does not certify the design or remove data limitations.
 Date: 2026-09-05. Source baseline: `b27cfd27db87d4e3ee746d33a4f71ef31fcaedbc`.
 Branch: `codex/hybrid-ml-research`. Related gates: HANDOFF §0M, §0L, §5.20–5.23 and
 `docs/EXPERIMENT_REVIEW_PROTOCOL.md`.
