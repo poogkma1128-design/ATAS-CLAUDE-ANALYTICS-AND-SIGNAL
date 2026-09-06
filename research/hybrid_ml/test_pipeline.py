@@ -13,6 +13,7 @@ from threadpoolctl import threadpool_limits
 from research.hybrid_ml import dataset as d
 from research.hybrid_ml.models import (cumulative_probabilities, fit_model, calibrate,
                                       predict_features, risk_rows, metrics)
+from research.hybrid_ml.report_scores import report
 from research.hybrid_ml.run import run, validate_config
 
 
@@ -320,6 +321,12 @@ class RunnerTests(unittest.TestCase):
         self.assertGreater(sum(c["fit_status"] == "fitted" for c in summary["cells"]), 0)
         partitions = {c["partition"] for c in summary["candidate_census"]}
         self.assertTrue({"train", "calibration", "evaluation"} <= partitions)
+        # The pasteable report must reformat that run without inventing a claim.
+        text = report(self.tmp / "run")
+        self.assertIn(summary["run_id"], text)
+        self.assertIn("NQU6", text)
+        self.assertIn("is NOT a win rate", text)
+        self.assertEqual(text.count("| baseline | raw |"), 4)  # 2 symbols x 2 tasks
 
     def test_runner_refuses_a_repository_output_and_a_mismatched_snapshot(self):
         repo = Path(__file__).resolve().parents[2]

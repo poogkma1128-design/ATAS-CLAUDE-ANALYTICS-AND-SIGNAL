@@ -47,6 +47,16 @@ Then train and replay that snapshot (the two commands the v2 run needs):
 & E:\GPT\local-research-data\hybrid-ml\venv\Scripts\python.exe -m research.hybrid_ml.verify_artifacts E:\GPT\local-research-data\hybrid-ml\run-v2 --result E:\GPT\local-research-data\hybrid-ml\verification-v2.json
 ```
 
+`summary.json` is the evidence and stays local. To carry the headline rows somewhere else — a
+review thread, a chat, the experiment document — print the compact table instead of pasting the file:
+
+```powershell
+& E:\GPT\local-research-data\hybrid-ml\venv\Scripts\python.exe -m research.hybrid_ml.report_scores E:\GPT\local-research-data\hybrid-ml\run-v2
+```
+
+It reformats what the run recorded, computes nothing new, and prints every cell including failed
+ones. Add `--horizon 3` or `--horizon 6` for the shorter reported horizons.
+
 A later export is not identical historical evidence. To reproduce the recorded run, use its existing
 snapshot and choose a **new** training output directory. The runner refuses overwrite and refuses raw
 input/output inside the repository.
