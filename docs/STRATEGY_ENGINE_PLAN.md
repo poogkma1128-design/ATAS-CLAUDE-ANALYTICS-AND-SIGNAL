@@ -113,8 +113,15 @@ Four things must be settled before results from this engine mean anything:
    stop, target and every R-multiple from `tick_size`; migration 0003 divides by it for every MAE/MFE
    in ticks. Every tick-denominated statistic already stored for MNQU6 — 1,391 signals with outcomes,
    the largest such population in the database — was computed against a tick three times too large.
-   Fixing the row is a one-line update; deciding what to do with the statistics already derived from
-   it is not, and neither may happen without owner approval and a recorded before/after.
+
+   **Root cause and fix are written, not yet applied.** The bridge sends ATAS's chart price step and
+   `upsertInstrument()` wrote it over the row on every ingest, so the value could not simply be
+   corrected in place. `ingest.ts` now treats the tick as curated, and migration 0038 stamps
+   `signal_outcomes.tick_size_used`, corrects the three instruments, and adds a trigger that holds the
+   value against any blind overwrite — so the correction no longer depends on a deployment staying
+   current. Per the owner's decision no stored measurement is rewritten; the corrected reading comes
+   from the `signal_outcomes_true_ticks` view. `tick_value` stays null because nothing ever observed
+   it. 0038 queues behind 0033-0036 like everything else. See HANDOFF §0Z.
 3. **NQ or MNQ — decided: MNQ (`MNQU6`).** Owner decision, 2026-09-06. They are separate order books,
    not one feed recorded twice: across 1,162 bars sharing a timestamp, OHLC matches on 31 and volume
    and ticks match on **zero**. Pooling them stays forbidden. What the choice costs and buys is in
@@ -228,7 +235,8 @@ The formal review answers the four remaining acceptance questions and has the co
   only after Gate 0 and a frozen score contract. Phase 2C may gate live decisions only after forward/OOS
   evidence, independent raw re-run, rollback and written owner L3 approval.
 
-Migration 0038 must therefore include an explicit `decision_mode` (`boolean`, `score_shadow`,
+The strategy-version migration (0039 since 0038 was taken by the tick correction) must therefore
+include an explicit `decision_mode` (`boolean`, `score_shadow`,
 `score_gate`) and database constraints: boolean rows require score/classification null; shadow scores
 cannot determine live acceptance; only a separately owner-approved score-gate version may do so.
 
@@ -242,10 +250,11 @@ Proposed migrations, in order, numbered from the next free slot:
 | # | Adds |
 |---|---|
 | 0037 | `key_levels`, session definitions, and session/context columns on `bars` |
-| 0038 | `strategies` + `strategy_versions` with `decision_mode`; nullable score fields and mode constraints; no score-gate seed; later signal fields remain integration-only |
-| 0039 | `strategy_candidates` — every evaluated candidate, accepted or rejected, with its features |
-| 0040 | `news_events` + `signals.news_state` |
-| 0041 | metric columns on `experiment_results` (§6) |
+| 0038 | *(taken)* `signal_outcomes.tick_size_used`, the tick correction and the metadata trigger — see HANDOFF §0Z |
+| 0039 | `strategies` + `strategy_versions` with `decision_mode`; nullable score fields and mode constraints; no score-gate seed; later signal fields remain integration-only |
+| 0040 | `strategy_candidates` — every evaluated candidate, accepted or rejected, with its features |
+| 0041 | `news_events` + `signals.news_state` |
+| 0042 | metric columns on `experiment_results` (§6) |
 
 All five are additive. None alters an existing column, and none may be written before the four
 unapplied migrations ahead of them are resolved.
