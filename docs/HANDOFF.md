@@ -74,6 +74,19 @@ NQ/MNQ/GC ต้องซื้อ (Databento, CME DataMine, dxFeed/Rithmic/CQG 
 `public.experiments` — ทุกคำสั่ง DB เป็น SELECT. rollback = revert commit ไม่มี state ให้ย้อน.
 **เอกสารเพิ่ม:** รายงาน v2, `config_v2.json`, `hybrid_ml_training_export_v2.sql`, README ของ pipeline.
 
+**🔧 แก้เพิ่มหลัง PR #83 (2026-09-06):** เจ้าของรัน export จริงแล้วล้มที่
+`Cannot index into a null array` — **Supabase CLI ยิง SQL ผ่าน แต่คืนผลเป็น JSON array ตรง ๆ
+ไม่ได้ห่อด้วย `rows`** ซึ่งเป็นรูปแบบที่สคริปต์ (ทั้งของ v1 และ v2) ไม่รองรับ. แก้ที่
+`export_snapshot.ps1`: รับได้ทั้งสองรูปแบบ, เซฟ `cli-output.json` **ก่อน** ตรวจ exit code
+(เดิมถ้า CLI ล้มจะไม่เหลือหลักฐานเลย), บอกข้อความที่อ่านรู้เรื่องพร้อม 300 ตัวอักษรแรกของคำตอบจริง
+เมื่อเจอรูปแบบที่ไม่รู้จัก, และเลิกแปลง `/` เป็น `\` ในพาธ (Windows รับ `/` อยู่แล้ว).
+**ตรวจโดยรันจริง:** ติดตั้ง PowerShell 7.4.6 ในคอนเทนเนอร์แล้วรันสคริปต์ทั้งไฟล์ด้วย CLI จำลอง —
+ผ่านทั้ง 5 กรณี (wrapper object, bare array, single object, คอลัมน์ผิด, สองแถว) และ 2 กรณีล้ม
+(exit ≠ 0, ไม่มี output) · snapshot.json ที่ได้โครงสร้างถูกและราคาไม่เพี้ยน.
+**ข้อจำกัดที่เหลือ:** เครื่องเจ้าของเป็น Windows PowerShell 5.1 ส่วนที่ตรวจคือ PowerShell 7 บน Linux
+⇒ ยังไม่ได้พิสูจน์บน 5.1 จริง; ถ้า `ConvertTo-Json` ช้ามากหรือล้มเพราะ payload ~2 เท่าของ v1
+ต้องทำทางแยกแบบ streaming เพิ่ม.
+
 ---
 
 ## 0O. MNQ / GC ML — **ฝึกทดลองและ forecast replay เสร็จ; ยังไม่รับรองใช้จริง** (2026-09-06)

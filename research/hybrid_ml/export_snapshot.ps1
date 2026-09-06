@@ -18,9 +18,9 @@ if (-not (Test-Path -LiteralPath $configFile)) { throw "Config not found: $Confi
 $configJson = Get-Content -LiteralPath $configFile -Raw | ConvertFrom-Json
 $expectedSymbols = @($configJson.target_symbols)
 switch ($configJson.schema_version) {
-    'hybrid-ml-exploratory-v1' { $queryRelative = 'docs\queries\hybrid_ml_training_export_v1.sql'
+    'hybrid-ml-exploratory-v1' { $queryRelative = 'docs/queries/hybrid_ml_training_export_v1.sql'
                                  $expectedSchema = 'hybrid-ml-training-export-v1' }
-    'hybrid-ml-exploratory-v2' { $queryRelative = $configJson.export_query -replace '/', '\'
+    'hybrid-ml-exploratory-v2' { $queryRelative = $configJson.export_query
                                  $expectedSchema = 'hybrid-ml-training-export-v2' }
     default { throw "Unknown config schema_version: $($configJson.schema_version)" }
 }
@@ -30,14 +30,26 @@ $queryHash = (Get-FileHash -LiteralPath $queryFile -Algorithm SHA256).Hash.ToLow
 Copy-Item -LiteralPath $queryFile -Destination (Join-Path $snapshotDir 'export.sql')
 Copy-Item -LiteralPath $configFile -Destination (Join-Path $snapshotDir 'config_before_export.json')
 $capture = & npx --yes supabase@2.116.0 db query --linked --project-ref sckdriuwfyittcybnbhz --file $queryFile -o json
-if ($LASTEXITCODE -ne 0) { throw 'SELECT failed; this directory records an unsuccessful export attempt.' }
+$exitCode = $LASTEXITCODE
+# Save the reply before judging it, so a failed attempt still leaves evidence to read.
 $raw = $capture -join [Environment]::NewLine
 [IO.File]::WriteAllText((Join-Path $snapshotDir 'cli-output.json'), $raw, [Text.UTF8Encoding]::new($false))
-$parsed = $raw | ConvertFrom-Json
-if (@($parsed.rows).Count -ne 1 -or -not $parsed.rows[0].hybrid_ml_training_export) {
-    throw 'Unexpected SELECT result; inspect saved wrapper locally.'
+if ($exitCode -ne 0) {
+    throw "SELECT failed (exit $exitCode). The CLI reply is saved as cli-output.json in $snapshotDir; this directory records an unsuccessful export attempt."
 }
-$artifact = $parsed.rows[0].hybrid_ml_training_export
+if ([string]::IsNullOrWhiteSpace($raw)) {
+    throw "The CLI returned no output. Check that it is logged in and linked to sckdriuwfyittcybnbhz."
+}
+$parsed = $raw | ConvertFrom-Json
+# The CLI has shipped both shapes for `db query -o json`: a wrapper object carrying a
+# `rows` array, and the result rows as a bare array. Accept either rather than failing
+# with a null-array error that says nothing about what actually arrived.
+$resultRows = if ($null -ne $parsed.rows) { @($parsed.rows) } else { @($parsed) }
+$artifact = if ($resultRows.Count -ge 1) { $resultRows[0].hybrid_ml_training_export } else { $null }
+if ($resultRows.Count -ne 1 -or $null -eq $artifact) {
+    $head = $raw.Substring(0, [Math]::Min(300, $raw.Length))
+    throw "Unexpected SELECT result: $($resultRows.Count) row(s) and no hybrid_ml_training_export column. The full reply is saved as cli-output.json in $snapshotDir. It starts: $head"
+}
 if ($artifact.schema_version -ne $expectedSchema) {
     throw "Snapshot schema $($artifact.schema_version) does not match config $($configJson.schema_version)."
 }
