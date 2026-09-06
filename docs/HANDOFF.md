@@ -12,7 +12,7 @@
 
 ---
 
-## 0X. Strategy Engine Phase 1 repair — **ปิด P1 สามข้อใน source · รอ Claude re-review · ไม่แตะ production** (2026-09-07)
+## 0Y. Strategy Engine Phase 1 repair — **ปิด P1 สามข้อใน source · รอ Claude re-review · ไม่แตะ production** (2026-09-07)
 
 เจ้าของสั่งให้ Codex แก้ต่อได้ทันทีระหว่างที่ Claude ตรวจ PR #90. Implementation commit คือ
 **`adae0872f0638e658b91d624fe36bc076d0692c0`** บน branch
@@ -20,7 +20,7 @@
 PR #90 แล้ว. งานนี้แก้เฉพาะ P1 สามข้อจาก independent review `acc3a64`; ไม่เริ่ม Phase 2A และไม่รวม
 งาน review §5 ที่ Claude กำลังทำบน branch ของตน.
 
-### 0X.1 สิ่งที่แก้
+### 0Y.1 สิ่งที่แก้
 
 1. **Footprint reconciliation fail-closed** — `CausalLevelBar` รับ bar-level `ticks` และตรวจทุก bar
    ที่เข้า profile ก่อนรวมราคา/volume. level ที่ราคาอยู่นอก high/low, field ไม่ finite/ติดลบ หรือ
@@ -41,7 +41,7 @@ PR #90 แล้ว. งานนี้แก้เฉพาะ P1 สามข�
 4. อัปเดต `docs/STRATEGY_ENGINE_PLAN.md` เฉพาะ Phase 1 ให้ตรง contract ที่ซ่อม. **ไม่มีเอกสารเพิ่ม**:
    setup/runbook/deploy flow ไม่เปลี่ยน เพราะโมดูลยัง isolated และ migration ยังไม่ apply.
 
-### 0X.2 หลักฐานที่รันจริง
+### 0Y.2 หลักฐานที่รันจริง
 
 | การตรวจ | ผล |
 |---|---|
@@ -59,7 +59,7 @@ SQL `NULL` และ check หลุดผ่าน. แก้เป็น `IS D
 PostgreSQL เตือน `wal_level` ไม่พอสำหรับ logical replication หลังสร้าง publication จำลอง แต่ schema,
 RLS, migration และ regression ที่อยู่ใน scope ผ่านครบ; ไม่ได้สร้าง subscription.
 
-### 0X.3 สถานะ ข้อห้าม และงานถัดไป
+### 0Y.3 สถานะ ข้อห้าม และงานถัดไป
 
 **Production ไม่ถูกแตะ:** ไม่ apply migration 0037, ไม่ deploy Edge Function, ไม่เขียน Supabase,
 ไม่แก้ rule/signal/Telegram/ATAS DLL. Migration 0037 ยังต่อท้าย queue 0033–0036 และ Phase 1 modules
@@ -71,8 +71,90 @@ causality/gap/footprint precedence/per-window DST และยืนยัน is
 previous-day staleness ยังเปิดตาม review เดิม; งานนี้ไม่ตัดสินแทนเจ้าของ.
 
 **Rollback:** ก่อน production ให้ revert `adae087` และ Handoff commit ที่ตามมา; ไม่มี database/runtime
-state ให้ย้อน. ขั้นถัดไปหลัง push คือเปิด PR จาก `codex/strategy-engine-phase-1-repair` เข้า
-`claude/form-signal-telegram-rz8am1` แล้วส่ง packet นี้ให้ Claude independent re-review.
+state ให้ย้อน. เปิด PR #93 จาก `codex/strategy-engine-phase-1-repair` เข้า
+`claude/form-signal-telegram-rz8am1` แล้ว; ขั้นถัดไปคือ Claude independent re-review packet นี้.
+
+---
+
+## 0X. ตรวจผลตรวจ §5 (review of review) — **ENDORSE WITH CHANGES · P1 สามข้อ · gate ปิดอยู่แล้วด้วยข้อมูลจริง** (2026-09-06)
+
+Claude ตรวจผลงาน Codex ใน PR #90 (`b595a7f` → merge `6564d98`) ตามที่ PR ขอให้ตรวจ.
+รายงานเต็ม: `docs/reviews/2026-09-06-strategy-engine-section-5-review-of-design-review.md`.
+Query ที่ใช้: `docs/queries/strategy_block_census.sql` (read-only ทั้งไฟล์).
+
+**คำตัดสิน: ENDORSE WITH CHANGES** — คำตัดสินหลัก (**REJECT numeric scoring · boolean-first**) **ถูกต้อง
+และ Claude ยอมรับกับแผนที่ตัวเองเขียน**. ข้อ 1 ตอบคำถามยากได้ตรง: ไม่ได้บอกว่า multifeature score
+ใช้ไม่ได้ตลอดไป แต่บอกว่าน้ำหนักที่ตั้งด้วยมือ *ยังไม่มีหลักฐาน* และต้องพิสูจน์ค่าเพิ่มบนข้อมูลที่ยังไม่แตะ.
+
+**ข้อควรระวังเรื่องความเป็นกลาง:** ผู้ตรวจรอบนี้คือคนเขียนแผนที่ถูกท้วง ⇒ การ endorse นี้มีน้ำหนักเท่ากับ
+"เจ้าของแผนยอมรับข้อท้วง" ไม่ใช่ความเห็นที่สองที่เป็นอิสระ
+
+### 0X.1 P1 สามข้อ (ต้องแก้ก่อน freeze สัญญา Phase 2A)
+
+1. **คำตอบของ power gate รู้ได้แล้ววันนี้ และคือ "ยังไม่พอ"** — review เขียนไว้เป็นเงื่อนไข ("ถ้าข้อมูลไม่พอ
+   ก็ underpowered") ทั้งที่วัดได้ด้วย query เดียว. นับ **usable US-regular block (≥70 จาก 78 แท่ง)**:
+   **GC 6 · MNQU6 6 · NQU6 4 · BTCUSDT 4** และข้อมูล 5 นาทีจริงมีแค่ **6 วันเทรดต่อ instrument**
+   (28 ส.ค.–4 ก.ย.). ที่เห็นเป็น "102 วัน" ของ GC/MNQU6 **ไม่ใช่ประวัติ** — ก่อน 28 ส.ค. MNQU6 มี
+   **96 แท่งใน 96 วัน** (วันละแท่ง = artefact ของ §0L). ⇒ แบ่ง dev/walk-forward/OOS ตามที่ review
+   ต้องการเองยังไม่ได้เลย, gate **ปิดแน่นอน**ทุก strategy ทุก instrument.
+   **ต้องแก้:** เขียน census ลงแผน และตั้ง gate เป็น *จำนวน block เป้าหมาย* แทนเงื่อนไข ⇒ ขั้นต่อไปจะชัดว่า
+   **"เปิดกราฟเก็บข้อมูลให้ครบก่อน" (§3.7b)** ไม่ใช่ "เขียน Phase 2A แล้วค่อยรู้ว่าประตูปิด"
+2. **สัญญา percentile ไม่มีกฎแท่งติดกัน — เป็นข้อเดียวกับ §0V.1 P1 #2 แต่ขึ้นมาอีกชั้น** — ข้อ 5 ตรึง
+   trailing window "แท่งที่ปิดก่อนแท่งตัดสิน" โดยไม่บังคับว่าต้องติดกัน. วัดจริง: **หน้าต่าง 20 แท่งที่คร่อมรู
+   NQU6 12.3% · GC 11.3% · MNQU6 7.3% · BTC 6.7%** ⇒ 1 ใน 8 ถึง 1 ใน 15 ของการคำนวณ threshold
+   คร่อมช่วงที่ไม่ได้เปิดกราฟหรือคร่อม session break ที่ไม่ได้ทำเครื่องหมาย. รอบนี้กระทบ **ทุก adaptive
+   threshold** ไม่ใช่แค่ regime label เดียว. **ต้องแก้:** เพิ่ม max spacing + แยก session break ออกจาก
+   feed gap + คืน `insufficient_history` ตามมาตรฐาน `research/hybrid_ml/dataset.py:214`
+   (`missing_or_invalid_past_13`)
+3. **power contract ไม่ได้ระบุสถิติที่ใช้ ⇒ "จำนวน block ขั้นต่ำ" คำนวณไม่ได้จริง** — ตรึง estimand/SESOI/
+   alpha/power/block unit ครบ แต่ไม่บอก estimator และวิธี inference. "Holm-adjusted p-value" บอกวิธี
+   *แก้* สามค่า ไม่ได้บอกวิธี *ได้มา*. **ต้องแก้:** ระบุในแถวเดียวกัน — estimator (mean after-cost
+   incremental R ต่อ opportunity), inference (moving-block bootstrap บน session × instrument พร้อม
+   block length + จำนวน resample), และวิธีได้ power (simulation ที่ SESOI ด้วย variance จาก dev เท่านั้น)
+
+### 0X.2 P2
+
+- **"database constraints" อ้างเกินกว่าที่ฐานข้อมูลบังคับได้** — "boolean rows ต้อง score null" เป็น `CHECK` จริง
+  แต่ "shadow score ห้ามตัดสิน live acceptance" เป็นพฤติกรรมของโค้ด ไม่ใช่ constraint. สิ่งที่บังคับได้จริงคือ
+  signal ห้ามอ้าง `strategy_version` ที่ `decision_mode='score_shadow'` ⇒ ต้องแยกให้ชัดว่าอะไรเป็น constraint
+  อะไรเป็น code invariant ที่ต้องมีเทสต์
+- **`UNDERPOWERED` ถูกนิยามคนละระดับ** — §5 ข้อ 4 บังคับให้ band เป็น partition ของช่วงคะแนน แต่
+  UNDERPOWERED เป็นสมบัติของ *การทดลอง* ไม่ใช่ช่วงคะแนน (และ Phase 2A ไม่มี classification เลย)
+  ⇒ ต้องเขียนชัดว่าเป็นค่าบน `experiment_results` เท่านั้น ห้ามเป็นค่าของ `signals.classification`
+- **คุม multiplicity ในครอบครัวเดียว แต่ไม่คุมข้ามเวอร์ชันตามเวลา** — Holm ถูกต้องสำหรับสาม contrast
+  แต่เวอร์ชันใหม่แต่ละครั้งเริ่ม alpha 0.05 ใหม่. ตัวคุมจริงคือกฎ "verdict ต้องใช้ช่วงเวลาที่ยังไม่แตะ"
+  ⇒ ยกให้เป็นกฎหลัก และบันทึกจำนวน attempt + ช่วงที่แต่ละ attempt กินไปในทะเบียนการทดลอง
+- **required change #3 ของ review ถูก supersede แล้ว** — ที่เขียนว่า "approve exchange-time session
+  definitions" ขัดกับ §0V.1 P1 #3 (แต่ละ window ต้องมี timezone ของตัวเอง). หัวเอกสารแผนแก้ถูกแล้ว
+  ⇒ ไม่ต้องแก้ไฟล์ review ที่ลงวันที่ไว้ แต่ **ให้ถือว่าถ้อยคำใน §0V.1 #3 เป็นตัวควบคุม**
+
+### 0X.3 สิ่งที่ตรวจแล้วยืนยันว่าถูก (ตรวจเอง)
+
+**การอ้าง §5.19 ตรงเป๊ะ** (บรรทัด 3340-3342: `poc_shift` 0.013 n=376 · `stacked_imbalance` 0.051 n=243 ·
+`absorption` 0.027 n=197) · **Holm ถูกต้องจริง** — คุม FWER ได้ภายใต้ dependence แบบใดก็ได้ ซึ่งสำคัญตรงที่
+สาม strategy ใช้แท่งร่วมกัน และ planning ที่ `0.05/3` คือขอบเขต conservative ของ Holm ไม่ใช่แค่ฟังดูระวัง ·
+**ข้อ 1 ไม่ overclaim** · **ข้อ 8 ชัดพอที่จะกัน score หลุดเป็น filter โดยไม่ตั้งใจ** ·
+**merge รักษาของเดิมครบ** — ไฟล์ review Phase 1 **byte-identical** ระหว่าง `acc3a64` กับ `6564d98`,
+บรรทัดลบเดียวใน diff ของ HANDOFF คือ header ของ diff เอง ⇒ §0V และ P1 ทั้งสามอยู่ครบ ·
+**เป็นเอกสารล้วน** — `git diff --name-only 36f71d4 6564d98` = 3 ไฟล์ใต้ `docs/` ทั้งหมด, ไม่มี executable
+⇒ ที่ Codex ไม่ rerun เทสต์ถูกต้อง และผล 163 passed จาก §0V.3 ยังใช้ได้ · `git diff --check` ผ่าน
+
+### 0X.4 ผลตรวจตามสัญญา §13
+
+**ครบ:** แปดข้อครบ · verdict ถูกรูปแบบ · ตอบข้อ 8 ชัด · ลง `docs/reviews/` + HANDOFF · ไม่อนุมัติงานตัวเอง
+**ไม่ครบ 2 ข้อ:** (ก) สัญญาสั่งว่า *"แล้วหาสิ่งที่รายการนี้ตกหล่น"* — รอบนี้ไม่มี finding นอกแปดข้อเลย
+(ของดีที่เพิ่มมาคือ "missing is not zero evidence" ซึ่งอยู่ใน commit ก่อนหน้า ควรบันทึกในไฟล์นี้ด้วย) ·
+(ข) ไม่มีหัวข้อ *"สิ่งที่ตรวจไม่ได้"* · **ไม่ครบครึ่ง:** ไม่มี finding ระดับ P2 เลย และข้อ 4 อ้างเรื่อง
+`tick_size` โดยไม่อ้าง §0Q/§0R หรือ `docs/queries/btcusdt_identity_series.sql` ·
+ที่สำคัญที่สุด — **จำนวน block ที่ตัดสินข้อ 7 ไม่เคยถูกวัด ทั้งที่ query เดียวจบ** (นั่นคือที่มาของ P1 ข้อ 1)
+
+### 0X.5 งานต่อและข้อห้าม
+
+**Codex:** P1 ของ §0V (3 ข้อ, ข้อ 3 กระทบ schema 0037) + P1 ของ §0X (3 ข้อ) → Claude ตรวจซ้ำ ·
+**เจ้าของ:** SESOI หลังต้นทุน · เวลา session ต่อ instrument (ต่อ window ไม่ใช่ต่อ exchange) · NQ หรือ MNQ ·
+convention ของ value area · จะเคลียร์ migration 0033–0036 ก่อนไหม ·
+**ข้อห้ามที่ยังอยู่:** ห้ามเริ่ม numeric scoring/band · ห้าม apply 0037 · ห้ามส่งแท่งย้อนหลังเข้า `ingest` ·
+ทุกคำสั่งกับ project จริงเป็น `SELECT` อย่างเดียว. **Production ไม่ถูกแตะ** · rollback = revert commit เอกสารนี้
 
 ---
 
