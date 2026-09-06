@@ -251,16 +251,49 @@ function collapseLevels(levels: ClusterLevel[]): ClusterLevel[] {
   return sortLevels([...byPrice.values()]);
 }
 
+/**
+ * Resolves the instrument row, treating `tick_size` and `tick_value` as curated
+ * contract facts rather than something the terminal gets to redefine.
+ *
+ * The bridge sends ATAS's `InstrumentInfo.TickSize`, which is the *chart's*
+ * price step, not the exchange's minimum tick. On the owner's charts those
+ * differ: MNQU6 reported 0.75 against a real 0.25, GC 0.30 against 0.10 and
+ * BTCUSDT 10.0 against 0.10, measured from the traded prices in the same feed
+ * (HANDOFF §0Y, `docs/queries/instrument_tick_identity.sql`). `tick_value` is
+ * never sent at all, so an unconditional upsert also wrote null over it on
+ * every request. Since `tick_size` divides every MAE/MFE and R-multiple in the
+ * database, an existing row keeps what it has and the payload only seeds a row
+ * that does not exist yet. Correcting a wrong tick is then a deliberate,
+ * recorded change instead of one a chart setting can silently undo.
+ */
 async function upsertInstrument(
   supabase: SupabaseClient,
   payload: IngestPayload,
 ): Promise<string> {
+  const symbol = payload.symbol.trim();
+  const exchange = (payload.exchange ?? "").trim();
+
+  const existing = await supabase
+    .from("instruments")
+    .select("id")
+    .eq("symbol", symbol)
+    .eq("exchange", exchange)
+    .limit(1);
+
+  if (existing.error) {
+    throw new Error(`instrument lookup failed: ${existing.error.message}`);
+  }
+  const found = (existing.data as { id: string }[] | null)?.[0];
+  if (found) return found.id;
+
+  // Still an upsert rather than an insert: two concurrent first sightings of
+  // the same symbol must not turn into a duplicate-key error.
   const { data, error } = await supabase
     .from("instruments")
     .upsert(
       {
-        symbol: payload.symbol.trim(),
-        exchange: (payload.exchange ?? "").trim(),
+        symbol,
+        exchange,
         tick_size: payload.tickSize,
         tick_value: payload.tickValue ?? null,
       },
