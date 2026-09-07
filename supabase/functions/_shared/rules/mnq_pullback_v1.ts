@@ -12,6 +12,7 @@ import {
 } from "../market_context.ts";
 import { type CausalLevelBar, computeKeyLevels } from "../key_levels.ts";
 import { type SessionDefinition, stampSession } from "../market_sessions.ts";
+import { num } from "../util.ts";
 import {
   evaluatePullback,
   type PullbackContract,
@@ -60,7 +61,8 @@ const VOLATILITY_CONTRACT: VolatilityContract = {
   method: "nearest_rank",
 };
 
-const PULLBACK_CONTRACT: PullbackContract = {
+/** The frozen contract: what the rule runs when `public.rules.params` says nothing. */
+export const PULLBACK_CONTRACT: PullbackContract = {
   version: CONTRACT_VERSION,
   zoneProximity: 0.5,
   invalidationDistance: 0.75,
@@ -70,12 +72,53 @@ const PULLBACK_CONTRACT: PullbackContract = {
   triggerKinds: ["delta_flip", "stacked_imbalance"],
 };
 
+/** The three distances a sweep is allowed to move. Anchors, triggers and the
+ *  spacing tolerance are identity, not settings: changing them would make a
+ *  different strategy wearing this one's name. */
+const TUNABLE = ["zoneProximity", "invalidationDistance", "setupMaxAgeBars"] as const;
+
+/**
+ * The contract a rules row actually asks for.
+ *
+ * Until 2026-09-07 the contract above was used verbatim and `ctx.params` was
+ * never read, so `zoneProximity` and its two neighbours sat in `public.rules`
+ * looking adjustable while nothing consulted them. Two backtest sweeps were run
+ * against them (experiments fdb0245f and a191db22) and returned numbers
+ * identical to the baseline in every row — not because the thresholds do not
+ * matter, but because the runs never changed a threshold.
+ *
+ * An override renames the contract. A payload that claimed the frozen version
+ * while running a different distance would make two incomparable runs look like
+ * one, which is the confusion this whole path exists to avoid.
+ */
+export function contractFor(params: Record<string, unknown>): PullbackContract {
+  const contract: PullbackContract = {
+    ...PULLBACK_CONTRACT,
+    zoneProximity: num(params, "zoneProximity", PULLBACK_CONTRACT.zoneProximity),
+    invalidationDistance: num(
+      params,
+      "invalidationDistance",
+      PULLBACK_CONTRACT.invalidationDistance,
+    ),
+    setupMaxAgeBars: num(params, "setupMaxAgeBars", PULLBACK_CONTRACT.setupMaxAgeBars),
+  };
+
+  const moved = TUNABLE
+    .filter((key) => contract[key] !== PULLBACK_CONTRACT[key])
+    .map((key) => `${key}=${contract[key]}`);
+
+  return moved.length === 0
+    ? contract
+    : { ...contract, version: `${CONTRACT_VERSION}+${moved.join(",")}` };
+}
+
 export function evaluate(ctx: RuleContext): RuleSignal[] {
   if (ctx.symbol !== "MNQU6" || ctx.timeframe !== "5m") return [];
 
+  const contract = contractFor(ctx.params);
   const history = ctx.strategyHistory ?? ctx.history;
   const decision = buildDecision(ctx, history);
-  const result = evaluatePullback([decision], PULLBACK_CONTRACT);
+  const result = evaluatePullback([decision], contract);
   const triggered = result.opportunities.filter((opportunity) =>
     opportunity.outcome.kind === "triggered"
   );
@@ -105,7 +148,7 @@ export function evaluate(ctx: RuleContext): RuleSignal[] {
     payload: {
       kind: "mnq_pullback_named_level",
       strategyKey: "MNQ_PULLBACK_V1",
-      contractVersion: CONTRACT_VERSION,
+      contractVersion: contract.version,
       executionScope: "touch_bar_only",
       score: null,
       anchor: {

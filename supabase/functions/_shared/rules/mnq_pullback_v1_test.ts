@@ -1,7 +1,13 @@
 // deno-lint-ignore-file no-import-prefix -- repository test convention.
 import { assertEquals } from "jsr:@std/assert@1";
 import type { BarInput, ClusterLevel, HistoryBar, RuleContext } from "../types.ts";
-import { buildDecision, evaluate } from "./mnq_pullback_v1.ts";
+import {
+  buildDecision,
+  CONTRACT_VERSION,
+  contractFor,
+  evaluate,
+  PULLBACK_CONTRACT,
+} from "./mnq_pullback_v1.ts";
 
 function historyBar(openedAt: string, index: number, highCap = 100): HistoryBar {
   const mid = 98.5 + (index % 5) * 0.25;
@@ -117,4 +123,56 @@ Deno.test("MNQ pullback live adapter is hard-scoped to MNQU6 5m", () => {
 Deno.test("MNQ pullback live adapter fails closed without a usable prior day", () => {
   const ctx = context({ strategyHistory: history().slice(-25) });
   assertEquals(evaluate(ctx), []);
+});
+
+Deno.test("MNQ pullback contract keeps its frozen name when nothing is overridden", () => {
+  const contract = contractFor({});
+
+  assertEquals(contract.version, CONTRACT_VERSION);
+  assertEquals(contract.zoneProximity, PULLBACK_CONTRACT.zoneProximity);
+  assertEquals(contract.invalidationDistance, PULLBACK_CONTRACT.invalidationDistance);
+  assertEquals(contract.setupMaxAgeBars, PULLBACK_CONTRACT.setupMaxAgeBars);
+});
+
+Deno.test("MNQ pullback contract renames itself when a distance is overridden", () => {
+  const contract = contractFor({ zoneProximity: 0.75, setupMaxAgeBars: 8 });
+
+  assertEquals(contract.zoneProximity, 0.75);
+  assertEquals(contract.setupMaxAgeBars, 8);
+  assertEquals(
+    contract.version,
+    `${CONTRACT_VERSION}+zoneProximity=0.75,setupMaxAgeBars=8`,
+  );
+});
+
+Deno.test("MNQ pullback contract ignores a param it does not own", () => {
+  // Anchors and triggers are identity: a params row cannot quietly swap them
+  // and keep the strategy's name.
+  const contract = contractFor({ anchorIdentities: ["vwap"], triggerKinds: [] });
+
+  assertEquals(contract.anchorIdentities, PULLBACK_CONTRACT.anchorIdentities);
+  assertEquals(contract.triggerKinds, PULLBACK_CONTRACT.triggerKinds);
+  assertEquals(contract.version, CONTRACT_VERSION);
+});
+
+Deno.test("MNQ pullback zone param reaches the evaluator", () => {
+  // The same bar that fires at the frozen 0.5 is 0.25 from its anchor, so a
+  // zone of 0.1 median true ranges must silence it. Before this was wired the
+  // two runs returned identical rows, which is what made a sweep meaningless.
+  const base = context();
+  const tightened = context({ params: { ...base.params, zoneProximity: 0.1 } });
+
+  assertEquals(evaluate(base).length, 1);
+  assertEquals(evaluate(tightened), []);
+});
+
+Deno.test("MNQ pullback payload carries the contract it actually ran", () => {
+  const ctx = context({ params: { ...context().params, invalidationDistance: 1.25 } });
+  const signals = evaluate(ctx);
+
+  assertEquals(signals.length, 1);
+  assertEquals(
+    signals[0].payload.contractVersion,
+    `${CONTRACT_VERSION}+invalidationDistance=1.25`,
+  );
 });
