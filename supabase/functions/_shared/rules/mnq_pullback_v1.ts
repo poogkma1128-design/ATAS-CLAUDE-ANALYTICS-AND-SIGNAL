@@ -15,9 +15,11 @@ import { type SessionDefinition, stampSession } from "../market_sessions.ts";
 import { num } from "../util.ts";
 import {
   evaluatePullback,
+  type PullbackCarry,
   type PullbackContract,
   type PullbackDecisionBar,
   type PullbackDirection,
+  type PullbackOpportunity,
   type TriggerEvidence,
   type TriggerKind,
 } from "../strategy/pullback.ts";
@@ -25,14 +27,24 @@ import { evaluate as deltaFlip } from "./delta_flip.ts";
 import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 
 /**
- * First production-capable slice of MNQ_PULLBACK_V1.
+ * MNQ_PULLBACK_V1, in two execution scopes.
  *
- * It deliberately emits only when the named-level touch and the order-flow
- * trigger occur on the same closed bar. Multi-bar setup state needs durable
- * decision rows; pretending an edge-function process can remember them would
- * lose state on every cold start. The full six-bar evaluator remains the
- * canonical contract and this adapter labels the narrower execution scope in
- * every payload.
+ * `evaluate()` is the original one: it emits only when the named-level touch and
+ * the order-flow trigger land on the same closed bar, because a process that
+ * remembers nothing between invocations cannot hold a setup open for the six
+ * bars the contract allows. That scope is measurably most of the strategy
+ * thrown away — on MNQU6 over 2026-08-28 to 2026-09-07 the six-bar contract
+ * confirms five opportunities and exactly one is confirmed on its own touch bar
+ * (docs/experiments/2026-09-07-mnq-pullback-frequency-probe.md).
+ *
+ * `advance()` is the same evaluator given somewhere to put the setups that are
+ * still waiting. The caller owns that store — a table for the live path, a
+ * variable for a backtest — so this module stays a pure function of its inputs
+ * and the two paths cannot drift into judging the same bar differently.
+ *
+ * Every payload names which scope produced it, because a signal that waited
+ * three bars for its confirmation is not the same event as one that did not,
+ * and a reader must not have to infer which from the timestamps.
  */
 
 export const RULE_KEY = "mnq_pullback_v1";
@@ -112,14 +124,62 @@ export function contractFor(params: Record<string, unknown>): PullbackContract {
     : { ...contract, version: `${CONTRACT_VERSION}+${moved.join(",")}` };
 }
 
+/** The empty store: what `advance()` starts from when nothing is carried yet. */
+export const EMPTY_CARRY: PullbackCarry = { open: [], lastDecisionAt: null };
+
 export function evaluate(ctx: RuleContext): RuleSignal[] {
-  if (ctx.symbol !== "MNQU6" || ctx.timeframe !== "5m") return [];
+  if (!inScope(ctx)) return [];
 
   const contract = contractFor(ctx.params);
-  const history = ctx.strategyHistory ?? ctx.history;
-  const decision = buildDecision(ctx, history);
+  const decision = buildDecision(ctx, ctx.strategyHistory ?? ctx.history);
   const result = evaluatePullback([decision], contract);
-  const triggered = result.opportunities.filter((opportunity) =>
+
+  return signalsFor(ctx, contract, decision, result.opportunities, "touch_bar_only");
+}
+
+/**
+ * One bar, with the setups still waiting from earlier bars.
+ *
+ * The returned carry is what the caller must store to keep the strategy whole:
+ * drop it and every setup that needed a later bar to confirm is silently lost,
+ * which is exactly the behaviour `evaluate()` has and this exists to end.
+ */
+export function advance(
+  ctx: RuleContext,
+  carry: PullbackCarry = EMPTY_CARRY,
+): {
+  signals: RuleSignal[];
+  carry: PullbackCarry;
+  /** Every setup this bar closed, confirmations and rejections alike. The
+   *  rejections never become signals, and are the only record of what the
+   *  strategy declined and why. */
+  resolved: PullbackOpportunity[];
+} {
+  if (!inScope(ctx)) return { signals: [], carry, resolved: [] };
+
+  const contract = contractFor(ctx.params);
+  const decision = buildDecision(ctx, ctx.strategyHistory ?? ctx.history);
+  const result = evaluatePullback([decision], contract, carry);
+
+  return {
+    signals: signalsFor(ctx, contract, decision, result.opportunities, "carried_setup"),
+    carry: { open: result.open, lastDecisionAt: decision.openedAt },
+    resolved: result.opportunities,
+  };
+}
+
+function inScope(ctx: RuleContext): boolean {
+  return ctx.symbol === "MNQU6" && ctx.timeframe === "5m";
+}
+
+function signalsFor(
+  ctx: RuleContext,
+  contract: PullbackContract,
+  decision: PullbackDecisionBar,
+  opportunities: PullbackOpportunity[],
+  scope: "touch_bar_only" | "carried_setup",
+): RuleSignal[] {
+  const triggered = opportunities.filter((opportunity) =>
     opportunity.outcome.kind === "triggered"
   );
   if (triggered.length === 0) return [];
@@ -149,13 +209,17 @@ export function evaluate(ctx: RuleContext): RuleSignal[] {
       kind: "mnq_pullback_named_level",
       strategyKey: "MNQ_PULLBACK_V1",
       contractVersion: contract.version,
-      executionScope: "touch_bar_only",
+      executionScope: scope,
       score: null,
       anchor: {
         identity: chosen.anchorIdentity,
         price: chosen.anchorPrice,
         touchId: chosen.anchorTouchId,
       },
+      // How long the setup waited. 1 is a confirmation on the touch bar itself;
+      // anything above it could not have existed before setups were stored.
+      setupAgeBars: chosen.ageBars,
+      openedAt: chosen.openedAt,
       trigger: outcome.trigger,
       bias: decision.bias,
       medianTrueRange: decision.medianTrueRange,

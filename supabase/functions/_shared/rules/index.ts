@@ -11,7 +11,12 @@ import { evaluate as deltaFlip } from "./delta_flip.ts";
 import { evaluate as lvn } from "./lvn.ts";
 import { evaluate as nakedPoc } from "./naked_poc.ts";
 import { evaluate as speedOfTape } from "./speed_of_tape.ts";
-import { evaluate as mnqPullbackV1 } from "./mnq_pullback_v1.ts";
+import {
+  advance as mnqPullbackAdvance,
+  evaluate as mnqPullbackV1,
+  RULE_KEY as MNQ_PULLBACK_KEY,
+} from "./mnq_pullback_v1.ts";
+import type { PullbackCarry, PullbackOpportunity } from "../strategy/pullback.ts";
 
 /**
  * Registry of rule evaluators, keyed to match public.rules.key.
@@ -37,6 +42,48 @@ export interface EvaluatedSignal extends RuleSignal {
 }
 
 /**
+ * Where a rule that spans bars keeps what it is waiting for.
+ *
+ * Owned by the caller, not by this module: the live path loads it from a table
+ * and saves it back, a backtest holds it in a variable for the length of a feed,
+ * and a caller that passes nothing gets the single-bar behaviour unchanged. One
+ * store belongs to one (instrument, timeframe); handing the same one to two
+ * feeds would let a setup from one instrument be confirmed by another's bar.
+ */
+export interface StrategyStore {
+  pullback?: PullbackCarry;
+  /**
+   * Every setup resolved while this store was in use, confirmations and
+   * rejections alike, in the order they closed. A confirmation also becomes a
+   * signal; a rejection becomes nothing else anywhere, so this is the only
+   * record that the strategy saw an opportunity and declined it.
+   */
+  pullbackResolved?: PullbackOpportunity[];
+}
+
+/**
+ * The rules that keep state, and how they read and write it.
+ *
+ * Separate from `evaluators` because the difference is real: a stateless rule is
+ * a function of one bar and can be replayed from any starting point, and one of
+ * these cannot. A rule listed here still appears in `evaluators`, so a caller
+ * with no store gets its single-bar behaviour rather than nothing at all.
+ */
+const statefulEvaluators: Record<
+  string,
+  (ctx: RuleContext, store: StrategyStore) => RuleSignal[]
+> = {
+  [MNQ_PULLBACK_KEY]: (ctx, store) => {
+    const { signals, carry, resolved } = mnqPullbackAdvance(ctx, store.pullback);
+    store.pullback = carry;
+    if (resolved.length > 0) {
+      store.pullbackResolved = [...(store.pullbackResolved ?? []), ...resolved];
+    }
+    return signals;
+  },
+};
+
+/**
  * Runs every enabled rule against one closed bar.
  *
  * A rule that throws is contained: it is logged and skipped, so one bad
@@ -45,6 +92,7 @@ export interface EvaluatedSignal extends RuleSignal {
 export function runRules(
   rules: RuleRow[],
   ctx: Omit<RuleContext, "params">,
+  store?: StrategyStore,
 ): EvaluatedSignal[] {
   const levels = sortLevels(ctx.levels);
   const out: EvaluatedSignal[] = [];
@@ -65,10 +113,17 @@ export function runRules(
 
     // Gated here rather than inside each rule: it is a property of the bar, not
     // of the setup, and every rule was calibrated against bars that had volume.
+    //
+    // A skipped bar also skips a stateful rule's advance, so an open setup sees
+    // the following bar as further away than it is. That is reported rather than
+    // silent — the setup closes as `data_unavailable:feed_gap` — but it is a
+    // reason to leave `minVolumeRatio` at 0 for a rule that spans bars.
     if (!hasEnoughLiquidity(ruleCtx)) continue;
 
+    const stateful = store ? statefulEvaluators[rule.key] : undefined;
+
     try {
-      const signals = evaluator(ruleCtx);
+      const signals = stateful ? stateful(ruleCtx, store!) : evaluator(ruleCtx);
       for (const signal of signals) {
         const payload = { ...signal.payload, priceAction };
         out.push({

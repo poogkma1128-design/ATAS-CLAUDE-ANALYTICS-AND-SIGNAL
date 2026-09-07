@@ -8,9 +8,15 @@ import type {
   RuleRow,
 } from "./types.ts";
 import { pointOfControl, sortLevels } from "./util.ts";
-import { runRules } from "./rules/index.ts";
+import { runRules, type StrategyStore } from "./rules/index.ts";
 import { describeEvidence } from "./evidence.ts";
 import { buildPlan } from "./plan.ts";
+import {
+  loadPullbackCarry,
+  persistPullbackCarry,
+  PULLBACK_STRATEGY_KEY,
+} from "./strategy_setups.ts";
+import { contractFor } from "./rules/mnq_pullback_v1.ts";
 import { sendSignal, telegramConfig } from "./telegram.ts";
 import { type OverrideRow, Overrides } from "./overrides.ts";
 import { AnnouncementEligibility } from "./announcement_policy.ts";
@@ -451,7 +457,7 @@ async function evaluateBars(
     scope.timeframe,
     prepared[firstClosed].bar.openedAt,
     scope.symbol === "MNQU6" && scope.timeframe === "5m" &&
-        rules.some((rule) => rule.key === "mnq_pullback_v1")
+      rules.some((rule) => rule.key === "mnq_pullback_v1")
       ? STRATEGY_HISTORY_BARS
       : HISTORY_BARS,
   );
@@ -462,6 +468,38 @@ async function evaluateBars(
 
   const rows: SignalRow[] = [];
   const byKey = new Map(effective.map((rule) => [rule.key, rule]));
+
+  // Setups this feed left waiting on an earlier request. A strategy that spans
+  // bars is only whole with them: without the store, MNQ_PULLBACK_V1 can emit
+  // one of the five confirmations its contract finds, because the other four
+  // land on a bar after the touch.
+  //
+  // A failure here degrades to that single-bar behaviour rather than rejecting
+  // the batch. Bars arriving is the one thing this function must never stop
+  // doing, and every other rule is unaffected — but it is logged loudly,
+  // because a strategy quietly running at a fifth of its frequency looks
+  // exactly like a market with nothing in it.
+  const pullbackRule = byKey.get(PULLBACK_STRATEGY_KEY);
+  const setupScope = { instrumentId: scope.instrumentId, timeframe: scope.timeframe };
+  const contractVersion = pullbackRule
+    ? contractFor(pullbackRule.params ?? {}).version
+    : null;
+
+  let store: StrategyStore | undefined;
+  let carriedIn = null;
+  if (pullbackRule && contractVersion) {
+    try {
+      carriedIn = await loadPullbackCarry(supabase, setupScope, contractVersion);
+      store = { pullback: carriedIn };
+    } catch (error) {
+      console.error(
+        "strategy setup store unavailable, falling back to single-bar scope:",
+        error instanceof Error ? error.message : String(error),
+      );
+      store = undefined;
+      carriedIn = null;
+    }
+  }
 
   for (const [index, entry] of prepared.entries()) {
     if (!entry.bar.isClosed) continue;
@@ -478,7 +516,7 @@ async function evaluateBars(
       symbol: scope.symbol,
       timeframe: scope.timeframe,
       tickSize,
-    });
+    }, store);
 
     for (const signal of evaluated) {
       const rule = byKey.get(signal.ruleKey);
@@ -537,6 +575,32 @@ async function evaluateBars(
 
     // Only now, so a bar is never part of its own history.
     history.push(asHistoryBar(entry));
+  }
+
+  // Written once for the batch rather than once per bar: the difference between
+  // where the store started and where it ended is the whole change, however
+  // many bars arrived in between.
+  //
+  // Signals are returned even if this fails. A confirmation that already
+  // happened is not made untrue by a failed bookkeeping write, and the cost is
+  // bounded: the affected setups are re-read as they were, so at worst a
+  // confirmation is reported twice rather than lost.
+  if (store && carriedIn && contractVersion) {
+    try {
+      await persistPullbackCarry(
+        supabase,
+        setupScope,
+        contractVersion,
+        carriedIn,
+        store.pullback ?? carriedIn,
+        store.pullbackResolved ?? [],
+      );
+    } catch (error) {
+      console.error(
+        "strategy setup store write failed; setups may be re-evaluated:",
+        error instanceof Error ? error.message : String(error),
+      );
+    }
   }
 
   return rows;

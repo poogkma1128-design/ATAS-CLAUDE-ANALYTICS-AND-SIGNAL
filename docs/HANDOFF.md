@@ -12,6 +12,79 @@
 
 ---
 
+## 0AF. เก็บสถานะ setup ข้ามแท่งได้แล้ว — **1 → 5 สัญญาณ · ตาราง apply แล้ว · รอ deploy `ingest`** (2026-09-07)
+
+**คำสั่งเจ้าของ (L3, 2026-09-07):** เลือก “เก็บสถานะ setup ข้ามแท่ง” เป็นทางเดินหน้าหลัก
+ตามหลักฐานใน §0AE — นี่คือการเปลี่ยน**สิ่งที่ live ยิงจริง** ไม่ใช่แค่การวัด
+
+### 0AF.1 ปัญหาที่แก้
+
+`MNQ_PULLBACK_V1` ให้ setup รอ trigger ได้ 6 แท่ง แต่ Edge Function **จำอะไรข้ามการเรียกไม่ได้**
+⇒ setup ที่เปิดในแท่งหนึ่งหายไปก่อนแท่งถัดไปจะมาถึง เหลือเฉพาะกรณีที่ยืนยันในแท่งเดียวกับที่แตะ
+(1 จาก 5 การยืนยัน). ตอนนี้มีที่ให้ setup “รอ” แล้ว
+
+### 0AF.2 สิ่งที่สร้าง
+
+| ชั้น | ไฟล์ | ทำอะไร |
+|---|---|---|
+| evaluator | `_shared/strategy/pullback.ts` | รับ `carry` เข้า และคืน `open` ออก · เมื่อมี carry จะ **ไม่** ปิดด้วย `right_censored` เพราะข้อมูลจบไม่ได้แปลว่าเรื่องจบ · `assertCarry()` ปฏิเสธ state ที่เป็นของรอบอื่น |
+| rule | `_shared/rules/mnq_pullback_v1.ts` | เพิ่ม `advance(ctx, carry)` คืน `{signals, carry, resolved}` · payload บอก `executionScope: "carried_setup"` และ `setupAgeBars` |
+| registry | `_shared/rules/index.ts` | `runRules(rules, ctx, store?)` — **ไม่ส่ง store = พฤติกรรมเดิมทุกอย่าง** |
+| backtest | `_shared/backtest.ts` | หนึ่ง store ต่อ feed ⇒ backtest วัดกลยุทธ์เต็ม ไม่ใช่เศษของมัน |
+| live | `_shared/ingest.ts` + `_shared/strategy_setups.ts` | อ่าน setup ที่ค้างก่อนวนแท่ง เขียนกลับครั้งเดียวตอนจบ batch |
+| schema | migration **0040** + test | ตาราง `public.strategy_setups` |
+
+**หลักประกันที่เขียนเป็นเทสต์ ไม่ใช่คำสัญญา:** setup ที่ถูกเก็บข้ามรอบให้ผล **เท่ากับ**การรันทั้งชุดรวดเดียว
+(touch id เดียวกัน · outcome เดียวกัน · อายุเท่ากัน) — ถ้าสองทางนี้ต่างกันเมื่อไร เทสต์แตกทันที
+
+### 0AF.3 การตัดสินใจสามข้อที่ควรรู้
+
+1. **contract version ผูกกับแถว** — setup ที่เปิดตอน `zoneProximity=0.5` จะ **ไม่ถูกสานต่อ** ถ้าค่าถูกเปลี่ยน
+   แต่ปิดด้วย `data_unavailable:contract_changed` และคาไว้ในตารางเป็นหลักฐานว่าถูกทิ้ง ไม่ใช่ถูกตัดสิน
+2. **แถวที่จบแล้วไม่ถูกลบ** — การยืนยันกลายเป็นแถวใน `signals` แต่**การปฏิเสธไม่กลายเป็นอะไรเลยที่อื่น**
+   และ “setup 14 ตัวหมดอายุโดยไม่มีใครยืนยัน” คือตัวเลขที่บอกว่า trigger เข้มเกินไปหรือไม่ ·
+   `service_role` **ลบไม่ได้** (revoke ชัดเจน เพราะ Supabase ให้สิทธิ์เต็มโดย default)
+3. **ล้มแล้วถอยไปพฤติกรรมเดิม ไม่ใช่ล้มทั้ง feed** — ถ้าอ่านตารางไม่ได้ ingest จะ log แล้วรันแบบแท่งเดียว
+   ต่อไป · แท่งต้องไหลเข้าเสมอ นั่นคือสิ่งเดียวที่ห้ามพัง
+
+### 0AF.4 หลักฐานการตรวจ
+
+| การตรวจ | ผล |
+|---|---|
+| `deno task test` | **214 passed, 0 failed** (เดิม 200 ก่อนรอบนี้ · เพิ่ม 14) |
+| `deno task check` | PASS ทั้งสี่ entry point |
+| migration 0040 + test บน PostgreSQL 16 จริง (0001→0040) | **`0040 regression: PASS`** |
+| production หลัง apply | RLS on · 4 index · dashboard อ่านได้เขียนไม่ได้ · service_role select/insert/update ได้ **delete ไม่ได้** |
+
+### 0AF.5 สถานะ deploy — เหลือขั้นเดียว
+
+- ✅ **migration 0040 apply แล้วบน production** ตารางว่าง 0 แถว
+- ⏳ **`ingest` ยังเป็น v19** ⇒ ตารางยังไม่มีใครเขียน และ live **ยังยิงแบบแท่งเดียวเหมือนเดิม**
+- ลำดับนี้ตั้งใจ: ตารางว่างไม่เปลี่ยนพฤติกรรมอะไรเลย แต่ deploy ก่อนสร้างตารางจะทำให้ทุกแท่ง log write ที่ล้มเหลว
+
+**คำสั่งที่ต้องรันบนเครื่องเจ้าของ (ที่มี Supabase CLI):**
+
+```
+supabase functions deploy backtest    # ทำให้ sweep มีความหมาย · ประกาศอะไรไม่ได้
+supabase functions deploy ingest      # เปิดใช้ durable setup state
+```
+
+หลัง deploy `ingest` ให้ดูว่าใช้งานได้จริงด้วยคิวรีนี้ — ถ้ามีแถว แปลว่าระบบกำลังจำ setup อยู่:
+
+```sql
+select anchor_identity, direction, status, outcome_reason, age_bars, opened_at, last_seen_at
+from public.strategy_setups order by id desc limit 20;
+```
+
+### 0AF.6 ที่ยังไม่ได้ทำ
+
+- ❗ **footprint reconcile ได้ 36.5%** (§0AE.5 ข้อ 1) — ยังเป็นคันโยกใหญ่สุดที่ยังไม่แตะ
+  และเป็นเหตุที่ปิด 14 จาก 30 โอกาสด้วย `expired_unfired`
+- ยังไม่คำนวณผลหลังต้นทุน · ยังไม่มี independent review ของผลรอบนี้
+- ยังไม่เปิด `MNQ_REVERSAL_V1` / `GC_SWEEP_V1` · ยังไม่ apply 0033/0034/0036/0037/0038
+
+---
+
 ## 0AE. หาเจอแล้วว่าทำไม MNQ Pullback ยิงศูนย์ + **apply migration 0035 แล้ว** (2026-09-07)
 
 เอกสารหลักฐานเต็ม: **`docs/experiments/2026-09-07-mnq-pullback-frequency-probe.md`**

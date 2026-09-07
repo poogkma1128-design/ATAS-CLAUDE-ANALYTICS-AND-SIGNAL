@@ -3,6 +3,7 @@ import { assertEquals, assertThrows } from "jsr:@std/assert@1";
 import {
   evaluatePullback,
   type PullbackAnchor,
+  type PullbackCarry,
   type PullbackContract,
   type PullbackDecisionBar,
   type TriggerEvidence,
@@ -436,4 +437,172 @@ Deno.test("the contract refuses values that would make the spec meaningless", ()
     Error,
     "unique",
   );
+});
+
+// ------------------------------------------------------- setups that survive
+//
+// The live rule sees one bar per invocation. These cover the seam that creates:
+// a setup opened on one call and confirmed on another must be one opportunity,
+// and must be indistinguishable from the same bars evaluated in one pass.
+
+Deno.test("an unresolved setup is handed back instead of censored, when it can be resumed", () => {
+  const result = evaluatePullback([touchBar(0)], contract, {
+    open: [],
+    lastDecisionAt: null,
+  });
+
+  assertEquals(result.opportunities.length, 0);
+  assertEquals(result.open.length, 1);
+  assertEquals(result.open[0].anchorTouchId, "prev_day_low@2026-09-07T14:00:00.000Z");
+  assertEquals(result.open[0].ageBars, 1);
+  assertEquals(result.open[0].lastSeenAt, "2026-09-07T14:00:00.000Z");
+});
+
+Deno.test("a run that cannot be resumed still right-censors what is open", () => {
+  const result = evaluatePullback([touchBar(0)], contract);
+
+  assertEquals(result.open.length, 0);
+  assertEquals(result.opportunities.length, 1);
+  assertEquals(result.opportunities[0].outcome.kind, "right_censored");
+});
+
+Deno.test("a setup carried across calls triggers exactly as it would in one pass", () => {
+  const bars = [touchBar(0), bar(1, { triggers: triggers("long") })];
+
+  const whole = evaluatePullback(bars, contract);
+
+  const first = evaluatePullback([bars[0]], contract, { open: [], lastDecisionAt: null });
+  const second = evaluatePullback([bars[1]], contract, {
+    open: first.open,
+    lastDecisionAt: bars[0].openedAt,
+  });
+
+  assertEquals(second.opportunities.length, 1);
+  assertEquals(second.open.length, 0);
+  // The whole-run pass is the reference: same touch id, same outcome, one event.
+  assertEquals(
+    second.opportunities[0].anchorTouchId,
+    whole.opportunities[0].anchorTouchId,
+  );
+  assertEquals(second.opportunities[0].outcome, whole.opportunities[0].outcome);
+  assertEquals(second.opportunities[0].ageBars, whole.opportunities[0].ageBars);
+});
+
+Deno.test("a gap across the resume boundary closes the carried setup", () => {
+  const first = evaluatePullback([touchBar(0)], contract, {
+    open: [],
+    lastDecisionAt: null,
+  });
+  // Five hours later: the contract's spacing tolerance is five minutes.
+  const later = bar(0, {
+    openedAt: "2026-09-07T19:00:00.000Z",
+    closedAt: "2026-09-07T19:05:00.000Z",
+    triggers: triggers("long"),
+  });
+
+  const second = evaluatePullback([later], contract, {
+    open: first.open,
+    lastDecisionAt: "2026-09-07T14:00:00.000Z",
+  });
+
+  assertEquals(second.opportunities.length, 1);
+  assertEquals(second.opportunities[0].outcome, {
+    kind: "rejected",
+    at: later.openedAt,
+    reason: "data_unavailable:feed_gap",
+  });
+});
+
+Deno.test("carried state that cannot belong to this run is refused", () => {
+  const open = evaluatePullback([touchBar(0)], contract, {
+    open: [],
+    lastDecisionAt: null,
+  }).open;
+  const carried = open[0];
+
+  // An anchor this contract does not use.
+  assertThrows(
+    () =>
+      evaluatePullback([bar(1)], contract, {
+        open: [{ ...carried, anchorIdentity: "vwap" }],
+        lastDecisionAt: null,
+      }),
+    Error,
+    "which this contract does not use",
+  );
+
+  // Two setups on one anchor would count one event twice.
+  assertThrows(
+    () =>
+      evaluatePullback([bar(1)], contract, {
+        open: [carried, { ...carried }],
+        lastDecisionAt: null,
+      }),
+    Error,
+    "share anchor",
+  );
+
+  // A setup that has already seen the bar about to be judged.
+  assertThrows(
+    () =>
+      evaluatePullback([bar(1)], contract, {
+        open: [{ ...carried, lastSeenAt: "2026-09-07T14:05:00.000Z" }],
+        lastDecisionAt: null,
+      }),
+    Error,
+    "already saw the first bar",
+  );
+
+  // Older than the contract allows: the previous run owed it a close.
+  assertThrows(
+    () =>
+      evaluatePullback([bar(1)], contract, {
+        open: [{ ...carried, ageBars: contract.setupMaxAgeBars }],
+        lastDecisionAt: null,
+      }),
+    Error,
+    "older than the contract allows",
+  );
+
+  // A boundary that is not before the first bar hides a gap.
+  assertThrows(
+    () =>
+      evaluatePullback([bar(1)], contract, {
+        open: [],
+        lastDecisionAt: "2026-09-07T14:05:00.000Z",
+      } as PullbackCarry),
+    Error,
+    "not before the first bar",
+  );
+});
+
+Deno.test("a carried setup expires on the bar that reaches the age limit", () => {
+  // setupMaxAgeBars is 3 in this contract: touch, then two bars, then expiry.
+  let carry: PullbackCarry = { open: [], lastDecisionAt: null };
+  const bars = [
+    touchBar(0),
+    bar(1, { triggers: triggers(null) }),
+    bar(2, {
+      triggers: triggers(null),
+    }),
+  ];
+
+  const outcomes = [];
+  for (const [index, decision] of bars.entries()) {
+    const step = evaluatePullback([decision], contract, carry);
+    outcomes.push(...step.opportunities);
+    carry = {
+      open: step.open,
+      lastDecisionAt: bars[index].openedAt,
+    };
+  }
+
+  assertEquals(carry.open.length, 0);
+  assertEquals(outcomes.length, 1);
+  assertEquals(outcomes[0].ageBars, 3);
+  assertEquals(outcomes[0].outcome, {
+    kind: "rejected",
+    at: bars[2].openedAt,
+    reason: "expired_unfired",
+  });
 });
