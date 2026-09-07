@@ -2,12 +2,15 @@
 import { assertEquals } from "jsr:@std/assert@1";
 import type { BarInput, ClusterLevel, HistoryBar, RuleContext } from "../types.ts";
 import {
+  advance,
   buildDecision,
   CONTRACT_VERSION,
   contractFor,
   evaluate,
   PULLBACK_CONTRACT,
 } from "./mnq_pullback_v1.ts";
+import { runRules, type StrategyStore } from "./index.ts";
+import type { RuleRow } from "../types.ts";
 
 function historyBar(openedAt: string, index: number, highCap = 100): HistoryBar {
   const mid = 98.5 + (index % 5) * 0.25;
@@ -175,4 +178,137 @@ Deno.test("MNQ pullback payload carries the contract it actually ran", () => {
     signals[0].payload.contractVersion,
     `${CONTRACT_VERSION}+invalidationDistance=1.25`,
   );
+});
+
+// ------------------------------------------------- setups that outlive a bar
+//
+// Four of the five confirmations MNQ_PULLBACK_V1 finds on real MNQU6 bars land
+// after the touch bar. These cover the path that can reach them.
+
+/** Levels that reconcile, so the detector is evaluable, but do not stack. */
+function flatLevels(): ClusterLevel[] {
+  return [
+    { price: 99.75, ask: 2, bid: 2, between: 0, volume: 4, ticks: 1 },
+    { price: 100, ask: 2, bid: 2, between: 0, volume: 4, ticks: 1 },
+    { price: 100.25, ask: 2, bid: 2, between: 0, volume: 4, ticks: 1 },
+    { price: 100.5, ask: 2, bid: 2, between: 0, volume: 4, ticks: 1 },
+    { price: 100.75, ask: 2, bid: 2, between: 0, volume: 4, ticks: 1 },
+  ];
+}
+
+const pullbackRule: RuleRow = {
+  key: "mnq_pullback_v1",
+  name: "MNQ pullback",
+  enabled: true,
+  telegram_enabled: false,
+  horizon_bars: 10,
+  params: {
+    minVolumeRatio: 0,
+    ratio: 3,
+    minVolume: 10,
+    stack: 3,
+    runBars: 3,
+    minDeltaMagnitude: 200,
+    minRunDelta: 0,
+    levelShare: 0.25,
+    levelLookback: 20,
+  },
+};
+
+Deno.test("a touch with no confirmation leaves a setup waiting instead of nothing", () => {
+  const levels = flatLevels();
+  const ctx = context({
+    levels,
+    bar: { ...context().bar, levels, ticks: 5, delta: 10, maxDelta: 10, minDelta: 0 },
+  });
+
+  const first = advance(ctx);
+
+  assertEquals(first.signals, []);
+  assertEquals(first.carry.open.length, 1);
+  assertEquals(first.carry.open[0].anchorIdentity, "prev_day_high");
+  assertEquals(first.carry.open[0].ageBars, 1);
+  assertEquals(first.carry.lastDecisionAt, ctx.bar.openedAt);
+});
+
+Deno.test("a setup carried to the next bar is confirmed there, and says how long it waited", () => {
+  const flat = flatLevels();
+  const touch = context({
+    levels: flat,
+    bar: {
+      ...context().bar,
+      levels: flat,
+      ticks: 5,
+      delta: 10,
+      maxDelta: 10,
+      minDelta: 0,
+    },
+  });
+  const first = advance(touch);
+  assertEquals(first.signals, []);
+
+  // The next bar confirms with a stacked imbalance and never re-touches: only a
+  // stored setup can turn this into a signal. Its ladder has to sit inside its
+  // own range, or the footprint does not reconcile and the detector goes quiet.
+  const stacked: ClusterLevel[] = [
+    { price: 101.5, ask: 1, bid: 1, between: 0, volume: 2, ticks: 1 },
+    { price: 101.75, ask: 1, bid: 1, between: 0, volume: 2, ticks: 1 },
+    { price: 102, ask: 20, bid: 1, between: 0, volume: 21, ticks: 1 },
+    { price: 102.25, ask: 20, bid: 1, between: 0, volume: 21, ticks: 1 },
+    { price: 102.5, ask: 20, bid: 1, between: 0, volume: 21, ticks: 1 },
+  ];
+  const nextHistory = [...touch.strategyHistory!, {
+    openedAt: touch.bar.openedAt,
+    open: touch.bar.open,
+    high: touch.bar.high,
+    low: touch.bar.low,
+    close: touch.bar.close,
+    volume: touch.bar.volume,
+    delta: touch.bar.delta,
+    ticks: touch.bar.ticks,
+    pocPrice: 100.25,
+  }];
+  const next = context({
+    levels: stacked,
+    strategyHistory: nextHistory,
+    history: nextHistory.slice(-50),
+    bar: {
+      ...context().bar,
+      openedAt: "2026-09-07T00:10:00.000Z",
+      low: 101.5,
+      high: 102.5,
+      close: 102.25,
+      levels: stacked,
+    },
+  });
+
+  const second = advance(next, first.carry);
+
+  assertEquals(second.signals.length, 1);
+  assertEquals(second.signals[0].direction, "long");
+  assertEquals(second.signals[0].payload.executionScope, "carried_setup");
+  assertEquals(second.signals[0].payload.setupAgeBars, 2);
+  assertEquals(second.signals[0].payload.openedAt, touch.bar.openedAt);
+  assertEquals(second.carry.open.length, 0);
+
+  // The same bar with nothing carried is silent: it never touched the level.
+  assertEquals(advance(next).signals, []);
+  assertEquals(evaluate(next), []);
+});
+
+Deno.test("runRules routes the pullback through its store only when given one", () => {
+  const ctx = context();
+  const { params: _params, ...rest } = ctx;
+
+  const stateless = runRules([pullbackRule], rest);
+  assertEquals(stateless.length, 1);
+  assertEquals(stateless[0].payload.executionScope, "touch_bar_only");
+
+  const store: StrategyStore = {};
+  const stateful = runRules([pullbackRule], rest, store);
+  assertEquals(stateful.length, 1);
+  assertEquals(stateful[0].payload.executionScope, "carried_setup");
+  // Even a setup that resolved on its own bar leaves the boundary recorded, so
+  // the next call can tell a quiet market from a gap in the feed.
+  assertEquals(store.pullback?.lastDecisionAt, ctx.bar.openedAt);
 });

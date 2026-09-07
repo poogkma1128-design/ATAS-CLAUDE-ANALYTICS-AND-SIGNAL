@@ -136,23 +136,23 @@ export interface PullbackBarOutcome {
   reason: RejectionReason;
 }
 
-export interface PullbackResult {
-  contractVersion: string;
-  opportunities: PullbackOpportunity[];
-  barOutcomes: PullbackBarOutcome[];
-  diagnostics: {
-    decisionBars: number;
-    /** Bars that could not be evaluated at all, before any anchor was considered. */
-    barsWithoutVolatility: number;
-    barsWithoutBias: number;
-  };
-}
-
-interface OpenSetup {
+/**
+ * A setup that is still waiting, in a shape that survives storage.
+ *
+ * The live rule sees one bar per invocation and remembers nothing, so without
+ * this a setup can only ever be confirmed by the bar that opened it. Measured on
+ * MNQU6 over 2026-08-28 to 2026-09-07: the six-bar contract confirms five
+ * opportunities and exactly one of them is confirmed on its own touch bar.
+ * Everything this type carries is a field the evaluator already kept in memory
+ * between bars; naming it is what lets a caller hold it somewhere durable.
+ */
+export interface PullbackOpenSetup {
   anchorIdentity: string;
   anchorTouchId: string;
   direction: PullbackDirection;
   openedAt: string;
+  /** The last decision bar this setup was advanced over. */
+  lastSeenAt: string;
   anchorPrice: number;
   touchBars: number;
   ageBars: number;
@@ -165,6 +165,38 @@ interface OpenSetup {
   /** Missing volatility prevents distance and invalidation checks. */
   sawMissingVolatility: boolean;
 }
+
+/** What a caller that stores setups between calls hands back in. */
+export interface PullbackCarry {
+  /** Setups that were open when the previous run ended. */
+  open: PullbackOpenSetup[];
+  /**
+   * The last decision bar of the previous run. Feed-gap detection compares the
+   * first new bar against it; without it a gap across the boundary would be
+   * invisible, which is the one thing storage could quietly break.
+   */
+  lastDecisionAt: string | null;
+}
+
+export interface PullbackResult {
+  contractVersion: string;
+  opportunities: PullbackOpportunity[];
+  barOutcomes: PullbackBarOutcome[];
+  /**
+   * Setups still waiting when the bars ran out. Empty unless a carry was passed:
+   * a run that cannot be resumed censors them into `opportunities` instead,
+   * because for that caller the data ending is the end of the story.
+   */
+  open: PullbackOpenSetup[];
+  diagnostics: {
+    decisionBars: number;
+    /** Bars that could not be evaluated at all, before any anchor was considered. */
+    barsWithoutVolatility: number;
+    barsWithoutBias: number;
+  };
+}
+
+type OpenSetup = PullbackOpenSetup;
 
 function assertContract(contract: PullbackContract): void {
   if (!(contract.zoneProximity > 0)) {
@@ -209,6 +241,81 @@ function assertCausalOrder(bars: PullbackDecisionBar[]): void {
       throw new Error("pullback: decision bars must be strictly ascending by openedAt");
     }
     previous = at;
+  }
+}
+
+/**
+ * Rejects carried state that cannot belong to this run.
+ *
+ * Storage is the one place a causality bug can enter without a bar being wrong:
+ * a setup restored from a row could name an anchor the contract no longer has,
+ * or claim to have started after the bar about to be judged. Both are caught
+ * here rather than producing an opportunity nobody can explain later.
+ */
+function assertCarry(
+  carry: PullbackCarry,
+  bars: PullbackDecisionBar[],
+  contract: PullbackContract,
+): void {
+  const known = new Set(contract.anchorIdentities);
+  const seen = new Set<string>();
+  const firstBarMs = bars.length > 0
+    ? Date.parse(bars[0].openedAt)
+    : Number.POSITIVE_INFINITY;
+
+  for (const setup of carry.open) {
+    if (!known.has(setup.anchorIdentity)) {
+      throw new Error(
+        `pullback: carried setup names anchor ${setup.anchorIdentity}, ` +
+          "which this contract does not use",
+      );
+    }
+    // One anchor holds at most one setup; two would double-count a single event.
+    if (seen.has(setup.anchorIdentity)) {
+      throw new Error(
+        `pullback: two carried setups share anchor ${setup.anchorIdentity}`,
+      );
+    }
+    seen.add(setup.anchorIdentity);
+
+    const openedMs = Date.parse(setup.openedAt);
+    const lastSeenMs = Date.parse(setup.lastSeenAt);
+    if (!Number.isFinite(openedMs) || !Number.isFinite(lastSeenMs)) {
+      throw new Error(
+        `pullback: carried setup ${setup.anchorTouchId} has an unparseable time`,
+      );
+    }
+    if (lastSeenMs < openedMs) {
+      throw new Error(
+        `pullback: carried setup ${setup.anchorTouchId} was last seen before it opened`,
+      );
+    }
+    if (lastSeenMs >= firstBarMs) {
+      throw new Error(
+        `pullback: carried setup ${setup.anchorTouchId} already saw the first bar`,
+      );
+    }
+    if (!Number.isInteger(setup.ageBars) || setup.ageBars < 1) {
+      throw new Error(
+        `pullback: carried setup ${setup.anchorTouchId} has a non-positive age`,
+      );
+    }
+    // Already at the age limit means the previous run should have closed it.
+    if (setup.ageBars >= contract.setupMaxAgeBars) {
+      throw new Error(
+        `pullback: carried setup ${setup.anchorTouchId} is older than the contract allows`,
+      );
+    }
+  }
+
+  if (carry.lastDecisionAt !== null) {
+    const lastMs = Date.parse(carry.lastDecisionAt);
+    if (!Number.isFinite(lastMs)) {
+      throw new Error("pullback: carry.lastDecisionAt is unparseable");
+    }
+    if (lastMs >= firstBarMs) {
+      throw new Error("pullback: carry.lastDecisionAt is not before the first bar");
+    }
   }
 }
 
@@ -289,17 +396,21 @@ function triggerLabel(fired: TriggerKind[]): TriggerKind | "both" {
 export function evaluatePullback(
   bars: PullbackDecisionBar[],
   contract: PullbackContract,
+  carry?: PullbackCarry,
 ): PullbackResult {
   assertContract(contract);
   assertCausalOrder(bars);
+  if (carry) assertCarry(carry, bars, contract);
 
   const opportunities: PullbackOpportunity[] = [];
   const barOutcomes: PullbackBarOutcome[] = [];
-  const open = new Map<string, OpenSetup>();
+  const open = new Map<string, OpenSetup>(
+    (carry?.open ?? []).map((setup) => [setup.anchorIdentity, { ...setup }]),
+  );
 
   let barsWithoutVolatility = 0;
   let barsWithoutBias = 0;
-  let previousOpenedMs: number | null = null;
+  let previousOpenedMs = carry?.lastDecisionAt ? Date.parse(carry.lastDecisionAt) : null;
 
   /**
    * Anchors whose setup was resolved on the bar being evaluated. §1.5 of the
@@ -352,6 +463,7 @@ export function evaluatePullback(
     // setup is considered, so one anchor never holds two setups at once.
     for (const setup of [...open.values()]) {
       setup.ageBars += 1;
+      setup.lastSeenAt = bar.openedAt;
 
       if (mtr === null) {
         // No distance can be measured, so neither invalidation nor the zone can
@@ -507,6 +619,7 @@ export function evaluatePullback(
         anchorTouchId: `${identity}@${bar.openedAt}`,
         direction,
         openedAt: bar.openedAt,
+        lastSeenAt: bar.openedAt,
         anchorPrice: anchor.price,
         touchBars: 1,
         ageBars: 1,
@@ -540,20 +653,25 @@ export function evaluatePullback(
   }
 
   // A setup still open when the data ends has not expired and has not been
-  // rejected by the market. Keep it in the census without manufacturing a
-  // negative label from a truncated dataset.
-  for (const setup of [...open.values()]) {
-    close(setup, {
-      kind: "right_censored",
-      at: bars[bars.length - 1].openedAt,
-      reason: "end_of_data",
-    });
+  // rejected by the market. A caller that stores setups will bring it back on
+  // the next bar, so ending it here would invent a rejection out of a pause;
+  // a caller that cannot resume keeps it in the census as right-censored rather
+  // than manufacturing a negative label from a truncated dataset.
+  if (!carry && bars.length > 0) {
+    for (const setup of [...open.values()]) {
+      close(setup, {
+        kind: "right_censored",
+        at: bars[bars.length - 1].openedAt,
+        reason: "end_of_data",
+      });
+    }
   }
 
   return {
     contractVersion: contract.version,
     opportunities,
     barOutcomes,
+    open: [...open.values()],
     diagnostics: {
       decisionBars: bars.length,
       barsWithoutVolatility,

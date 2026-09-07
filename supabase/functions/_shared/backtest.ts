@@ -1,5 +1,5 @@
 import type { BarInput, ClusterLevel, HistoryBar, RuleRow } from "./types.ts";
-import { runRules } from "./rules/index.ts";
+import { runRules, type StrategyStore } from "./rules/index.ts";
 import { buildPlan, type TradePlan } from "./plan.ts";
 import { num, pointOfControl, sortLevels } from "./util.ts";
 
@@ -112,6 +112,12 @@ export function simulate(
   const history: HistoryBar[] = [];
   let missed = 0;
 
+  // One store per feed, held for the length of it. A rule that spans bars is
+  // most of MNQ_PULLBACK_V1 — four of its five confirmations land after the
+  // touch bar — so a run without this would report the strategy as almost
+  // silent and be measuring the absence of the store rather than the strategy.
+  const store: StrategyStore = {};
+
   for (const [index, stored] of bars.entries()) {
     const levels = sortLevels(stored.levels);
     const bar = asBarInput(stored, levels);
@@ -124,7 +130,7 @@ export function simulate(
       symbol: scope?.symbol,
       timeframe: scope?.timeframe,
       tickSize,
-    });
+    }, store);
 
     for (const signal of evaluated) {
       const rule = rules.find((r) => r.key === signal.ruleKey);

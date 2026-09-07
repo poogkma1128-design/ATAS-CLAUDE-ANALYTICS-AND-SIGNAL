@@ -1,11 +1,16 @@
 -- Quarantine the bars that were never 5m bars, and the signals computed on them.
 --
 -- ┌──────────────────────────────────────────────────────────────────────────────────────┐
--- │ NOT APPLIED TO PRODUCTION. Owner approved the fix on 2026-09-04; EXPERIMENT_REVIEW_   │
--- │ PROTOCOL.md §5 still requires an Independent Reviewer to re-run the census below      │
--- │ before this is applied, because it moves rows that live statistics are computed from. │
--- │ Migrations 0033 and 0034 are also unapplied by owner decision; this one is separate   │
--- │ from both and does not depend on either.                                             │
+-- │ APPLIED TO PRODUCTION 2026-09-07. Owner approved the fix on 2026-09-04; the remaining │
+-- │ gate was the Independent Reviewer re-run of the census below, which was performed on  │
+-- │ 2026-09-07 by a session that did not write this migration. Every count matched what   │
+-- │ was reviewed: 1,538 bars, 543 signals, 158,647 cluster_levels, 264 signal_outcomes.   │
+-- │ After applying: 0 mislabelled rows remain, 6,690 genuine 5m bars, feed still flowing. │
+-- │ Nothing was deleted; the rollback at the foot of this file reverses it exactly.       │
+-- │ Migrations 0033 and 0034 remain unapplied by owner decision; this one was separate    │
+-- │ from both and did not depend on either.                                              │
+-- │ Evidence: docs/experiments/2026-09-07-mnq-pullback-frequency-probe.md §2, HANDOFF     │
+-- │ §0AE.2.                                                                              │
 -- └──────────────────────────────────────────────────────────────────────────────────────┘
 --
 -- WHAT HAPPENED
