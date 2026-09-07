@@ -99,30 +99,35 @@ Four things must be settled before results from this engine mean anything:
    Production migration head is still `20260902142002`; **0033, 0034, 0035 and 0036 are all
    unapplied**, and 0034/0036 are blocked on independent review. Every migration this plan proposes
    queues behind them.
-2. **`tick_size` is confirmed wrong on three of four instruments, including the chosen one.** This is
-   no longer a suspicion. The smallest gap between distinct traded prices in the footprint levels the
-   same feed recorded settles it (`docs/queries/instrument_tick_identity.sql`):
+2. **`tick_size` is not a wrong constant. It is a live value that moves.** The earlier reading — that
+   three of four instruments held a fixed wrong tick — was measured on one day and is superseded. A
+   read-only re-measurement on 2026-09-07 (`docs/queries/strategy_frequency_gate0.sql`, HANDOFF §0AB.6)
+   found three of the four recorded ticks had changed since 2026-09-06 with migration 0038 still
+   unapplied, so the only writer that can have done it is the ingest upsert:
 
-   | symbol | recorded `tick_size` | observed price step | ratio | verdict |
+   | symbol | recorded 2026-09-06 | recorded 2026-09-07 | observed price step | verdict today |
    |---|---:|---:|---:|---|
-   | **MNQU6** | **0.75** | **0.25** | **3×** | **DISAGREES** — the chosen instrument |
-   | GC | 0.30 | 0.10 | 3× | DISAGREES |
-   | BTCUSDT | 10.00 | 0.10 | 100× | DISAGREES |
-   | NQU6 | 0.25 | 0.25 | 1× | agrees |
+   | **MNQU6** | 0.75 | **0.25** | 0.25 | agrees — *for now* |
+   | GC | 0.30 | **0.40** | 0.10 | DISAGREES, at a value that was never right |
+   | BTCUSDT | 10.00 | **0.10** | 0.10 | agrees — *for now* |
+   | NQU6 | 0.25 | 0.25 | 0.25 | agrees |
 
-   `tick_value` is **null on all four**, so no money figure can be computed at all. `plan.ts` computes
-   stop, target and every R-multiple from `tick_size`; migration 0003 divides by it for every MAE/MFE
-   in ticks. Every tick-denominated statistic already stored for MNQU6 — 1,391 signals with outcomes,
-   the largest such population in the database — was computed against a tick three times too large.
+   The divisor each stored row actually used is recoverable, because `evaluate_pending_outcomes()`
+   divides by `tick_size` as it stands at resolve time while `exit_price`/`entry_price` are unchanged
+   observed prices: `tick_used = |exit − entry| / |pnl_ticks|`. No instrument has one divisor. MNQU6
+   rows were divided by 0.75, 0.25 **and** 0.50; NQU6 — the instrument previously called correct — has
+   197 rows divided by 0.75. MNQU6 rows resolved on 2026-09-03 used 0.25 before 06:00 UTC and 0.75
+   after 12:00 UTC, with nothing corrected in between.
 
-   **Root cause and fix are written, not yet applied.** The bridge sends ATAS's chart price step and
-   `upsertInstrument()` wrote it over the row on every ingest, so the value could not simply be
-   corrected in place. `ingest.ts` now treats the tick as curated, and migration 0038 stamps
-   `signal_outcomes.tick_size_used`, corrects the three instruments, and adds a trigger that holds the
-   value against any blind overwrite — so the correction no longer depends on a deployment staying
-   current. Per the owner's decision no stored measurement is rewritten; the corrected reading comes
-   from the `signal_outcomes_true_ticks` view. `tick_value` stays null because nothing ever observed
-   it. 0038 queues behind 0033-0036 like everything else. See HANDOFF §0Z.
+   Three consequences for this plan. `tick_value` is still **null on all four**, so no money figure can
+   be computed at all. Every tick-denominated statistic in the database is a **mixture** with no single
+   correction factor, so §10 item 5's after-cost SESOI cannot be calculated and no R figure is
+   comparable across rows, let alone across instruments. And migration 0038 must be repaired before it
+   is applied: its guard now refuses (correctly — the instrument rows no longer hold the values it was
+   written against), and its backfill stamps one `tick_size_used` per instrument, which the evidence
+   above shows is wrong. The fix is a per-row re-derivation from the unchanged prices. `ingest.ts`
+   already treats the tick as curated but that change is not deployed; the database-side trigger in
+   0038 is the durable guard and it is still queued behind 0033-0036. See HANDOFF §0Z and §0AB.6.
 3. **NQ or MNQ — decided: MNQ (`MNQU6`).** Owner decision, 2026-09-06. They are separate order books,
    not one feed recorded twice: across 1,162 bars sharing a timestamp, OHLC matches on 31 and volume
    and ticks match on **zero**. Pooling them stays forbidden. What the choice costs and buys is in
@@ -181,6 +186,18 @@ Three strategies, each with an identity and a version: `MNQ_PULLBACK_V1`, `MNQ_R
 MNQ on 2026-09-06 (§3 item 3, §10 item 1), so they are bound to `MNQU6` and the names follow. Review
 artifacts dated before that decision still carry the old names; they are point-in-time records and are
 not rewritten.
+
+**Owner revision, 2026-09-07 (HANDOFF §0AB).** The owner rejected counting confluence evidence — no
+Broad/Balanced/Strict tiers and no "2 of 4" rule — on the grounds that separately named detectors are
+not independent votes and that making every feature a gate removes the trade. Each strategy instead
+gets three parts: **eligible location → the event that enters → the condition that invalidates the
+reason**. Supporting features are still recorded in full but do not get a veto over every signal, and
+a strategy whose decision path does not need a given input must say so in advance rather than
+improvising a substitute when that input is missing. Where a requirement is written as "A **or** B",
+the alternatives and the counting rule are fixed before the test, never chosen afterwards from what
+won; and one event spanning several bars is one opportunity, not several. The per-strategy specs
+themselves are step 2 of the owner's plan and are not written yet; §5's contract below still governs
+anything numeric.
 
 **Adaptive thresholds.** Every rule today uses fixed parameters — `volumeMultiple: 3`,
 `minRateRatio: 2`, and so on. The request is percentile thresholds per instrument. The complete
@@ -285,6 +302,18 @@ live settings for comparison. What the request needs on top:
 And the validation structure the request demands and the runner does not have: **walk-forward,
 a reserved out-of-sample period, and a parameter stability test**. The existing runner sweeps one
 period and compares against baseline; it has no notion of a period it is not allowed to look at.
+
+**Frequency is a reported dimension, not a footnote (owner, 2026-09-07 — HANDOFF §0AB.3).** The
+objective is an acceptable after-cost result that is still usable in the hours the owner trades, so
+every report carries three things together: frequency (non-duplicate opportunities per hour and per
+session, the median count per session, and the share of sessions with none), quality (after-cost
+result per trade and per session, drawdown, uncertainty), and each filter's effect (how many
+opportunities it removed and how those removed would have turned out — the test of whether it cuts
+losses or only flatters the per-trade number). Sessions where the data was complete and no setup
+appeared must be counted separately from sessions where collection was incomplete, or a strategy that
+is merely blind will read as selective. Trade count is a usability criterion, never a quota: a setup
+that proves too thin is respecified and retested, and no threshold is relaxed intraday because nothing
+has fired.
 
 Note that win rate must not decide anything on its own — the existing `price_action_edge` view and
 the §5.24 trend-filter result already work this way, so the convention is established.
