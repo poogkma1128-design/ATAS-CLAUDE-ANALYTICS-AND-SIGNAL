@@ -12,6 +12,94 @@
 
 ---
 
+## 0AA. Strategy Engine Phase 1 repair — **ปิด P1 สามข้อใน source · รอ Claude re-review · ไม่แตะ production** (2026-09-07)
+
+เจ้าของสั่งให้ Codex แก้ต่อได้ทันทีระหว่างที่ Claude ตรวจ PR #90. Implementation commit คือ
+**`adae0872f0638e658b91d624fe36bc076d0692c0`** บน branch
+**`codex/strategy-engine-phase-1-repair`**, เริ่มจาก production/default commit `6564d98` ที่ merge
+PR #90 แล้ว. งานนี้แก้เฉพาะ P1 สามข้อจาก independent review `acc3a64`; ไม่เริ่ม Phase 2A และไม่รวม
+งาน review §5 ที่ Claude กำลังทำบน branch ของตน.
+
+### 0AA.1 สิ่งที่แก้
+
+1. **Footprint reconciliation fail-closed** — `CausalLevelBar` รับ bar-level `ticks` และตรวจทุก bar
+   ที่เข้า profile ก่อนรวมราคา/volume. level ที่ราคาอยู่นอก high/low, field ไม่ finite/ติดลบ หรือ
+   level ticks ไม่ใช่จำนวนเต็มไม่ติดลบ ทำให้ profile ทั้งชุดเป็น null พร้อมสถานะ
+   `invalid_footprint_levels`; ผลรวม level ticks ไม่ตรง bar ticks ให้
+   `footprint_tick_mismatch`. `diagnostics.rejectedProfileBars` เก็บจำนวน bar แยกเหตุผล และ migration
+   0037 ยอมรับสถานะใหม่ทั้งสองโดยยังบังคับว่าค่า VWAP/VAH/VAL/POC ต้องเป็น null.
+2. **Volatility ไม่ข้าม feed gap** — immutable `VolatilityContract` เพิ่ม `maxBarSpacingMs`. Engine
+   เดินย้อนจาก decision bar และใช้เฉพาะ contiguous tail; gap ระหว่าง decision/history หรือภายในช่วง
+   ที่ต้องใช้จะ reset sample. ถ้าเหลือน้อยกว่า `minSamples` คืน `insufficient_history`, threshold/regime
+   เป็น null. แท่ง decision หลัง gap ไม่ใช้ close เก่ามาสร้าง true range ปลอม และ engine stamp ขยับเป็น
+   `market_context@2+<contractVersion>`.
+3. **Per-window IANA time zone** — definition-level zone เปลี่ยนเป็น `tradingDayTimeZone` และใช้เฉพาะ
+   trading-day rollover; ทุก `SessionWindow` ต้องมี `timeZone` ของตัวเอง. จึง anchor Asia ที่ Tokyo,
+   Europe ที่ London และ US ที่ zone ของ US ได้โดยไม่เลื่อนตาม DST ของตลาดอื่น. Migration 0037 เปลี่ยน
+   column เป็น `trading_day_timezone`, บังคับ JSON shape/unique key/range และ trigger ตรวจ time-zone name
+   ก่อน insert/update. ยังไม่มีการ seed เวลา NQ/GC ใด ๆ.
+4. อัปเดต `docs/STRATEGY_ENGINE_PLAN.md` เฉพาะ Phase 1 ให้ตรง contract ที่ซ่อม. **ไม่มีเอกสารเพิ่ม**:
+   setup/runbook/deploy flow ไม่เปลี่ยน เพราะโมดูลยัง isolated และ migration ยังไม่ apply.
+
+### 0AA.2 หลักฐานที่รันจริง
+
+| การตรวจ | ผล |
+|---|---|
+| targeted Phase 1 tests ระหว่างพัฒนา | **20 passed, 0 failed** |
+| `npx --yes deno task test` | **169 passed, 0 failed** |
+| `npx --yes deno task check` | **PASS** ทุก entry point |
+| `npx --yes deno fmt --check` หกไฟล์ Phase 1 | **PASS** |
+| `npx --yes deno lint` หกไฟล์ Phase 1 | **PASS** |
+| disposable PostgreSQL 17.6: `0001` → `0002` → `0037` → regression | **PASS ทั้งสี่ไฟล์**, process exit 0 |
+| isolation search | module ทั้งสามยัง import โดย test ของตัวเองเท่านั้น; ไม่พบใน ingest/rules/Telegram |
+| `git diff --cached --check` ก่อน implementation commit | **PASS** |
+
+SQL replay รอบแรกพบ regression จริงก่อนผ่าน: validator ใช้ `<>` กับ JSON field ที่หาย ทำให้ผลเป็น
+SQL `NULL` และ check หลุดผ่าน. แก้เป็น `IS DISTINCT FROM` + explicit null checks แล้ว replay ใหม่ผ่าน.
+PostgreSQL เตือน `wal_level` ไม่พอสำหรับ logical replication หลังสร้าง publication จำลอง แต่ schema,
+RLS, migration และ regression ที่อยู่ใน scope ผ่านครบ; ไม่ได้สร้าง subscription.
+
+### 0AA.3 สถานะ ข้อห้าม และงานถัดไป
+
+**Production ไม่ถูกแตะ:** ไม่ apply migration 0037, ไม่ deploy Edge Function, ไม่เขียน Supabase,
+ไม่แก้ rule/signal/Telegram/ATAS DLL. Migration 0037 ยังต่อท้าย queue 0033–0036 และ Phase 1 modules
+ยังไม่ถูก import เข้าสาย signal. ไฟล์ ML untracked สี่ไฟล์ที่มีอยู่ก่อนงานนี้ไม่ได้แก้หรือ stage.
+
+**ยัง UNVERIFIED:** Claude ต้อง checkout `adae087`, rerun Deno + SQL regression, ตรวจ hand examples,
+causality/gap/footprint precedence/per-window DST และยืนยัน isolation ด้วยตนเอง. จนกว่าจะ re-review ผ่าน
+ห้าม integrate output, activate session definition หรือ apply 0037. P2 เรื่อง value-area convention และ
+previous-day staleness ยังเปิดตาม review เดิม; งานนี้ไม่ตัดสินแทนเจ้าของ.
+
+**Rollback:** ก่อน production ให้ revert `adae087` และ Handoff commit ที่ตามมา; ไม่มี database/runtime
+state ให้ย้อน. เปิด PR #93 จาก `codex/strategy-engine-phase-1-repair` เข้า
+`claude/form-signal-telegram-rz8am1` แล้ว; ขั้นถัดไปคือ Claude independent re-review packet นี้.
+
+**แก้ conflict กับ base ล่าสุด (2026-09-07):** base เดินหน้าไปถึง `5cedad2` (merge PR #92) ซึ่งเพิ่ม
+§0Z และ §0Y ไว้บนสุดของ Handoff. conflict อยู่ที่ `docs/HANDOFF.md` ไฟล์เดียว และแก้แบบ **เก็บทั้งสองฝั่ง**:
+ไม่มีบรรทัดของฝั่งไหนถูกทิ้ง. เนื้อหา packet นี้ไม่เปลี่ยน แต่ **หัวข้อเปลี่ยนจาก §0Y เป็น §0AA** เพราะ
+`0Y` ถูกใช้ไปแล้วโดยหัวข้อ "เจ้าของตัดสิน: ใช้ MNQ" บน base และมีโค้ดอ้างถึง (`_shared/ingest.ts`,
+migration `0038`) ⇒ ถ้า renumber ฝั่ง base การอ้างอิงเหล่านั้นจะชี้ผิด. **PR #93 ที่เขียนว่า
+"canonical packet: docs/HANDOFF.md section 0Y" ให้อ่านเป็น §0AA ตั้งแต่ commit นี้เป็นต้นไป.**
+ไฟล์อื่นในรอบ merge นี้ (`docs/STRATEGY_ENGINE_PLAN.md`, `_shared/ingest.ts`, migration/test 0038,
+`docs/queries/instrument_tick_identity.sql`) Git รวมให้เองโดยไม่ชน และรอบนี้ **แก้เอกสารอย่างเดียว
+ไม่ได้แก้ตรรกะโค้ดแม้บรรทัดเดียว** — ไม่ apply migration · ไม่ deploy · ไม่เขียนฐานข้อมูล ·
+rollback = revert merge commit นี้.
+
+**หลักฐานที่รันบน tree หลัง merge (ไม่ใช่หลักฐานเก่าที่คัดลอกมา):**
+
+| การตรวจ | ผล |
+|---|---|
+| `deno task test` | **172 passed, 0 failed** (169 ของ branch นี้ + 3 ตัวใหม่จาก base §0Z) |
+| `deno task check` | **PASS** ทั้งสี่ entry point |
+| `deno fmt --check` + `deno lint` ทั้ง repo (deno 2 ล่าสุด) | 11 ไฟล์ยังไม่ format · 31 lint problems — **นับได้เท่ากันเป๊ะที่ base `5cedad2`** ⇒ ของเดิม ไม่ได้เกิดจาก merge นี้ |
+| disposable PostgreSQL 16.13: migration `0001`→`0038` | **APPLIED** (ข้าม `0035` เพราะ census assertion ต้องใช้แถว production; local ไม่มี `pg_cron`/`pg_net` จึง stub schema ให้ในฝั่ง harness ไม่ได้แก้ไฟล์ใน repo) |
+| regression `0034`, `0036`, `0037`, `0038` บน DB เดียวกัน | **PASS ทั้งสี่ไฟล์** |
+
+ที่ต้องดูคือ `0037` (ของ branch นี้) กับ `0038` (ของ base) อยู่บน schema เดียวกันแล้วยังผ่านทั้งคู่ ·
+เลข migration ไม่ชนกัน · ฐานข้อมูลที่ใช้ทดสอบถูกลบทิ้งแล้ว
+
+---
+
 ## 0Z. ต้นเหตุที่ tick ผิด — **ingest เขียนทับ metadata ทุกครั้ง** · แก้โค้ดแล้ว รอ deploy (2026-09-06)
 
 ### 0Z.1 ทำไมมันผิด (ต้นเหตุจริง ไม่ใช่การเดา)

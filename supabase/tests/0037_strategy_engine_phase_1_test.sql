@@ -49,17 +49,41 @@ insert into public.instruments (id, symbol, exchange, tick_size)
 values ('37000000-0000-0000-0000-000000000001', 'T0037', 'TEST', 0.25);
 
 insert into public.market_session_definitions (
-  id, instrument_id, version, exchange_timezone, trading_day_rollover_minute, windows
+  id, instrument_id, version, trading_day_timezone, trading_day_rollover_minute, windows
 ) values (
   '37000000-0000-0000-0000-000000000011',
   '37000000-0000-0000-0000-000000000001',
   'test-session-v1', 'America/Chicago', 1020,
-  '[{"key":"us_regular","startMinute":510,"endMinute":900}]'::jsonb
+  '[{"key":"us_regular","timeZone":"America/Chicago","startMinute":510,"endMinute":900}]'::jsonb
+);
+
+select pg_temp.expect_error(
+  'every session window needs its own time zone',
+  $$insert into public.market_session_definitions (
+       instrument_id, version, trading_day_timezone, trading_day_rollover_minute, windows
+     ) values (
+       '37000000-0000-0000-0000-000000000001', 'bad-window-shape',
+       'America/Chicago', 1020,
+       '[{"key":"asia","startMinute":540,"endMinute":660}]'::jsonb
+     )$$,
+  '23514', 'market_session_definitions_windows_check'
+);
+
+select pg_temp.expect_error(
+  'session window time zones must be valid IANA identifiers',
+  $$insert into public.market_session_definitions (
+       instrument_id, version, trading_day_timezone, trading_day_rollover_minute, windows
+     ) values (
+       '37000000-0000-0000-0000-000000000001', 'bad-window-zone',
+       'America/Chicago', 1020,
+       '[{"key":"asia","timeZone":"Not/A_Time_Zone","startMinute":540,"endMinute":660}]'::jsonb
+     )$$,
+  '22023', 'time zone'
 );
 
 -- Draft definitions can be corrected, then activation seals their contract.
 update public.market_session_definitions
-   set windows = '[{"key":"us_regular","startMinute":510,"endMinute":900},{"key":"initial_balance","startMinute":510,"endMinute":570}]'::jsonb,
+   set windows = '[{"key":"us_regular","timeZone":"America/Chicago","startMinute":510,"endMinute":900},{"key":"initial_balance","timeZone":"America/Chicago","startMinute":510,"endMinute":570}]'::jsonb,
        status = 'active'
  where id = '37000000-0000-0000-0000-000000000011';
 
@@ -107,6 +131,17 @@ select pg_temp.expect_error(
      )$$,
   '23514', 'key_levels_profile_complete'
 );
+
+insert into public.key_levels (
+  bar_id, session_definition_id, engine_version, trading_day, profile_session_tag,
+  profile_status, diagnostics
+) values
+  (37001, '37000000-0000-0000-0000-000000000011', 'bad-levels@2',
+   '2026-09-07', 'us_regular', 'invalid_footprint_levels',
+   '{"invalid_footprint_levels":1}'::jsonb),
+  (37001, '37000000-0000-0000-0000-000000000011', 'tick-mismatch@2',
+   '2026-09-07', 'us_regular', 'footprint_tick_mismatch',
+   '{"footprint_tick_mismatch":1}'::jsonb);
 
 select pg_temp.assert_true(
   'new tables have RLS enabled',

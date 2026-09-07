@@ -6,6 +6,8 @@ export interface CausalLevelBar {
   isClosed: boolean;
   high: number;
   low: number;
+  /** Bar-level trade count; must equal the sum of footprint level ticks. */
+  ticks: number;
   tradingDay: string;
   sessionTags: string[];
   /** null means the footprint is unavailable; [] is a known zero-volume footprint. */
@@ -16,6 +18,8 @@ export type ProfileStatus =
   | "complete"
   | "no_session_bars"
   | "missing_footprint"
+  | "invalid_footprint_levels"
+  | "footprint_tick_mismatch"
   | "zero_volume";
 
 export interface KeyLevelResult {
@@ -38,6 +42,10 @@ export interface KeyLevelResult {
     profileBarCount: number;
     profileLevelCount: number;
     previousTradingDay: string | null;
+    rejectedProfileBars: Record<
+      Exclude<ProfileStatus, "complete" | "no_session_bars" | "zero_volume">,
+      number
+    >;
   };
 }
 
@@ -68,13 +76,6 @@ function profile(levels: ClusterLevel[], fraction: number): Profile | null {
   let weighted = 0;
   let total = 0;
   for (const level of levels) {
-    if (
-      !Number.isFinite(level.price) || !Number.isFinite(level.volume) || level.volume < 0
-    ) {
-      throw new Error(
-        "footprint price/volume must be finite and volume cannot be negative",
-      );
-    }
     volumes.set(level.price, (volumes.get(level.price) ?? 0) + level.volume);
     weighted += level.price * level.volume;
     total += level.volume;
@@ -115,6 +116,38 @@ function profile(levels: ClusterLevel[], fraction: number): Profile | null {
     poc: rows[pocIndex][0],
     levelCount: rows.length,
   };
+}
+
+type FootprintRejection = Exclude<
+  ProfileStatus,
+  "complete" | "no_session_bars" | "zero_volume"
+>;
+
+function footprintRejection(bar: CausalLevelBar): FootprintRejection | null {
+  if (bar.levels === null) return "missing_footprint";
+
+  const invalidLevel = bar.levels.some((level) =>
+    !Number.isFinite(level.price) ||
+    level.price < bar.low ||
+    level.price > bar.high ||
+    !Number.isFinite(level.ask) ||
+    level.ask < 0 ||
+    !Number.isFinite(level.bid) ||
+    level.bid < 0 ||
+    !Number.isFinite(level.between) ||
+    level.between < 0 ||
+    !Number.isFinite(level.volume) ||
+    level.volume < 0 ||
+    !Number.isSafeInteger(level.ticks) ||
+    level.ticks < 0
+  );
+  if (invalidLevel) return "invalid_footprint_levels";
+
+  const levelTicks = bar.levels.reduce((sum, level) => sum + level.ticks, 0);
+  if (!Number.isSafeInteger(bar.ticks) || bar.ticks < 0 || levelTicks !== bar.ticks) {
+    return "footprint_tick_mismatch";
+  }
+  return null;
 }
 
 /** Computes only from bars whose close is at or before decisionAt. Future input fails closed. */
@@ -171,12 +204,26 @@ export function computeKeyLevels(
     ? bars.filter((bar) => bar.tradingDay === previousTradingDay)
     : [];
 
+  const rejectedProfileBars: KeyLevelResult["diagnostics"]["rejectedProfileBars"] = {
+    missing_footprint: 0,
+    invalid_footprint_levels: 0,
+    footprint_tick_mismatch: 0,
+  };
+  for (const bar of profileBars) {
+    const rejection = footprintRejection(bar);
+    if (rejection) rejectedProfileBars[rejection] += 1;
+  }
+
   let profileStatus: ProfileStatus = "complete";
   let computedProfile: Profile | null = null;
   if (profileBars.length === 0) {
     profileStatus = "no_session_bars";
-  } else if (profileBars.some((bar) => bar.levels === null)) {
+  } else if (rejectedProfileBars.missing_footprint > 0) {
     profileStatus = "missing_footprint";
+  } else if (rejectedProfileBars.invalid_footprint_levels > 0) {
+    profileStatus = "invalid_footprint_levels";
+  } else if (rejectedProfileBars.footprint_tick_mismatch > 0) {
+    profileStatus = "footprint_tick_mismatch";
   } else {
     computedProfile = profile(profileBars.flatMap((bar) => bar.levels ?? []), fraction);
     if (!computedProfile) profileStatus = "zero_volume";
@@ -206,6 +253,7 @@ export function computeKeyLevels(
       profileBarCount: profileBars.length,
       profileLevelCount: computedProfile?.levelCount ?? 0,
       previousTradingDay,
+      rejectedProfileBars,
     },
   };
 }
