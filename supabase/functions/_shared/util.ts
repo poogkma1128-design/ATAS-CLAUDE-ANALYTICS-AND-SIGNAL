@@ -11,6 +11,20 @@ export function num(
   return typeof value === "number" && Number.isFinite(value) ? value : fallback;
 }
 
+/**
+ * A rule may freeze an exchange-verified tick when the chart reports a display
+ * step instead of the contract tick. Other rules keep the feed value.
+ */
+export function marketTickSize(
+  params: Record<string, unknown>,
+  fallback: number,
+): number {
+  const value = params.marketTickSize;
+  return typeof value === "number" && Number.isFinite(value) && value > 0
+    ? value
+    : fallback;
+}
+
 export function clamp01(value: number): number {
   if (!Number.isFinite(value)) return 0;
   return Math.min(1, Math.max(0, value));

@@ -4,6 +4,11 @@ import type {
   PullbackOpenSetup,
   PullbackOpportunity,
 } from "./strategy/pullback.ts";
+import type {
+  FailedBreakCarry,
+  FailedBreakOpenSetup,
+  FailedBreakOpportunity,
+} from "./strategy/failed_break.ts";
 
 /**
  * The durable half of a strategy that spans more than one bar.
@@ -21,6 +26,12 @@ import type {
  */
 
 export const PULLBACK_STRATEGY_KEY = "mnq_pullback_v1";
+export const REVERSAL_STRATEGY_KEY = "mnq_reversal_v1";
+export const SWEEP_STRATEGY_KEY = "gc_sweep_v1";
+
+export type DurableCarry = PullbackCarry | FailedBreakCarry;
+export type DurableOpenSetup = PullbackOpenSetup | FailedBreakOpenSetup;
+export type DurableOpportunity = PullbackOpportunity | FailedBreakOpportunity;
 
 export interface SetupScope {
   instrumentId: string;
@@ -65,10 +76,24 @@ export async function loadPullbackCarry(
   scope: SetupScope,
   contractVersion: string,
 ): Promise<PullbackCarry> {
+  return await loadStrategyCarry(
+    supabase,
+    scope,
+    PULLBACK_STRATEGY_KEY,
+    contractVersion,
+  ) as PullbackCarry;
+}
+
+export async function loadStrategyCarry(
+  supabase: SupabaseClient,
+  scope: SetupScope,
+  strategyKey: string,
+  contractVersion: string,
+): Promise<DurableCarry> {
   const { data, error } = await supabase
     .from("strategy_setups")
     .select(`${OPEN_COLUMNS}, contract_version`)
-    .eq("strategy_key", PULLBACK_STRATEGY_KEY)
+    .eq("strategy_key", strategyKey)
     .eq("instrument_id", scope.instrumentId)
     .eq("timeframe", scope.timeframe)
     .eq("status", "open");
@@ -83,6 +108,7 @@ export async function loadPullbackCarry(
     await resolveByTouchId(
       supabase,
       scope,
+      strategyKey,
       stale.map((row) => row.anchor_touch_id),
       "rejected",
       "data_unavailable:contract_changed",
@@ -116,6 +142,26 @@ export async function persistPullbackCarry(
   after: PullbackCarry,
   resolved: PullbackOpportunity[],
 ): Promise<void> {
+  await persistStrategyCarry(
+    supabase,
+    scope,
+    PULLBACK_STRATEGY_KEY,
+    contractVersion,
+    before,
+    after,
+    resolved,
+  );
+}
+
+export async function persistStrategyCarry(
+  supabase: SupabaseClient,
+  scope: SetupScope,
+  strategyKey: string,
+  contractVersion: string,
+  before: DurableCarry,
+  after: DurableCarry,
+  resolved: DurableOpportunity[],
+): Promise<void> {
   const known = new Set(before.open.map((setup) => setup.anchorTouchId));
 
   // Resolutions first. A setup that closed and one that re-opened on the same
@@ -128,6 +174,7 @@ export async function persistPullbackCarry(
       await resolveByTouchId(
         supabase,
         scope,
+        strategyKey,
         [opportunity.anchorTouchId],
         status,
         reason,
@@ -136,7 +183,12 @@ export async function persistPullbackCarry(
     }
 
     const { error } = await supabase.from("strategy_setups").insert({
-      ...rowFor(scope, contractVersion, asOpenSetupFromOpportunity(opportunity)),
+      ...rowFor(
+        scope,
+        strategyKey,
+        contractVersion,
+        asOpenSetupFromOpportunity(opportunity),
+      ),
       status,
       outcome_reason: reason,
       resolved_at: new Date().toISOString(),
@@ -160,7 +212,7 @@ export async function persistPullbackCarry(
           saw_missing_volatility: setup.sawMissingVolatility,
           updated_at: new Date().toISOString(),
         })
-        .eq("strategy_key", PULLBACK_STRATEGY_KEY)
+        .eq("strategy_key", strategyKey)
         .eq("instrument_id", scope.instrumentId)
         .eq("timeframe", scope.timeframe)
         .eq("anchor_touch_id", setup.anchorTouchId)
@@ -172,7 +224,7 @@ export async function persistPullbackCarry(
 
     const { error } = await supabase
       .from("strategy_setups")
-      .insert(rowFor(scope, contractVersion, setup));
+      .insert(rowFor(scope, strategyKey, contractVersion, setup));
 
     if (error) throw new Error(`strategy setup insert failed: ${error.message}`);
   }
@@ -181,6 +233,7 @@ export async function persistPullbackCarry(
 async function resolveByTouchId(
   supabase: SupabaseClient,
   scope: SetupScope,
+  strategyKey: string,
   touchIds: string[],
   status: "triggered" | "rejected",
   reason: string,
@@ -196,7 +249,7 @@ async function resolveByTouchId(
       resolved_at: stamp,
       updated_at: stamp,
     })
-    .eq("strategy_key", PULLBACK_STRATEGY_KEY)
+    .eq("strategy_key", strategyKey)
     .eq("instrument_id", scope.instrumentId)
     .eq("timeframe", scope.timeframe)
     .in("anchor_touch_id", touchIds)
@@ -207,7 +260,7 @@ async function resolveByTouchId(
 
 /** The evaluator's own words for how a setup ended, never a summary of them. */
 function resolutionOf(
-  opportunity: PullbackOpportunity,
+  opportunity: DurableOpportunity,
 ): { status: "triggered" | "rejected"; reason: string } {
   const outcome = opportunity.outcome;
   if (outcome.kind === "triggered") {
@@ -219,7 +272,7 @@ function resolutionOf(
   return { status: "rejected", reason: `right_censored:${outcome.reason}` };
 }
 
-function asOpenSetup(row: SetupRow): PullbackOpenSetup {
+function asOpenSetup(row: SetupRow): DurableOpenSetup {
   return {
     anchorIdentity: row.anchor_identity,
     anchorTouchId: row.anchor_touch_id,
@@ -244,8 +297,8 @@ function asOpenSetup(row: SetupRow): PullbackOpenSetup {
  * rather than guessed, and `outcome_reason` is what a reader should believe.
  */
 function asOpenSetupFromOpportunity(
-  opportunity: PullbackOpportunity,
-): PullbackOpenSetup {
+  opportunity: DurableOpportunity,
+): DurableOpenSetup {
   return {
     anchorIdentity: opportunity.anchorIdentity,
     anchorTouchId: opportunity.anchorTouchId,
@@ -264,11 +317,12 @@ function asOpenSetupFromOpportunity(
 
 function rowFor(
   scope: SetupScope,
+  strategyKey: string,
   contractVersion: string,
-  setup: PullbackOpenSetup,
+  setup: DurableOpenSetup,
 ): Record<string, unknown> {
   return {
-    strategy_key: PULLBACK_STRATEGY_KEY,
+    strategy_key: strategyKey,
     contract_version: contractVersion,
     instrument_id: scope.instrumentId,
     timeframe: scope.timeframe,

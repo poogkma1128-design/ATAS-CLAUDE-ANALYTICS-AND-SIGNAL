@@ -7,16 +7,22 @@ import type {
   IngestPayload,
   RuleRow,
 } from "./types.ts";
-import { pointOfControl, sortLevels } from "./util.ts";
+import { marketTickSize, pointOfControl, sortLevels } from "./util.ts";
 import { runRules, type StrategyStore } from "./rules/index.ts";
 import { describeEvidence } from "./evidence.ts";
 import { buildPlan } from "./plan.ts";
 import {
-  loadPullbackCarry,
-  persistPullbackCarry,
+  type DurableCarry,
+  type DurableOpportunity,
+  loadStrategyCarry,
+  persistStrategyCarry,
   PULLBACK_STRATEGY_KEY,
+  REVERSAL_STRATEGY_KEY,
+  SWEEP_STRATEGY_KEY,
 } from "./strategy_setups.ts";
-import { contractFor } from "./rules/mnq_pullback_v1.ts";
+import { contractFor as pullbackContractFor } from "./rules/mnq_pullback_v1.ts";
+import { contractFor as reversalContractFor } from "./rules/mnq_reversal_v1.ts";
+import { contractFor as sweepContractFor } from "./rules/gc_sweep_v1.ts";
 import { sendSignal, telegramConfig } from "./telegram.ts";
 import { type OverrideRow, Overrides } from "./overrides.ts";
 import { AnnouncementEligibility } from "./announcement_policy.ts";
@@ -456,8 +462,12 @@ async function evaluateBars(
     scope.instrumentId,
     scope.timeframe,
     prepared[firstClosed].bar.openedAt,
-    scope.symbol === "MNQU6" && scope.timeframe === "5m" &&
-      rules.some((rule) => rule.key === "mnq_pullback_v1")
+    scope.timeframe === "5m" && ["MNQU6", "GC"].includes(scope.symbol) &&
+      rules.some((rule) =>
+        [PULLBACK_STRATEGY_KEY, REVERSAL_STRATEGY_KEY, SWEEP_STRATEGY_KEY].includes(
+          rule.key,
+        )
+      )
       ? STRATEGY_HISTORY_BARS
       : HISTORY_BARS,
   );
@@ -479,25 +489,58 @@ async function evaluateBars(
   // doing, and every other rule is unaffected — but it is logged loudly,
   // because a strategy quietly running at a fifth of its frequency looks
   // exactly like a market with nothing in it.
-  const pullbackRule = byKey.get(PULLBACK_STRATEGY_KEY);
   const setupScope = { instrumentId: scope.instrumentId, timeframe: scope.timeframe };
-  const contractVersion = pullbackRule
-    ? contractFor(pullbackRule.params ?? {}).version
-    : null;
-
+  const stateful = [
+    {
+      key: PULLBACK_STRATEGY_KEY,
+      field: "pullback",
+      resolved: "pullbackResolved",
+      contractFor: pullbackContractFor,
+    },
+    {
+      key: REVERSAL_STRATEGY_KEY,
+      field: "reversal",
+      resolved: "reversalResolved",
+      contractFor: reversalContractFor,
+    },
+    {
+      key: SWEEP_STRATEGY_KEY,
+      field: "sweep",
+      resolved: "sweepResolved",
+      contractFor: sweepContractFor,
+    },
+  ] as const;
+  const activeStateful = stateful.filter(({ key }) => byKey.has(key)).filter(({ key }) =>
+    key === SWEEP_STRATEGY_KEY ? scope.symbol === "GC" : scope.symbol === "MNQU6"
+  );
   let store: StrategyStore | undefined;
-  let carriedIn = null;
-  if (pullbackRule && contractVersion) {
+  const carriedIn = new Map<string, DurableCarry>();
+  const contractVersions = new Map<string, string>();
+  if (activeStateful.length > 0) {
     try {
-      carriedIn = await loadPullbackCarry(supabase, setupScope, contractVersion);
-      store = { pullback: carriedIn };
+      const candidate: StrategyStore = {};
+      for (const config of activeStateful) {
+        const rule = byKey.get(config.key)!;
+        const version = config.contractFor(rule.params ?? {}).version;
+        const carry = await loadStrategyCarry(
+          supabase,
+          setupScope,
+          config.key,
+          version,
+        );
+        (candidate as unknown as Record<string, unknown>)[config.field] = carry;
+        carriedIn.set(config.key, carry);
+        contractVersions.set(config.key, version);
+      }
+      store = candidate;
     } catch (error) {
       console.error(
         "strategy setup store unavailable, falling back to single-bar scope:",
         error instanceof Error ? error.message : String(error),
       );
       store = undefined;
-      carriedIn = null;
+      carriedIn.clear();
+      contractVersions.clear();
     }
   }
 
@@ -523,7 +566,7 @@ async function evaluateBars(
       const plan = buildPlan(
         signal.direction,
         entry.bar,
-        tickSize,
+        marketTickSize(rule?.params ?? {}, tickSize),
         rule?.params ?? {},
         rule?.horizon_bars ?? 10,
         recent,
@@ -585,16 +628,28 @@ async function evaluateBars(
   // happened is not made untrue by a failed bookkeeping write, and the cost is
   // bounded: the affected setups are re-read as they were, so at worst a
   // confirmation is reported twice rather than lost.
-  if (store && carriedIn && contractVersion) {
+  if (store && carriedIn.size > 0) {
     try {
-      await persistPullbackCarry(
-        supabase,
-        setupScope,
-        contractVersion,
-        carriedIn,
-        store.pullback ?? carriedIn,
-        store.pullbackResolved ?? [],
-      );
+      for (const config of activeStateful) {
+        const before = carriedIn.get(config.key);
+        const version = contractVersions.get(config.key);
+        if (!before || !version) continue;
+        const after =
+          (store as unknown as Record<string, unknown>)[config.field] as DurableCarry ??
+            before;
+        const resolved =
+          ((store as unknown as Record<string, unknown>)[config.resolved] ??
+            []) as DurableOpportunity[];
+        await persistStrategyCarry(
+          supabase,
+          setupScope,
+          config.key,
+          version,
+          before,
+          after,
+          resolved,
+        );
+      }
     } catch (error) {
       console.error(
         "strategy setup store write failed; setups may be re-evaluated:",

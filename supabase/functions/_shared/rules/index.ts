@@ -17,6 +17,20 @@ import {
   RULE_KEY as MNQ_PULLBACK_KEY,
 } from "./mnq_pullback_v1.ts";
 import type { PullbackCarry, PullbackOpportunity } from "../strategy/pullback.ts";
+import type {
+  FailedBreakCarry,
+  FailedBreakOpportunity,
+} from "../strategy/failed_break.ts";
+import {
+  advance as mnqReversalAdvance,
+  evaluate as mnqReversalV1,
+  RULE_KEY as MNQ_REVERSAL_KEY,
+} from "./mnq_reversal_v1.ts";
+import {
+  advance as gcSweepAdvance,
+  evaluate as gcSweepV1,
+  RULE_KEY as GC_SWEEP_KEY,
+} from "./gc_sweep_v1.ts";
 
 /**
  * Registry of rule evaluators, keyed to match public.rules.key.
@@ -35,6 +49,8 @@ export const evaluators: Record<string, RuleEvaluator> = {
   naked_poc: nakedPoc,
   speed_of_tape: speedOfTape,
   mnq_pullback_v1: mnqPullbackV1,
+  mnq_reversal_v1: mnqReversalV1,
+  gc_sweep_v1: gcSweepV1,
 };
 
 export interface EvaluatedSignal extends RuleSignal {
@@ -59,6 +75,10 @@ export interface StrategyStore {
    * record that the strategy saw an opportunity and declined it.
    */
   pullbackResolved?: PullbackOpportunity[];
+  reversal?: FailedBreakCarry;
+  reversalResolved?: FailedBreakOpportunity[];
+  sweep?: FailedBreakCarry;
+  sweepResolved?: FailedBreakOpportunity[];
 }
 
 /**
@@ -78,6 +98,22 @@ const statefulEvaluators: Record<
     store.pullback = carry;
     if (resolved.length > 0) {
       store.pullbackResolved = [...(store.pullbackResolved ?? []), ...resolved];
+    }
+    return signals;
+  },
+  [MNQ_REVERSAL_KEY]: (ctx, store) => {
+    const { signals, carry, resolved } = mnqReversalAdvance(ctx, store.reversal);
+    store.reversal = carry;
+    if (resolved.length > 0) {
+      store.reversalResolved = [...(store.reversalResolved ?? []), ...resolved];
+    }
+    return signals;
+  },
+  [GC_SWEEP_KEY]: (ctx, store) => {
+    const { signals, carry, resolved } = gcSweepAdvance(ctx, store.sweep);
+    store.sweep = carry;
+    if (resolved.length > 0) {
+      store.sweepResolved = [...(store.sweepResolved ?? []), ...resolved];
     }
     return signals;
   },
