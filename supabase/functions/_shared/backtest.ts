@@ -84,6 +84,7 @@ export interface SimulationSummary {
 
 /** Enough history for every rule's lookback, matching the live path. */
 const HISTORY_BARS = 50;
+const STRATEGY_HISTORY_BARS = 700;
 
 /**
  * Walks one instrument's bars in order, firing rules and scoring each trade.
@@ -105,6 +106,7 @@ export function simulate(
   bars: StoredBar[],
   rules: RuleRow[],
   tickSize: number,
+  scope?: { symbol: string; timeframe: string },
 ): SimulationRun {
   const out: SimulatedTrade[] = [];
   const history: HistoryBar[] = [];
@@ -118,6 +120,9 @@ export function simulate(
       bar,
       levels,
       history: history.slice(-HISTORY_BARS),
+      strategyHistory: history.slice(-STRATEGY_HISTORY_BARS),
+      symbol: scope?.symbol,
+      timeframe: scope?.timeframe,
       tickSize,
     });
 

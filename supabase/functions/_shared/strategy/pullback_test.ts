@@ -13,6 +13,7 @@ const contract: PullbackContract = {
   zoneProximity: 0.5,
   invalidationDistance: 0.75,
   setupMaxAgeBars: 3,
+  maxBarSpacingMs: 5 * 60_000,
   anchorIdentities: ["prev_day_low"],
   triggerKinds: ["delta_flip", "stacked_imbalance"],
 };
@@ -319,7 +320,7 @@ Deno.test("a short setup mirrors the long one", () => {
   assertEquals(result.opportunities[0].outcome.kind, "triggered");
 });
 
-Deno.test("a setup still open when the data ends is closed, never dropped", () => {
+Deno.test("a setup still open when the data ends is right-censored, never mislabeled", () => {
   const result = evaluatePullback([
     touchBar(0, { triggers: triggers(null) }),
     bar(1, { triggers: triggers(null) }),
@@ -327,9 +328,54 @@ Deno.test("a setup still open when the data ends is closed, never dropped", () =
 
   assertEquals(result.opportunities.length, 1);
   assertEquals(result.opportunities[0].outcome, {
-    kind: "rejected",
+    kind: "right_censored",
     at: "2026-09-07T14:05:00.000Z",
-    reason: "expired_unfired",
+    reason: "end_of_data",
+  });
+});
+
+Deno.test("missing bias cannot authorize a trigger on an open setup", () => {
+  const result = evaluatePullback([
+    touchBar(0, { triggers: triggers(null) }),
+    bar(1, { bias: null, triggers: triggers("long") }),
+    bar(2, { bias: null, triggers: triggers("long") }),
+  ], contract);
+
+  assertEquals(result.opportunities[0].outcome, {
+    kind: "rejected",
+    at: "2026-09-07T14:10:00.000Z",
+    reason: "data_unavailable:bias",
+  });
+});
+
+Deno.test("missing volatility at expiry is unavailable, not expired unfired", () => {
+  const result = evaluatePullback([
+    touchBar(0, { triggers: triggers(null) }),
+    bar(1, { medianTrueRange: null, triggers: triggers(null) }),
+    bar(2, { medianTrueRange: null, triggers: triggers(null) }),
+  ], contract);
+
+  assertEquals(result.opportunities[0].outcome, {
+    kind: "rejected",
+    at: "2026-09-07T14:10:00.000Z",
+    reason: "data_unavailable:volatility",
+  });
+});
+
+Deno.test("a feed gap closes an open setup instead of treating distant bars as adjacent", () => {
+  const result = evaluatePullback([
+    touchBar(0, { triggers: triggers(null) }),
+    bar(1, {
+      openedAt: "2026-09-07T19:00:00.000Z",
+      closedAt: "2026-09-07T19:05:00.000Z",
+      triggers: triggers("long"),
+    }),
+  ], contract);
+
+  assertEquals(result.opportunities[0].outcome, {
+    kind: "rejected",
+    at: "2026-09-07T19:00:00.000Z",
+    reason: "data_unavailable:feed_gap",
   });
 });
 
@@ -369,6 +415,11 @@ Deno.test("the contract refuses values that would make the spec meaningless", ()
     () => evaluatePullback([], { ...contract, setupMaxAgeBars: 0 }),
     Error,
     "setupMaxAgeBars",
+  );
+  assertThrows(
+    () => evaluatePullback([], { ...contract, maxBarSpacingMs: 0 }),
+    Error,
+    "maxBarSpacingMs",
   );
   assertThrows(
     () => evaluatePullback([], { ...contract, anchorIdentities: [] }),

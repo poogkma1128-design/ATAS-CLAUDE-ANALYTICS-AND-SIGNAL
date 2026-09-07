@@ -128,7 +128,10 @@ Deno.serve(async (req: Request) => {
       // worse entry look like a better one. Zero unless pullbackShare is set.
       let missed = 0;
       const trades = usable.flatMap((feed) => {
-        const run = simulate(feed.bars, effective, feed.tickSize);
+        const run = simulate(feed.bars, effective, feed.tickSize, {
+          symbol: feed.symbol,
+          timeframe: feed.timeframe,
+        });
         missed += run.missed;
         return run.trades.map((trade) => ({ ...trade, symbol: feed.symbol }));
       });

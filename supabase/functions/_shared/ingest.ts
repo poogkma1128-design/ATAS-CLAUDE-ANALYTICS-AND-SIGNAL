@@ -17,6 +17,8 @@ import { AnnouncementEligibility } from "./announcement_policy.ts";
 
 /** Enough history for every rule's lookback, with room to spare. */
 const HISTORY_BARS = 50;
+/** Roughly 58 hours of 5m bars: enough to span the current and prior CME day. */
+const STRATEGY_HISTORY_BARS = 700;
 const MAX_BARS_PER_REQUEST = 200;
 const MAX_LEVELS_PER_BAR = 2000;
 
@@ -208,7 +210,7 @@ export async function ingest(
 
   const evaluatedRows = await evaluateBars(
     supabase,
-    { instrumentId, timeframe: payload.timeframe },
+    { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
     rules,
     overrides,
     announcementEligibility,
@@ -429,7 +431,7 @@ interface SignalRow {
  */
 async function evaluateBars(
   supabase: SupabaseClient,
-  scope: { instrumentId: string; timeframe: string },
+  scope: { instrumentId: string; timeframe: string; symbol: string },
   rules: RuleRow[],
   overrides: Overrides,
   announcementEligibility: AnnouncementEligibility,
@@ -448,6 +450,10 @@ async function evaluateBars(
     scope.instrumentId,
     scope.timeframe,
     prepared[firstClosed].bar.openedAt,
+    scope.symbol === "MNQU6" && scope.timeframe === "5m" &&
+        rules.some((rule) => rule.key === "mnq_pullback_v1")
+      ? STRATEGY_HISTORY_BARS
+      : HISTORY_BARS,
   );
 
   // Resolved once for the batch: every bar in a request belongs to the same
@@ -468,6 +474,9 @@ async function evaluateBars(
       bar: entry.bar,
       levels: entry.levels,
       history: recent,
+      strategyHistory: history.slice(-STRATEGY_HISTORY_BARS),
+      symbol: scope.symbol,
+      timeframe: scope.timeframe,
       tickSize,
     });
 
@@ -628,6 +637,7 @@ async function loadHistory(
   instrumentId: string,
   timeframe: string,
   before: string,
+  limit: number,
 ): Promise<HistoryBar[]> {
   const { data, error } = await supabase
     .from("bars")
@@ -637,7 +647,7 @@ async function loadHistory(
     .eq("is_closed", true)
     .lt("opened_at", new Date(before).toISOString())
     .order("opened_at", { ascending: false })
-    .limit(HISTORY_BARS);
+    .limit(limit);
 
   if (error) throw new Error(`history load failed: ${error.message}`);
 

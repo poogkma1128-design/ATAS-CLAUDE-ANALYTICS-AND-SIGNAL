@@ -1,9 +1,10 @@
 # Strategy spec v1 — `MNQ_PULLBACK_V1`, `MNQ_REVERSAL_V1`, `GC_SWEEP_V1`
 
-**Status: draft specification. Nothing here is implemented, registered, or applied.** No strategy
-version row exists, no evaluator exists, and no migration in the 0039+ range has been written. This
-document is step 2 of the plan the owner approved on 2026-09-07 (HANDOFF §0AB.4): write all three
-specs clearly, then build one evaluator completely before the others.
+**Status: `MNQ_PULLBACK_V1` evaluator implemented; live-preview adapter written, not yet validated.**
+The full six-bar evaluator remains the canonical contract. A narrower `touch_bar_only` adapter is
+registered under `mnq_pullback_v1` so the owner can receive a usable closed-bar signal while the same
+code path is backtested. It is not an edge claim and it is not the full multi-bar implementation.
+`MNQ_REVERSAL_V1` and `GC_SWEEP_V1` remain specification only.
 
 It extends `docs/STRATEGY_ENGINE_PLAN.md` §5 and inherits every constraint there. In particular the
 design review's verdict still holds: **boolean first.** Nothing in this document produces a numeric
@@ -192,6 +193,26 @@ Whichever comes first:
 - `setupMaxAgeBars` elapses → `expired_unfired`
 
 `proposed: invalidationDistance = 0.75`
+
+### 3.4 Live-preview execution scope (owner L3 override, 2026-09-07)
+
+The owner explicitly accepted live risk and asked to run signals while backtesting in parallel. The
+first live adapter therefore implements the strict subset that can be deterministic without durable
+setup state:
+
+- instrument/timeframe is hard-coded to `MNQU6 5m`;
+- only `P-A` (`previousDayHigh` / `previousDayLow`) is active;
+- a signal exists only when the named-level touch and T1/T2 trigger occur on the **same closed bar**;
+- the CME trading day is provisionally named by 17:00 `America/Chicago` rollover;
+- at least 70 stored bars must exist for the prior trading day; the volatility tail needs 20
+  contiguous 5m bars and allows at most six minutes between opened-at stamps;
+- numeric score remains `null`; the non-null legacy storage field is written as zero and must not be
+  interpreted as confidence;
+- every payload says `executionScope=touch_bar_only` and `unvalidated`.
+
+This is intentionally narrower than `setupMaxAgeBars=6`. The full six-bar live path requires durable
+per-bar decision/state persistence so an Edge Function cold start cannot forget an open touch. That
+is the next version, not an implicit promise of this one.
 
 ---
 

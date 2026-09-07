@@ -85,6 +85,15 @@ export interface RuleContext {
   levels: ClusterLevel[];
   /** Preceding closed bars, oldest first, excluding `bar`. */
   history: HistoryBar[];
+  /** Instrument identity for rules that are explicitly scoped to one market. */
+  symbol?: string;
+  /** Chart timeframe; strategy adapters must reject any timeframe they were not frozen on. */
+  timeframe?: string;
+  /**
+   * A longer OHLCV-only tail for named session/day levels. Existing rules keep
+   * reading `history`, so extending this cannot move their live baseline.
+   */
+  strategyHistory?: HistoryBar[];
   tickSize: number;
   params: Record<string, unknown>;
 }

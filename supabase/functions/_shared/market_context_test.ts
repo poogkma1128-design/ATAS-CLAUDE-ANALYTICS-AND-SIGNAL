@@ -49,6 +49,7 @@ Deno.test("market context: volatility thresholds exclude the decision bar", () =
   assertEquals(result.volatility.lowThreshold, 2);
   assertEquals(result.volatility.highThreshold, 6);
   assertEquals(result.volatility.trueRange, 20);
+  assertEquals(result.volatility.medianTrueRange, 5);
   assertEquals(result.volatility.regime, "high");
   assertEquals(result.volatility.contractVersion, "test-vol-v1");
 });
@@ -59,6 +60,7 @@ Deno.test("market context: warm-up is explicit and emits no regime", () => {
   assertEquals(result.volatility.status, "insufficient_history");
   assertEquals(result.volatility.regime, null);
   assertEquals(result.volatility.lowThreshold, null);
+  assertEquals(result.volatility.medianTrueRange, null);
 });
 
 Deno.test("market context: a gap before the decision bar fails closed", () => {
