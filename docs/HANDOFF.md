@@ -12,6 +12,66 @@
 
 ---
 
+## 0AG. Owner L3 override — เปิดสามกลยุทธ์คู่ขนานกับ Telegram + backtest (2026-09-07)
+
+**คำสั่งเจ้าของ:** “เอาขึ้น live ทั้ง 3 และ ยิง telegram และ backtest ไปด้วย คู่ขนาน” และยืนยัน
+“ใช่” หลังได้รับขอบเขต ความเสี่ยง และ rollback ครบแล้ว. นี่คือ written owner approval ระดับ L3
+ให้เปิดสองกลยุทธ์ที่ยังไม่มี forward evidence/independent review; approval อนุญาต production แต่
+**ไม่เปลี่ยนสถานะผลวิจัยให้เป็น edge**.
+
+### 0AG.1 ขอบเขตที่อนุมัติและตรึงก่อนเห็นผล
+
+| Rule | Live scope | Entry evidence | อายุ setup |
+|---|---|---|---:|
+| `mnq_pullback_v1` | MNQU6 5m · P-A previous-day H/L | trend-side touch + Delta Flip หรือ Stacked Imbalance | 6 bars |
+| `mnq_reversal_v1` | MNQU6 5m · P-A previous-day H/L | ทะลุ 0.25×MTR ภายใน 3 bars + กลับเข้า + Absorption หรือ Delta Divergence | 6 bars |
+| `gc_sweep_v1` | GC 5m · S-A previous-day H/L · Arm 2 | sweep 0.25×MTR + กลับภายใน 3 bars + Absorption หรือ Stacked Imbalance | 6 bars |
+
+- ทั้งสามเป็น boolean-first: `payload.score=null`; legacy `signals.confidence=0` ไม่ใช่ probability.
+- ทั้งสามใช้ `announcement_mode=manual`, `enabled=true`, `telegram_enabled=true` ตาม owner override.
+- `GC_SWEEP_V1` ตรึง market tick 0.10 ตามสเปก CME. ก่อนงาน production ยังถือ 0.40 และ
+  `tick_value=null`; migration ใหม่ guard ค่าเดิมแล้วแก้เฉพาะอนาคตเป็น 0.10 / $10 ต่อ tick.
+  ไม่ rewrite signal/outcome/history เก่า.
+- GC Arm 1 ถูกเก็บเป็น backtest variant `confirmationMode=return_only`; live ใช้ Arm 2 เท่านั้น.
+
+### 0AG.2 Implementation และ endpoint contract
+
+- เพิ่ม shared state machine `strategy/failed_break.ts`; Reversal และ Sweep ใช้กลไกเดียวกัน.
+- registry `runRules()` ชุดเดียวถูกเรียกจากทั้ง `ingest` และ `backtest`; durable
+  `strategy_setups` ถูก generalize ให้เก็บ state แยกตาม `strategy_key`.
+- request/response/auth ของ HTTP endpoint **ไม่เปลี่ยน**: `ingest` ยัง POST เดิมและ `backtest`
+  ยัง POST body เดิม; `verify_jwt=false` คงเดิม. เปลี่ยนเฉพาะ evaluator ภายใน shared bundle.
+
+### 0AG.3 หลักฐานก่อน production
+
+| ตรวจ | ผล |
+|---|---|
+| `deno task check` | PASS ทั้ง 4 Edge Function entry points |
+| `deno task test` | **221 passed, 0 failed** |
+| migration transaction dry-run บน schema จริง | PASS; ภายใน transaction เห็น GC 0.10/$10 แล้ว `ROLLBACK` สำเร็จ |
+| ตรวจหลัง rollback | GC กลับ 0.40/null และ rule ใหม่ 0 แถว — ไม่มี state หลุดจาก dry-run |
+| Supabase CLI migration history | local numeric migrations ไม่ตรง remote timestamp history; ห้าม `db push` แบบเหมา |
+
+### 0AG.4 บทบาท ความเสี่ยง งานค้าง และ rollback
+
+- Owner: ผู้ใช้; Proposer: สเปก/Handoff เดิมและคำเลือก scope ของ Owner; Executor/Recorder: Codex
+  session นี้; Independent Reviewer: **ยังไม่มี**.
+- ผล backtest ทุกตัวที่รันในรอบนี้เป็น **provisional**. ห้ามอ้าง edge, significance หรือผลหลังต้นทุน
+  จากประวัติเก่า เพราะ tick provenance เดิมยังปนและ MNQ `tick_value` ยัง null.
+- migration history ไม่ตรงกันจึง apply เฉพาะไฟล์ migration ใหม่นี้โดยตรงและต้องตรวจ row/schema
+  หลัง apply; ห้าม repair history หรือ apply 0001–0040 ซ้ำ.
+- kill switch ทันที: `update public.rules set telegram_enabled=false where key in
+  ('mnq_pullback_v1','mnq_reversal_v1','gc_sweep_v1');`
+- หยุด evaluator ต่อ: ตั้ง `enabled=false` ทั้งสาม. ถ้า code มีปัญหาให้ redeploy `ingest`/`backtest`
+  เวอร์ชันก่อนหน้า; signals/setups เก่าเก็บไว้เป็น audit trail.
+
+### 0AG.5 สถานะ deploy
+
+**กำลังดำเนินการ:** ยังไม่ apply migration ใหม่, ยังไม่ deploy bundle ใหม่, ยังไม่มี experiment id.
+ต้องอัปเดตหัวข้อนี้ด้วย function version, live verification, experiment id และ final commit ก่อนจบงาน.
+
+---
+
 ## 0AF. เก็บสถานะ setup ข้ามแท่งได้แล้ว — **1 → 5 สัญญาณ · ตาราง apply แล้ว · รอ deploy `ingest`** (2026-09-07)
 
 **คำสั่งเจ้าของ (L3, 2026-09-07):** เลือก “เก็บสถานะ setup ข้ามแท่ง” เป็นทางเดินหน้าหลัก

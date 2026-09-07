@@ -1,7 +1,7 @@
 import type { BarInput, ClusterLevel, HistoryBar, RuleRow } from "./types.ts";
 import { runRules, type StrategyStore } from "./rules/index.ts";
 import { buildPlan, type TradePlan } from "./plan.ts";
-import { num, pointOfControl, sortLevels } from "./util.ts";
+import { marketTickSize, num, pointOfControl, sortLevels } from "./util.ts";
 
 /**
  * Re-runs the rule engine over stored bars under settings that were never live.
@@ -135,11 +135,12 @@ export function simulate(
     for (const signal of evaluated) {
       const rule = rules.find((r) => r.key === signal.ruleKey);
       const holdBars = rule?.horizon_bars ?? 10;
+      const signalTickSize = marketTickSize(rule?.params ?? {}, tickSize);
 
       const plan = buildPlan(
         signal.direction,
         bar,
-        tickSize,
+        signalTickSize,
         rule?.params ?? {},
         holdBars,
         history.slice(-HISTORY_BARS),
@@ -164,7 +165,7 @@ export function simulate(
         plan.entry,
         signal.direction,
         stored.close,
-        tickSize,
+        signalTickSize,
         forward,
         fillWithin,
       );
@@ -177,7 +178,7 @@ export function simulate(
         plan,
         signal.direction,
         forward.slice(fill),
-        tickSize,
+        signalTickSize,
       );
       out.push({
         openedAt: stored.openedAt,

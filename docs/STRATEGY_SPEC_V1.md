@@ -1,10 +1,11 @@
 # Strategy spec v1 — `MNQ_PULLBACK_V1`, `MNQ_REVERSAL_V1`, `GC_SWEEP_V1`
 
-**Status: `MNQ_PULLBACK_V1` evaluator implemented; live-preview adapter written, not yet validated.**
-The full six-bar evaluator remains the canonical contract. A narrower `touch_bar_only` adapter is
-registered under `mnq_pullback_v1` so the owner can receive a usable closed-bar signal while the same
-code path is backtested. It is not an edge claim and it is not the full multi-bar implementation.
-`MNQ_REVERSAL_V1` and `GC_SWEEP_V1` remain specification only.
+**Status (2026-09-07): all three evaluators implemented for the owner-approved live-preview scope;
+production deployment is recorded in HANDOFF §0AG.** `MNQ_PULLBACK_V1` uses its full six-bar durable
+setup. `MNQ_REVERSAL_V1` is P-A only. `GC_SWEEP_V1` is S-A Arm 2 in live; Arm 1 remains a registered
+backtest comparison through `confirmationMode=return_only`. All three run through the same
+`runRules()` path in live ingest and backtest. This is an owner-approved unvalidated preview, not an
+edge claim.
 
 It extends `docs/STRATEGY_ENGINE_PLAN.md` §5 and inherits every constraint there. In particular the
 design review's verdict still holds: **boolean first.** Nothing in this document produces a numeric
@@ -194,7 +195,7 @@ Whichever comes first:
 
 `proposed: invalidationDistance = 0.75`
 
-### 3.4 Live-preview execution scope (owner L3 override, 2026-09-07)
+### 3.4 Initial live-preview execution scope (superseded later on 2026-09-07)
 
 The owner explicitly accepted live risk and asked to run signals while backtesting in parallel. The
 first live adapter therefore implements the strict subset that can be deterministic without durable
@@ -210,9 +211,9 @@ setup state:
   interpreted as confidence;
 - every payload says `executionScope=touch_bar_only` and `unvalidated`.
 
-This is intentionally narrower than `setupMaxAgeBars=6`. The full six-bar live path requires durable
-per-bar decision/state persistence so an Edge Function cold start cannot forget an open touch. That
-is the next version, not an implicit promise of this one.
+This initial subset was superseded after migration 0040 added durable setup state. The current live
+adapter uses `executionScope=carried_setup` and the full `setupMaxAgeBars=6`; the historical
+`touch_bar_only` path remains only as the fail-closed fallback when the setup store is unavailable.
 
 ---
 
