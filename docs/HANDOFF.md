@@ -67,8 +67,36 @@
 
 ### 0AG.5 สถานะ deploy
 
-**กำลังดำเนินการ:** ยังไม่ apply migration ใหม่, ยังไม่ deploy bundle ใหม่, ยังไม่มี experiment id.
-ต้องอัปเดตหัวข้อนี้ด้วย function version, live verification, experiment id และ final commit ก่อนจบงาน.
+**LIVE แล้ว 2026-09-08 เวลาไทย (deploy เริ่ม 23:54 ของ 2026-09-07):** PR #103 merge เข้า
+`main` ที่ `7a8ba12`; apply migration `20260907164016_live_three_strategies` เฉพาะไฟล์เดียวและ
+บันทึก remote migration history เป็น applied แล้ว. Production rows ยืนยัน rule ทั้งสามเป็น
+`enabled=true`, `telegram_enabled=true`, `announcement_mode=manual`; GC เป็น 0.10 / $10.
+
+| จุดตรวจหลัง deploy | หลักฐาน |
+|---|---|
+| Edge Functions | `ingest v22`, `backtest v13`, ACTIVE, `verify_jwt=false` |
+| source ที่ production รัน | download กลับมาเทียบ SHA-256 **34 ไฟล์ · ต่าง 0** จาก `main` |
+| endpoint contract | URL/POST/auth/body/response เดิม; GET ทั้งสอง endpoint ตอบ 405 `method not allowed` ตามเดิม |
+| live ingest | MNQU6 5m เข้า `ingest v22` หลัง deploy 1 bar, 907 ms, `error=null`; ไม่เกิด signal |
+| Telegram path | secret `TELEGRAM_BOT_TOKEN`/`TELEGRAM_CHAT_ID` มีอยู่และทั้งสาม rule เปิดส่ง; ยังไม่มีข้อความเพราะยังไม่มี signal จริง |
+| GC live feed | ล่าสุดก่อน deployที่ 2026-09-07 16:00:04 UTC; ยังไม่มี GC bar หลัง deploy จึงยังไม่ยืนยัน end-to-end ของ GC จากกราฟจริง |
+
+Backtest endpoint เคยชน `WORKER_RESOURCE_LIMIT` ที่ 400 และ 200 bars เมื่อรวมสองตลาด. ลดและแยก
+เป็นสอง request 100 bars แล้วสำเร็จพร้อมกัน:
+
+| Experiment | ขอบเขต | สถานะ |
+|---|---|---|
+| `fcca8007-bbe5-45ec-809a-e6b7a03306ef` | MNQU6 ล่าสุด 100 bars | done; baseline snapshot มี pullback+reversal แต่ไม่มี trade ของสอง rule ใหม่นี้ |
+| `b82e5e67-92c9-4e1d-88a5-f0be5fea8334` | GC ล่าสุด 100 bars · Arm 2 vs Arm 1 | done; baseline snapshot มี sweep แต่ไม่มี trade ของ sweep |
+| `529c09cf-424e-4164-8f58-bf728601c5e7` | MNQU6 100 bars offset 195 คร่อม rollover | done; ไม่มี trade ของ pullback/reversal |
+| `2af232f8-b67c-49de-bde7-0a6297637e07` | GC 100 bars offset 190 คร่อม rollover · Arm 2 vs Arm 1 | done; ไม่มี trade ของ sweep |
+
+ตัวเลขรวมของ endpoint มีสัญญาณจากกฎเดิมปนอยู่ จึง**ห้าม**อ่านเป็นผลของสามกลยุทธ์นี้. ไม่มีแถว
+`experiment_results` ของ rule ใหม่ในหน้าต่างเหล่านี้ = ไม่มี trade ที่ evaluator ใหม่ปล่อย ไม่ใช่
+ข้อสรุปว่า setup ไม่มีในประชากรทั้งหมด. งานวิจัยยัง provisional และ Independent Reviewer ยังว่าง.
+
+**งานที่เจ้าของต้องทำเพื่อปิด end-to-end GC:** เปิดกราฟ GC 5m พร้อม indicator ค้างไว้ให้ส่ง bar ใหม่.
+ระบบจะส่ง Telegram เฉพาะเมื่อ setup จริงครบเงื่อนไข; ห้ามยิง bar/signal ปลอมเพื่อทดสอบโทรศัพท์.
 
 ---
 
