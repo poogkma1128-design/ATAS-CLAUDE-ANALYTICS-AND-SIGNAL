@@ -1,4 +1,4 @@
-# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-06 (Evidence-first signal quality)
+# HANDOFF — สถานะโปรเจกต์ ณ 2026-09-07 (Evidence-first signal quality)
 
 เอกสารนี้เขียนไว้ให้ **แชทใหม่อ่านแล้วทำงานต่อได้ทันที** โดยไม่ต้องไล่ย้อนบทสนทนาเดิม
 สิ่งที่อยู่ในนี้คือข้อเท็จจริงที่ **ตรวจสอบกับระบบจริงแล้ว** ไม่ใช่การเดา
@@ -119,22 +119,29 @@ owner approval ชัดเจนให้เปิดสัญญาณที�
 4. แท่งห่าง 5 ชั่วโมงเคยนับเป็นแท่งถัดกัน → contract เพิ่ม `maxBarSpacingMs` และปิดด้วย
    `data_unavailable:feed_gap`.
 
-### 0AD.3 หลักฐาน ณ ก่อน deploy
+### 0AD.3 หลักฐาน deploy production (2026-09-07)
 
 | ตรวจ | ผล |
 |---|---|
 | `deno task test` | **200 passed, 0 failed** (เดิม 194; เพิ่ม 6) |
 | `deno task check` | **PASS** ทั้ง 4 entry point |
 | fmt/lint ไฟล์ใหม่/ที่แก้ | **PASS**; การรันทั้ง repo ยังเจอ baseline line-ending + lint debt เดิม |
-| production | **ยังไม่ deploy ณ จุดเขียนนี้**; migration 0039 ยังไม่ apply |
+| migration/rule | production มี `mnq_pullback_live_preview`; `mnq_pullback_v1` เป็น `enabled=true`, `telegram_enabled=true`, `announcement_mode=manual` |
+| `ingest` | **ACTIVE v19**; เทียบ bundle production 27 ไฟล์กับ checkout แล้วตรงกันทั้งหมด จึงไม่ deploy ซ้ำ |
+| `backtest` | deploy commit `cdbfa3d` สำเร็จเป็น **ACTIVE v10** (`ezbr_sha256=92e8c66bbe4117b0c01eba6d9aad2c49b28c37034895033ece42a453e71a8f7b`) |
+| setup probe | `select ... from public.strategy_setups order by id desc limit 20` คืน `[]`: เปิด detector แล้ว แต่ยังไม่มี setup ที่บันทึก |
+
+การ deploy รอบนี้เปลี่ยนเฉพาะ `backtest` จาก v9 เป็น v10 เพื่อเพิ่ม bounded historical windows
+(`barOffset`); ไม่มี source/config อื่นเปลี่ยน และไม่มีเอกสารอื่นที่ต้องแก้ เพราะ contract และวิธีใช้เดิม
+ยังอยู่ใน Handoff/โค้ดแล้ว. ยังไม่ได้ยิง live POST และยังไม่ได้รัน backtest จริงในรอบ deploy นี้.
 
 ### 0AD.4 Kill switch / rollback / acceptance
 
 - หยุดเสียงทันทีโดยไม่เสียข้อมูล:
   `update public.rules set telegram_enabled=false where key='mnq_pullback_v1';`
 - หยุด evaluator: ตั้ง `enabled=false`; signals/outcomes เก่าไม่ลบ.
-- rollback code: redeploy `ingest v17` และ `backtest v7`; migration 0039 เป็นเพียง rule row
-  จึงไม่ต้อง drop schema.
+- rollback รอบ deploy ล่าสุด: `ingest` ไม่ได้เปลี่ยน (คง v19); ถ้า `barOffset` มี regression ให้ redeploy
+  `backtest v9`. Kill switch ของ rule ยังใช้สองคำสั่งด้านบน และไม่ต้อง drop schema.
 - จะเรียกว่า “เปิดใช้งานแล้ว” ได้เมื่อ migration 0039 อยู่ production, Edge Function สองตัว deploy,
   backtest รันจริงและบันทึก experiment id, และ live POST หลัง deploy ตอบ 200. หากยังไม่เกิด setup
   ต้องรายงานว่า “เปิด detector แล้ว แต่ยังไม่มี signal” ห้ามสร้างสัญญาณเพื่อให้ครบโควตา.
