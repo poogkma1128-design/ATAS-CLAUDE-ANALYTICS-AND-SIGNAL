@@ -40,6 +40,7 @@ export const CONTRACT_VERSION = "MNQ_PULLBACK_V1@live-preview-1";
 const FIVE_MINUTES_MS = 5 * 60_000;
 const MAX_SPACING_MS = 6 * 60_000;
 const MIN_PREVIOUS_DAY_BARS = 70;
+const sessionCache = new Map<string, ReturnType<typeof stampSession>>();
 
 /** Provisional owner-risk override: CME equity futures roll at 17:00 Chicago. */
 export const SESSION_DEFINITION: SessionDefinition = {
@@ -94,7 +95,7 @@ export function evaluate(ctx: RuleContext): RuleSignal[] {
   const outcome = chosen.outcome;
   if (outcome.kind !== "triggered") return [];
 
-  const session = stampSession(ctx.bar.openedAt, SESSION_DEFINITION);
+  const session = sessionFor(ctx.bar.openedAt);
   return [{
     direction: chosen.direction,
     price: ctx.bar.close,
@@ -136,7 +137,7 @@ export function buildDecision(
   );
 
   const levelBars = [...history.map(toLevelBar), toLevelBar(ctx.bar)];
-  const session = stampSession(ctx.bar.openedAt, SESSION_DEFINITION);
+  const session = sessionFor(ctx.bar.openedAt);
   const levels = computeKeyLevels(levelBars, closedAt, session.tradingDay, {
     // P-A uses bar extrema only. A deliberately absent tag keeps profile data
     // out of this version rather than silently binding it to a session guess.
@@ -256,7 +257,7 @@ function toMarketBar(bar: HistoryBar | BarInput): CausalMarketBar {
 
 function toLevelBar(bar: HistoryBar | BarInput): CausalLevelBar {
   const current = "levels" in bar;
-  const session = stampSession(bar.openedAt, SESSION_DEFINITION);
+  const session = sessionFor(bar.openedAt);
   return {
     openedAt: bar.openedAt,
     closedAt: closeTime(bar.openedAt),
@@ -270,6 +271,17 @@ function toLevelBar(bar: HistoryBar | BarInput): CausalLevelBar {
     // live history query intentionally does not fetch.
     levels: current ? bar.levels : null,
   };
+}
+
+function sessionFor(openedAt: string): ReturnType<typeof stampSession> {
+  const cached = sessionCache.get(openedAt);
+  if (cached) return cached;
+  // Edge workers are reused. Keep the deterministic speed-up bounded so a
+  // long-lived worker cannot turn historical timestamps into a memory leak.
+  if (sessionCache.size >= 5_000) sessionCache.clear();
+  const stamped = stampSession(openedAt, SESSION_DEFINITION);
+  sessionCache.set(openedAt, stamped);
+  return stamped;
 }
 
 function reconcilesFootprint(bar: BarInput, levels: ClusterLevel[]): boolean {
