@@ -87,7 +87,7 @@ function history(count: number, range: number): HistoryBar[] {
   return Array.from({ length: count }, (_, i) => ({
     openedAt: `2026-08-27T0${i % 10}:00:00.000Z`,
     open: 100, high: 100 + range, low: 100, close: 100,
-    volume: 500, delta: 0, pocPrice: null,
+    volume: 500, delta: 0, ticks: 100, pocPrice: null,
   }));
 }
 

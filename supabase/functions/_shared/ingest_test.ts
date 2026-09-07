@@ -1,7 +1,7 @@
 import { assertEquals, assertExists } from "jsr:@std/assert@1";
 import type { SupabaseClient } from "npm:@supabase/supabase-js@2";
-import type { BarInput, ClusterLevel, IngestPayload } from "./types.ts";
-import { ingest, validate } from "./ingest.ts";
+import type { BarInput, ClusterLevel, IngestPayload, RuleRow } from "./types.ts";
+import { conflictedActionableBars, ingest, validate } from "./ingest.ts";
 
 // ---------------------------------------------------------------- stub client
 //
@@ -28,14 +28,30 @@ class StubBuilder implements PromiseLike<StubResult> {
     return this;
   }
 
-  upsert(...a: unknown[]) { return this.push("upsert", a); }
-  insert(...a: unknown[]) { return this.push("insert", a); }
-  update(...a: unknown[]) { return this.push("update", a); }
-  select(...a: unknown[]) { return this.push("select", a); }
-  eq(...a: unknown[]) { return this.push("eq", a); }
-  lt(...a: unknown[]) { return this.push("lt", a); }
-  order(...a: unknown[]) { return this.push("order", a); }
-  limit(...a: unknown[]) { return this.push("limit", a); }
+  upsert(...a: unknown[]) {
+    return this.push("upsert", a);
+  }
+  insert(...a: unknown[]) {
+    return this.push("insert", a);
+  }
+  update(...a: unknown[]) {
+    return this.push("update", a);
+  }
+  select(...a: unknown[]) {
+    return this.push("select", a);
+  }
+  eq(...a: unknown[]) {
+    return this.push("eq", a);
+  }
+  lt(...a: unknown[]) {
+    return this.push("lt", a);
+  }
+  order(...a: unknown[]) {
+    return this.push("order", a);
+  }
+  limit(...a: unknown[]) {
+    return this.push("limit", a);
+  }
 
   single(): Promise<StubResult> {
     return this.settle({ data: {}, error: null });
@@ -96,6 +112,9 @@ const STACKED_RULE = {
   name: "Stacked Imbalance",
   enabled: true,
   telegram_enabled: true,
+  // Existing ingest tests exercise the explicit owner-override path. The
+  // evidence-first integration case below covers the default production mode.
+  announcement_mode: "manual" as const,
   horizon_bars: 10,
   params: {
     ratio: 3,
@@ -156,10 +175,10 @@ function payload(overrides: Partial<IngestPayload> = {}): IngestPayload {
   };
 }
 
-function readyClient(): StubClient {
+function readyClient(rules: RuleRow[] = [STACKED_RULE]): StubClient {
   return new StubClient()
     .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
-    .queue("rules.select", { data: [STACKED_RULE], error: null })
+    .queue("rules.select", { data: rules, error: null })
     .queue("bars.upsert", {
       data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
       error: null,
@@ -191,6 +210,125 @@ Deno.test("validate: rejects an unparseable bar timestamp", () => {
 Deno.test("validate: rejects a non-finite price", () => {
   const bad = payload({ bars: [bar({ high: Number.NaN })] });
   assertEquals(validate(bad), "bars[0].high must be a finite number");
+});
+
+// The 2026-09-03 incident in one test: the indicator sat on a daily chart with
+// its timeframe label still reading "5m", and every field below is individually
+// valid. Only the relationship between the label and the timestamps is wrong,
+// which is why the old validate() waved it through. 543 signals - 15% of the live
+// population - were computed on bars that were never 5m bars before this existed.
+Deno.test("validate: rejects bars coarser than the timeframe they claim", () => {
+  const daily = payload({
+    timeframe: "5m",
+    bars: [
+      bar({ openedAt: "2026-08-25T22:00:00.000Z" }),
+      bar({ openedAt: "2026-08-26T22:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T22:00:00.000Z" }),
+    ],
+  });
+  assertEquals(
+    validate(daily),
+    "no two consecutive bars are 5m apart (closest is 24h), which contradicts " +
+      "timeframe \"5m\"; check the indicator's timeframe label against the chart's period",
+  );
+
+  // Four-hourly, the other shape the GC chart produced that day.
+  const fourHourly = payload({
+    timeframe: "5m",
+    bars: [
+      bar({ openedAt: "2026-08-27T02:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T06:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+    ],
+  });
+  assertEquals(
+    validate(fourHourly),
+    "no two consecutive bars are 5m apart (closest is 4h), which contradicts " +
+      "timeframe \"5m\"; check the indicator's timeframe label against the chart's period",
+  );
+
+  // Correctly labelled, the same bars are fine.
+  assertEquals(validate({ ...daily, timeframe: "1d" }), null);
+});
+
+Deno.test("validate: a real 5m run with session gaps is still accepted", () => {
+  // Genuine data is not evenly spaced - this run crosses a break - but a chart
+  // on a period always produces at least one gap of exactly that period.
+  const genuine = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:05:00.000Z" }),
+      bar({ openedAt: "2026-08-27T14:30:00.000Z" }),
+      bar({ openedAt: "2026-08-27T14:35:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(genuine), null);
+});
+
+Deno.test("validate: one anomalous bar does not reject a genuine batch", () => {
+  // The tick-chart bug left closed bars a millisecond apart in the database. A rule
+  // keyed on the SMALLEST gap would throw this whole payload out over the pair at
+  // 10:10 - and a rejected payload is a stalled feed. One correct gap is enough.
+  const withAnomaly = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:05:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:10:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:10:00.001Z" }),
+      bar({ openedAt: "2026-08-27T10:15:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(withAnomaly), null);
+});
+
+Deno.test("validate: rejects bars finer than the timeframe they claim", () => {
+  // The other half of the same bug: a 1-minute chart posting as "5m", which is what
+  // 1,283 rows inside the live window turned out to be.
+  const minutely = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:01:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:02:00.000Z" }),
+    ],
+  });
+  assertEquals(
+    validate(minutely),
+    "no two consecutive bars are 5m apart (closest is 1m), which contradicts " +
+      "timeframe \"5m\"; check the indicator's timeframe label against the chart's period",
+  );
+});
+
+Deno.test("validate: spacing is not judged when it cannot be", () => {
+  // Tick and range charts close on volume, so no spacing is wrong for them.
+  const tick = payload({
+    timeframe: "2000t",
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+      bar({ openedAt: "2026-08-27T10:00:07.000Z" }),
+      bar({ openedAt: "2026-08-27T13:41:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(tick), null);
+
+  // Two bars either side of a weekend are legitimately far apart.
+  const sparse = payload({
+    bars: [
+      bar({ openedAt: "2026-08-28T20:55:00.000Z" }),
+      bar({ openedAt: "2026-08-31T02:00:00.000Z" }),
+    ],
+  });
+  assertEquals(validate(sparse), null);
+
+  // A live bar streamed on its own carries no gap, and unfinished bars are not
+  // part of the judgement at all.
+  const live = payload({
+    bars: [
+      bar({ openedAt: "2026-08-27T10:00:00.000Z", isClosed: false }),
+      bar({ openedAt: "2026-08-28T10:00:00.000Z", isClosed: false }),
+      bar({ openedAt: "2026-08-29T10:00:00.000Z", isClosed: false }),
+    ],
+  });
+  assertEquals(validate(live), null);
 });
 
 Deno.test("validate: caps how much can arrive in one request", () => {
@@ -394,6 +532,66 @@ Deno.test("ingest: a database error is surfaced, not swallowed", async () => {
   assertEquals(message, "instrument upsert failed: permission denied");
 });
 
+Deno.test("ingest: a known instrument keeps its curated tick, whatever the chart says", async () => {
+  // The bridge sends the chart's price step as `tickSize`. On the owner's
+  // charts that is not the contract tick (HANDOFF §0Y: MNQU6 reported 0.75
+  // against a real 0.25), and `tick_size` divides every MAE/MFE and R-multiple
+  // in the database. So an instrument that already exists must not have its
+  // tick rewritten by an ingest, or a corrected value silently reverts the
+  // next time the terminal is opened.
+  const client = new StubClient()
+    .queue("instruments.select", { data: [{ id: "inst-1" }], error: null })
+    .queue("rules.select", { data: [], error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    });
+
+  await ingest(client.asClient(), payload());
+
+  assertEquals(client.callsFor("instruments", "upsert").length, 0);
+  assertEquals(client.callsFor("instruments", "select").length, 1);
+});
+
+Deno.test("ingest: an unknown instrument is still seeded from the payload", async () => {
+  // The lookup returning nothing is the one case where the payload's tick is
+  // the only value available, so a brand-new symbol still gets a row.
+  const client = new StubClient()
+    .queue("instruments.select", { data: [], error: null })
+    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("rules.select", { data: [], error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    });
+
+  await ingest(client.asClient(), payload());
+
+  const rows = client.callsFor("instruments", "upsert");
+  assertEquals(rows.length, 1);
+  const row = rows[0].ops[0].args[0] as Record<string, unknown>;
+  assertEquals(row.symbol, "ES");
+  assertEquals(row.tick_size, 0.25);
+});
+
+Deno.test("ingest: a failed instrument lookup is surfaced, not treated as absent", async () => {
+  // Swallowing this would make a permissions error look like a new symbol and
+  // seed the wrong tick over a curated one.
+  const client = new StubClient().queue("instruments.select", {
+    data: null,
+    error: { message: "permission denied" },
+  });
+
+  let message = "";
+  try {
+    await ingest(client.asClient(), payload());
+  } catch (error) {
+    message = error instanceof Error ? error.message : String(error);
+  }
+
+  assertEquals(message, "instrument lookup failed: permission denied");
+});
+
 Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
   // Startup backfill arrives as one request carrying the whole visible history.
   // Those bars closed long ago, so their signals belong in the database and the
@@ -471,6 +669,51 @@ Deno.test("ingest: a single closed bar is the live case and may be announced", a
   // Telegram is unconfigured in tests, so announce returns before sending; the
   // point here is that the single-bar path is not short-circuited as history.
   assertEquals(client.callsFor("signals", "upsert").length, 1);
+});
+
+Deno.test("ingest: evidence-first snapshots an unproven signal as muted", async () => {
+  const evidenceFirst = { ...STACKED_RULE, announcement_mode: "evidence_first" as const };
+  const client = readyClient([evidenceFirst])
+    .queue("setup_stability.select", { data: [], error: null })
+    .queue("signals.upsert", { data: [], error: null });
+
+  await ingest(client.asClient(), payload());
+
+  const gate = client.callsFor("setup_stability", "select")[0];
+  assertEquals(gate.ops.map((op) => op.args), [
+    ["rule_key, direction"],
+    ["symbol", "ES"],
+    ["timeframe", "5m"],
+    ["verdict", "proposable"],
+    ["proposal", "keep"],
+  ]);
+  assertEquals(client.rowsFor("signals", "upsert")[0].muted, true);
+});
+
+Deno.test("ingest: a shadow instrument remains measured but cannot announce", async () => {
+  const client = readyClient()
+    .queue("instrument_signal_policies.select", {
+      data: [{ role: "shadow" }],
+      error: null,
+    })
+    .queue("signals.upsert", { data: [], error: null });
+
+  await ingest(client.asClient(), payload({ symbol: "NQU6" }));
+
+  const row = client.rowsFor("signals", "upsert")[0];
+  assertEquals(row.muted, true);
+  assertEquals(row.suppression_reason, "shadow_instrument");
+});
+
+Deno.test("ingest: identifies opposite actionable directions on one bar", () => {
+  const conflicted = conflictedActionableBars([
+    { bar_id: 101, direction: "long", muted: false },
+    { bar_id: 101, direction: "short", muted: false },
+    { bar_id: 102, direction: "long", muted: false },
+    { bar_id: 102, direction: "short", muted: true },
+  ]);
+
+  assertEquals([...conflicted], [101]);
 });
 
 Deno.test("ingest: the signal carries the whole trade, not just a direction", async () => {

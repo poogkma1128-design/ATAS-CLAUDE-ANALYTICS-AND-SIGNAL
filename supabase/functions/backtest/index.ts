@@ -30,7 +30,8 @@ import {
  *         "params": { "imbalanceRatio": 3.5 } }
  *     ],
  *     "symbols": ["BTCUSDT"],     // optional; default every instrument
- *     "maxBars": 400              // optional; most recent N bars per feed
+ *     "maxBars": 400,             // optional; N bars per feed
+ *     "barOffset": 400            // optional; skip this many newer bars
  *   }
  *
  * Every run also scores a `baseline` variant from the live settings, because a
@@ -43,6 +44,7 @@ import {
 const MAX_VARIANTS = 8;
 const DEFAULT_MAX_BARS = 400;
 const HARD_MAX_BARS = 1000;
+const HARD_MAX_BAR_OFFSET = 10_000;
 
 /** Below this a feed cannot warm up the rules' lookback and still leave trades
  *  with room to be scored, so it is skipped rather than reported thinly. */
@@ -66,6 +68,9 @@ interface RunRequest {
   variants: VariantSpec[];
   symbols?: string[];
   maxBars?: number;
+  /** Lets several bounded runs cover older, disjoint windows without asking one
+   *  edge-function invocation to exceed its CPU budget. */
+  barOffset?: number;
 }
 
 /** One instrument's bars at one timeframe: the unit a simulation runs over. */
@@ -110,6 +115,7 @@ Deno.serve(async (req: Request) => {
       supabase,
       body.symbols,
       Math.min(body.maxBars ?? DEFAULT_MAX_BARS, HARD_MAX_BARS),
+      body.barOffset ?? 0,
     );
     const usable = feeds.filter((feed) => feed.bars.length >= MIN_BARS_PER_FEED);
     if (usable.length === 0) return json({ error: "no feed has enough bars" }, 400);
@@ -128,7 +134,10 @@ Deno.serve(async (req: Request) => {
       // worse entry look like a better one. Zero unless pullbackShare is set.
       let missed = 0;
       const trades = usable.flatMap((feed) => {
-        const run = simulate(feed.bars, effective, feed.tickSize);
+        const run = simulate(feed.bars, effective, feed.tickSize, {
+          symbol: feed.symbol,
+          timeframe: feed.timeframe,
+        });
         missed += run.missed;
         return run.trades.map((trade) => ({ ...trade, symbol: feed.symbol }));
       });
@@ -144,6 +153,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       experimentId,
       feeds: usable.map((f) => `${f.symbol} ${f.timeframe} (${f.bars.length} bars)`),
+      barOffset: body.barOffset ?? 0,
       results: summaries,
       durationMs: Date.now() - startedAt,
     });
@@ -197,6 +207,20 @@ function validate(body: RunRequest): string | null {
 
   if (body.symbols !== undefined && !Array.isArray(body.symbols)) {
     return "symbols must be an array";
+  }
+  if (
+    body.maxBars !== undefined &&
+    (!Number.isInteger(body.maxBars) || body.maxBars < MIN_BARS_PER_FEED ||
+      body.maxBars > HARD_MAX_BARS)
+  ) {
+    return `maxBars must be an integer from ${MIN_BARS_PER_FEED} to ${HARD_MAX_BARS}`;
+  }
+  if (
+    body.barOffset !== undefined &&
+    (!Number.isInteger(body.barOffset) || body.barOffset < 0 ||
+      body.barOffset > HARD_MAX_BAR_OFFSET)
+  ) {
+    return `barOffset must be an integer from 0 to ${HARD_MAX_BAR_OFFSET}`;
   }
   return null;
 }
@@ -332,6 +356,7 @@ async function loadFeeds(
   supabase: SupabaseClient,
   symbols: string[] | undefined,
   maxBars: number,
+  barOffset: number,
 ): Promise<Feed[]> {
   let query = supabase.from("instruments").select("id, symbol, tick_size");
   if (symbols && symbols.length > 0) query = query.in("symbol", symbols);
@@ -344,7 +369,14 @@ async function loadFeeds(
     const tickSize = Number(row.tick_size);
     if (!(tickSize > 0)) continue;
 
-    for (const [timeframe, bars] of await loadBars(supabase, row.id, maxBars)) {
+    for (
+      const [timeframe, bars] of await loadBars(
+        supabase,
+        row.id,
+        maxBars,
+        barOffset,
+      )
+    ) {
       feeds.push({ symbol: row.symbol, timeframe, tickSize, bars });
     }
   }
@@ -383,6 +415,7 @@ async function loadBars(
   supabase: SupabaseClient,
   instrumentId: string,
   maxBars: number,
+  barOffset: number,
 ): Promise<Map<string, StoredBar[]>> {
   const collected: BarPageRow[] = [];
 
@@ -396,7 +429,7 @@ async function loadBars(
       .eq("instrument_id", instrumentId)
       .eq("is_closed", true)
       .order("opened_at", { ascending: false })
-      .range(from, to);
+      .range(barOffset + from, barOffset + to);
 
     if (error) throw new Error(`bar load failed: ${error.message}`);
 
@@ -468,12 +501,20 @@ interface ResultRow {
 }
 
 /**
- * Breaks one variant's trades down three ways.
+ * Breaks one variant's trades down four ways.
  *
  * The total is what decides whether a change is worth adopting. The per-symbol
  * split is what says whether it is a real effect or one instrument carrying it,
  * and the per-setup split is what says which rule the change actually moved —
  * a threshold can help overall while quietly ruining one setup.
+ *
+ * The fourth split crosses the last two, and exists because the other three
+ * cannot answer forbidden item 18 for a rule-level change. "No instrument may
+ * get worse" was read off the per-symbol rows, which works only while the rule
+ * being swept owns most of the trades. It no longer does: in `deploy check
+ * 0028` delta_flip was 24 of 2,398 trades, so moving its threshold and watching
+ * BTCUSDT's overall figure is looking for a one-percent change in a number the
+ * other ninety-nine percent holds still.
  */
 function resultRows(
   label: string,
@@ -530,6 +571,26 @@ function resultRows(
       row(
         { symbol: null, rule_key: ruleKey, direction },
         trades.filter((t) => t.ruleKey === ruleKey && t.direction === direction),
+      ),
+    );
+  }
+
+  // Only combinations that actually traded get a row, so a rule that never
+  // fired on one instrument stays absent rather than arriving as a row of
+  // zeros that a reader could mistake for a measured result.
+  for (
+    const key of unique(
+      trades.map((t) => `${t.symbol}|${t.ruleKey}|${t.direction}`),
+    )
+  ) {
+    const [symbol, ruleKey, direction] = key.split("|");
+    rows.push(
+      row(
+        { symbol, rule_key: ruleKey, direction },
+        trades.filter((t) =>
+          t.symbol === symbol && t.ruleKey === ruleKey &&
+          t.direction === direction
+        ),
       ),
     );
   }

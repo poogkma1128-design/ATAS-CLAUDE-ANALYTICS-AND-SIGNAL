@@ -19,6 +19,9 @@ ATAS Platform (Windows)
                               ├── บันทึก signals (กันซ้ำด้วย unique constraint)
                               └── ส่ง Telegram
                                                     │
+                         `chart-annotations` <─────┘
+                              └── Signal Bridge วาด Entry / SL / TP / Exit
+                                                    │
                               Postgres + Realtime
                                                     │
                     pg_cron ── evaluate_pending_outcomes() ──> MFE / MAE / win rate
@@ -33,8 +36,12 @@ ATAS Platform (Windows)
 ATAS indicator เขียนด้วย C# ซึ่งต้อง compile และ restart ทุกครั้งที่แก้ ถ้าเอาตรรกะตัดสิน
 สัญญาณไปไว้ในนั้น การจูน threshold ทีนึงจะกินเวลาเป็นสิบนาที และ backtest กับข้อมูลเก่าไม่ได้เลย
 
-ระบบนี้จึงให้ indicator ทำแค่อ่าน footprint แล้วยิงตัวเลขดิบออกมา ส่วนกฎทั้งหมดอยู่ใน
+ระบบนี้จึงให้ indicator อ่าน footprint แล้วยิงตัวเลขดิบออกมา ส่วนกฎทั้งหมดอยู่ใน
 Edge Function โดย threshold เก็บเป็นแถวในตาราง `rules` → **แก้ค่าจากหน้าเว็บแล้วมีผลกับแท่งถัดไปทันที**
+
+Indicator อาจอ่าน annotation ที่ server ตัดสินแล้วกลับมาเพื่อวาดแผนบนแท่ง ATAS ได้ แต่ไม่มี
+threshold, confidence หรือการเลือกทิศทางอยู่ใน DLL. ถ้า overlay ล่ม การ ingest และ Telegram
+ยังทำงานตามเดิม.
 
 ## โครงสร้าง
 

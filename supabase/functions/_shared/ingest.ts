@@ -12,10 +12,13 @@ import { runRules } from "./rules/index.ts";
 import { describeEvidence } from "./evidence.ts";
 import { buildPlan } from "./plan.ts";
 import { sendSignal, telegramConfig } from "./telegram.ts";
-import { Overrides, type OverrideRow } from "./overrides.ts";
+import { type OverrideRow, Overrides } from "./overrides.ts";
+import { AnnouncementEligibility } from "./announcement_policy.ts";
 
 /** Enough history for every rule's lookback, with room to spare. */
 const HISTORY_BARS = 50;
+/** Roughly 58 hours of 5m bars: enough to span the current and prior CME day. */
+const STRATEGY_HISTORY_BARS = 700;
 const MAX_BARS_PER_REQUEST = 200;
 const MAX_LEVELS_PER_BAR = 2000;
 
@@ -63,7 +66,84 @@ export function validate(payload: IngestPayload): string | null {
     }
   }
 
-  return null;
+  return spacingError(payload);
+}
+
+/**
+ * A time-based timeframe label in minutes, or null for labels that do not
+ * describe a fixed period. Tick and range charts ("2000t", "50r") land in the
+ * null branch on purpose: their bars close on volume rather than on the clock,
+ * so no spacing is wrong for them.
+ */
+export function timeframeMinutes(label: string): number | null {
+  const parsed = /^(\d+)\s*(m|min|mins|h|hr|hrs|d)$/i.exec(label.trim());
+  if (!parsed) return null;
+  const count = Number(parsed[1]);
+  if (!Number.isFinite(count) || count <= 0) return null;
+  const unit = parsed[2].toLowerCase();
+  if (unit.startsWith("d")) return count * 1440;
+  if (unit.startsWith("h")) return count * 60;
+  return count;
+}
+
+/**
+ * Refuses a batch whose bars are coarser than the timeframe it claims.
+ *
+ * The indicator's timeframe is a free-text setting that defaults to "5m" and is
+ * not read from the chart's period, so attaching it to a daily chart posts daily
+ * bars into the 5m partition. That is not hypothetical: on 2026-09-03 it wrote
+ * 255 daily and H4 bars, and because ingest evaluates rules on whatever arrives,
+ * 177 signals were computed on them and are still in public.signals. Nothing
+ * rejected it, because every field was individually valid - only the RELATIONSHIP
+ * between the label and the timestamps was wrong.
+ *
+ * The test is whether ANY pair of consecutive closed bars is exactly one period
+ * apart. Checking that gaps divide evenly by the period would not have caught
+ * this - a day is a whole multiple of five minutes - but a chart genuinely on a
+ * period produces at least one gap of exactly that period in any run of three
+ * bars, and a coarser or finer chart produces none.
+ *
+ * Deliberately NOT the smallest gap, though that also separates the two cases.
+ * The database has closed bars a millisecond apart, from the tick-chart version
+ * of this same bug, so "smallest gap must equal the period" would reject an
+ * entire payload because of one anomalous bar in it - and rejecting a payload
+ * stops the live feed. Requiring one good gap cannot fail that way: a genuine
+ * batch with an odd bar in it still has many correct gaps.
+ *
+ * Fewer than three closed bars is not judged: two bars either side of a weekend
+ * are legitimately far apart, and a single live bar has no gap at all.
+ */
+function spacingError(payload: IngestPayload): string | null {
+  const minutes = timeframeMinutes(payload.timeframe);
+  if (minutes === null) return null;
+
+  const times = payload.bars
+    .filter((bar) => bar.isClosed !== false)
+    .map((bar) => Date.parse(bar.openedAt))
+    .sort((a, b) => a - b);
+  if (times.length < 3) return null;
+
+  const expected = minutes * 60_000;
+  let smallest = Infinity;
+  for (let i = 1; i < times.length; i++) {
+    const gap = times[i] - times[i - 1];
+    if (gap === expected) return null;
+    // Duplicate timestamps carry no spacing information; the upsert's
+    // (instrument, timeframe, opened_at) key collapses them anyway.
+    if (gap > 0 && gap < smallest) smallest = gap;
+  }
+  if (!Number.isFinite(smallest)) return null;
+
+  const describe = (ms: number) =>
+    ms % 3_600_000 === 0
+      ? `${ms / 3_600_000}h`
+      : ms % 60_000 === 0
+      ? `${ms / 60_000}m`
+      : `${ms / 1000}s`;
+  return `no two consecutive bars are ${describe(expected)} apart ` +
+    `(closest is ${describe(smallest)}), which contradicts timeframe ` +
+    `"${payload.timeframe}"; check the indicator's timeframe label against ` +
+    `the chart's period`;
 }
 
 // ------------------------------------------------------------------ ingest
@@ -72,6 +152,12 @@ export interface IngestResult {
   barsWritten: number;
   levelsWritten: number;
   signalsCreated: number;
+}
+
+type InstrumentSignalRole = "primary" | "shadow";
+
+interface InstrumentSignalPolicy {
+  role: InstrumentSignalRole;
 }
 
 /** A bar with the derived values every later step needs, computed once. */
@@ -88,6 +174,17 @@ export async function ingest(
   const instrumentId = await upsertInstrument(supabase, payload);
   const rules = await loadRules(supabase);
   const overrides = await loadOverrides(supabase, instrumentId, payload.timeframe);
+  const instrumentPolicy = await loadInstrumentSignalPolicy(
+    supabase,
+    instrumentId,
+    payload.timeframe,
+  );
+  const announcementEligibility = await loadAnnouncementEligibility(
+    supabase,
+    payload.symbol.trim(),
+    payload.timeframe,
+    rules,
+  );
   const tickSize = payload.tickSize;
 
   // Oldest first, so a request carrying several bars builds history in order.
@@ -111,15 +208,18 @@ export async function ingest(
   const barIds = await upsertBars(supabase, instrumentId, payload.timeframe, prepared);
   const levelsWritten = await upsertLevels(supabase, prepared, barIds);
 
-  const signalRows = await evaluateBars(
+  const evaluatedRows = await evaluateBars(
     supabase,
-    { instrumentId, timeframe: payload.timeframe },
+    { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
     rules,
     overrides,
+    announcementEligibility,
+    instrumentPolicy,
     prepared,
     barIds,
     tickSize,
   );
+  const signalRows = suppressOpposingSignals(evaluatedRows);
 
   const signalsCreated = await persistSignals(
     supabase,
@@ -153,16 +253,49 @@ function collapseLevels(levels: ClusterLevel[]): ClusterLevel[] {
   return sortLevels([...byPrice.values()]);
 }
 
+/**
+ * Resolves the instrument row, treating `tick_size` and `tick_value` as curated
+ * contract facts rather than something the terminal gets to redefine.
+ *
+ * The bridge sends ATAS's `InstrumentInfo.TickSize`, which is the *chart's*
+ * price step, not the exchange's minimum tick. On the owner's charts those
+ * differ: MNQU6 reported 0.75 against a real 0.25, GC 0.30 against 0.10 and
+ * BTCUSDT 10.0 against 0.10, measured from the traded prices in the same feed
+ * (HANDOFF §0Y, `docs/queries/instrument_tick_identity.sql`). `tick_value` is
+ * never sent at all, so an unconditional upsert also wrote null over it on
+ * every request. Since `tick_size` divides every MAE/MFE and R-multiple in the
+ * database, an existing row keeps what it has and the payload only seeds a row
+ * that does not exist yet. Correcting a wrong tick is then a deliberate,
+ * recorded change instead of one a chart setting can silently undo.
+ */
 async function upsertInstrument(
   supabase: SupabaseClient,
   payload: IngestPayload,
 ): Promise<string> {
+  const symbol = payload.symbol.trim();
+  const exchange = (payload.exchange ?? "").trim();
+
+  const existing = await supabase
+    .from("instruments")
+    .select("id")
+    .eq("symbol", symbol)
+    .eq("exchange", exchange)
+    .limit(1);
+
+  if (existing.error) {
+    throw new Error(`instrument lookup failed: ${existing.error.message}`);
+  }
+  const found = (existing.data as { id: string }[] | null)?.[0];
+  if (found) return found.id;
+
+  // Still an upsert rather than an insert: two concurrent first sightings of
+  // the same symbol must not turn into a duplicate-key error.
   const { data, error } = await supabase
     .from("instruments")
     .upsert(
       {
-        symbol: payload.symbol.trim(),
-        exchange: (payload.exchange ?? "").trim(),
+        symbol,
+        exchange,
         tick_size: payload.tickSize,
         tick_value: payload.tickValue ?? null,
       },
@@ -178,7 +311,9 @@ async function upsertInstrument(
 async function loadRules(supabase: SupabaseClient): Promise<RuleRow[]> {
   const { data, error } = await supabase
     .from("rules")
-    .select("key, name, enabled, telegram_enabled, horizon_bars, params")
+    .select(
+      "key, name, enabled, telegram_enabled, announcement_mode, horizon_bars, params",
+    )
     .eq("enabled", true);
 
   if (error) throw new Error(`rules load failed: ${error.message}`);
@@ -286,6 +421,7 @@ interface SignalRow {
   trail_offset_ticks: number;
   hold_bars: number;
   muted: boolean;
+  suppression_reason: string | null;
 }
 
 /**
@@ -295,9 +431,11 @@ interface SignalRow {
  */
 async function evaluateBars(
   supabase: SupabaseClient,
-  scope: { instrumentId: string; timeframe: string },
+  scope: { instrumentId: string; timeframe: string; symbol: string },
   rules: RuleRow[],
   overrides: Overrides,
+  announcementEligibility: AnnouncementEligibility,
+  instrumentPolicy: InstrumentSignalPolicy,
   prepared: PreparedBar[],
   barIds: number[],
   tickSize: number,
@@ -312,6 +450,10 @@ async function evaluateBars(
     scope.instrumentId,
     scope.timeframe,
     prepared[firstClosed].bar.openedAt,
+    scope.symbol === "MNQU6" && scope.timeframe === "5m" &&
+        rules.some((rule) => rule.key === "mnq_pullback_v1")
+      ? STRATEGY_HISTORY_BARS
+      : HISTORY_BARS,
   );
 
   // Resolved once for the batch: every bar in a request belongs to the same
@@ -332,6 +474,9 @@ async function evaluateBars(
       bar: entry.bar,
       levels: entry.levels,
       history: recent,
+      strategyHistory: history.slice(-STRATEGY_HISTORY_BARS),
+      symbol: scope.symbol,
+      timeframe: scope.timeframe,
       tickSize,
     });
 
@@ -345,6 +490,26 @@ async function evaluateBars(
         rule?.horizon_bars ?? 10,
         recent,
       );
+
+      const overrideMuted = overrides.isMuted(signal.ruleKey, signal.direction);
+      const evidenceAllowed = announcementEligibility.allows(
+        rule ?? {
+          key: signal.ruleKey,
+          name: signal.ruleKey,
+          enabled: true,
+          telegram_enabled: false,
+          horizon_bars: 10,
+          params: {},
+        },
+        signal.direction,
+      );
+      const suppressionReason = instrumentPolicy.role === "shadow"
+        ? "shadow_instrument"
+        : overrideMuted
+        ? "rule_override"
+        : !evidenceAllowed
+        ? "evidence_unproven"
+        : null;
 
       rows.push({
         bar_id: barIds[index],
@@ -365,7 +530,8 @@ async function evaluateBars(
         hold_bars: plan.holdBars,
         // Recorded on the row rather than looked up when announcing, so the
         // history says what was actually taken even after the setting changes.
-        muted: overrides.isMuted(signal.ruleKey, signal.direction),
+        muted: suppressionReason !== null,
+        suppression_reason: suppressionReason,
       });
     }
 
@@ -374,6 +540,82 @@ async function evaluateBars(
   }
 
   return rows;
+}
+
+/**
+ * A long and a short from the same instrument/bar are mutually exclusive as a
+ * trade instruction. Preserve both rows for analysis, but never make either
+ * look actionable by choosing an arbitrary rule or direction.
+ */
+function suppressOpposingSignals(rows: SignalRow[]): SignalRow[] {
+  const conflictedBars = conflictedActionableBars(rows);
+  if (conflictedBars.size === 0) return rows;
+  return rows.map((row) =>
+    !row.muted && conflictedBars.has(row.bar_id)
+      ? { ...row, muted: true, suppression_reason: "opposite_direction_same_bar" }
+      : row
+  );
+}
+
+export function conflictedActionableBars(
+  rows: ReadonlyArray<{ bar_id: number; direction: string; muted: boolean }>,
+): Set<number> {
+  const directionsByBar = new Map<number, Set<string>>();
+  for (const row of rows) {
+    if (row.muted) continue;
+    const directions = directionsByBar.get(row.bar_id) ?? new Set<string>();
+    directions.add(row.direction);
+    directionsByBar.set(row.bar_id, directions);
+  }
+
+  const conflictedBars = new Set(
+    [...directionsByBar.entries()]
+      .filter(([, directions]) => directions.size > 1)
+      .map(([barId]) => barId),
+  );
+
+  return conflictedBars;
+}
+
+/**
+ * Reads the standing evidence gate once per ingest batch. A failed read must
+ * never discard market data, but it must make evidence-first alerts quiet: a
+ * temporary database error is not evidence that a setup is ready to announce.
+ */
+async function loadAnnouncementEligibility(
+  supabase: SupabaseClient,
+  symbol: string,
+  timeframe: string,
+  rules: RuleRow[],
+): Promise<AnnouncementEligibility> {
+  if (!rules.some((rule) => rule.announcement_mode !== "manual")) {
+    return AnnouncementEligibility.fromProven([]);
+  }
+
+  const { data, error } = await supabase
+    .from("setup_stability")
+    .select("rule_key, direction")
+    .eq("symbol", symbol)
+    .eq("timeframe", timeframe)
+    .eq("verdict", "proposable")
+    .eq("proposal", "keep");
+
+  if (error) {
+    console.error(
+      "announcement evidence load failed; evidence-first alerts muted:",
+      error.message,
+    );
+    return AnnouncementEligibility.unavailable();
+  }
+
+  return AnnouncementEligibility.fromProven(
+    (data ?? []).filter((row) =>
+      row.direction === "long" || row.direction === "short"
+    ) as {
+      rule_key: string;
+      direction: "long" | "short";
+    }[],
+  );
 }
 
 function asHistoryBar({ bar, pocPrice }: PreparedBar): HistoryBar {
@@ -385,6 +627,7 @@ function asHistoryBar({ bar, pocPrice }: PreparedBar): HistoryBar {
     close: bar.close,
     volume: bar.volume ?? 0,
     delta: bar.delta ?? 0,
+    ticks: bar.ticks ?? 0,
     pocPrice,
   };
 }
@@ -394,16 +637,17 @@ async function loadHistory(
   instrumentId: string,
   timeframe: string,
   before: string,
+  limit: number,
 ): Promise<HistoryBar[]> {
   const { data, error } = await supabase
     .from("bars")
-    .select("opened_at, open, high, low, close, volume, delta, poc_price")
+    .select("opened_at, open, high, low, close, volume, delta, ticks, poc_price")
     .eq("instrument_id", instrumentId)
     .eq("timeframe", timeframe)
     .eq("is_closed", true)
     .lt("opened_at", new Date(before).toISOString())
     .order("opened_at", { ascending: false })
-    .limit(HISTORY_BARS);
+    .limit(limit);
 
   if (error) throw new Error(`history load failed: ${error.message}`);
 
@@ -416,6 +660,7 @@ async function loadHistory(
     close: Number(row.close),
     volume: Number(row.volume),
     delta: Number(row.delta),
+    ticks: Number(row.ticks),
     pocPrice: row.poc_price === null ? null : Number(row.poc_price),
   }));
 }
@@ -444,7 +689,9 @@ async function persistSignals(
       onConflict: "bar_id,rule_key,direction",
       ignoreDuplicates: true,
     })
-    .select("id, seq, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars");
+    .select(
+      "id, seq, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars",
+    );
 
   if (error) throw new Error(`signal insert failed: ${error.message}`);
 
@@ -456,6 +703,38 @@ async function persistSignals(
   }
 
   return created.length;
+}
+
+/**
+ * A missing policy row deliberately means primary. That keeps a newly added
+ * instrument observable immediately, while an explicit shadow row can keep a
+ * correlated contract collecting outcomes without creating trade instructions.
+ */
+async function loadInstrumentSignalPolicy(
+  supabase: SupabaseClient,
+  instrumentId: string,
+  timeframe: string,
+): Promise<InstrumentSignalPolicy> {
+  const { data, error } = await supabase
+    .from("instrument_signal_policies")
+    .select("role")
+    .eq("instrument_id", instrumentId)
+    .eq("timeframe", timeframe)
+    .limit(1);
+
+  // The policy is a safety refinement, never a reason to drop raw market
+  // observations. This also makes an interrupted migration/deploy recover to
+  // the pre-policy behaviour instead of stopping ATAS ingest.
+  if (error) {
+    console.error(
+      "instrument signal policy load failed; defaulting primary:",
+      error.message,
+    );
+    return { role: "primary" };
+  }
+
+  const row = Array.isArray(data) ? data[0] : null;
+  return { role: row?.role === "shadow" ? "shadow" : "primary" };
 }
 
 async function announce(
@@ -481,9 +760,7 @@ async function announce(
 
     const messageId = await sendSignal(cfg, {
       signalId: signal.id as string,
-      seq: signal.seq === null || signal.seq === undefined
-        ? null
-        : Number(signal.seq),
+      seq: signal.seq === null || signal.seq === undefined ? null : Number(signal.seq),
       ruleName: rule.name,
       ruleKey: rule.key,
       direction: signal.direction as "long" | "short",

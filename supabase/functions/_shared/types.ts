@@ -54,6 +54,12 @@ export interface HistoryBar {
   close: number;
   volume: number;
   delta: number;
+  /**
+   * Number of trades in the bar, which ATAS reports as `Ticks` per footprint
+   * level and the indicator sums. Not to be confused with `BarInput.trades`,
+   * which the indicator has never assigned and is 0 on every stored bar.
+   */
+  ticks: number;
   pocPrice: number | null;
 }
 
@@ -62,6 +68,12 @@ export interface RuleRow {
   name: string;
   enabled: boolean;
   telegram_enabled: boolean;
+  /**
+   * Whether a Telegram alert needs a proven rule/instrument/direction cell.
+   * Undefined is deliberately treated as evidence_first by the ingest path:
+   * a schema/read drift must make alerts quieter, never wider.
+   */
+  announcement_mode?: "manual" | "evidence_first";
   horizon_bars: number;
   params: Record<string, unknown>;
 }
@@ -73,6 +85,15 @@ export interface RuleContext {
   levels: ClusterLevel[];
   /** Preceding closed bars, oldest first, excluding `bar`. */
   history: HistoryBar[];
+  /** Instrument identity for rules that are explicitly scoped to one market. */
+  symbol?: string;
+  /** Chart timeframe; strategy adapters must reject any timeframe they were not frozen on. */
+  timeframe?: string;
+  /**
+   * A longer OHLCV-only tail for named session/day levels. Existing rules keep
+   * reading `history`, so extending this cannot move their live baseline.
+   */
+  strategyHistory?: HistoryBar[];
   tickSize: number;
   params: Record<string, unknown>;
 }

@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useMemo, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { num, percent, shortTime } from "@/lib/format";
+import { num, shortTime } from "@/lib/format";
 import { SIGNAL_SELECT, type Direction, type SignalRow } from "@/lib/types";
 import { DirectionTag } from "./DirectionTag";
 import { OutcomeTag } from "./OutcomeTag";
@@ -133,8 +133,8 @@ export function SignalFeed({ initial, ruleNames }: Props) {
                   {signal.rules?.name ?? signal.rule_key}
                 </span>
 
-                <span className="ml-auto tabular text-xs" style={{ color: "var(--text-muted)" }}>
-                  {percent(num(signal.confidence))}
+                <span className="ml-auto text-xs" style={{ color: "var(--text-muted)" }}>
+                  ยังไม่สอบเทียบ
                 </span>
 
                 <span className="w-28 text-right">

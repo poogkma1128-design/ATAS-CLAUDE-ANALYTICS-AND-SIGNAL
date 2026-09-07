@@ -7,6 +7,8 @@ import { PnlBar, WinRateMeter } from "@/components/StatBars";
 import { num, percent, signed, signedTicks } from "@/lib/format";
 import type {
   ForwardTestRow,
+  ConfidenceV2ProgressRow,
+  OutcomePathQualityRow,
   PriceActionEdgeRow,
   RuleRow,
   SettingsEffectRow,
@@ -25,6 +27,8 @@ export default async function StatsPage() {
     { data: settings },
     { data: priceAction },
     { data: forward },
+    { data: confidenceV2 },
+    { data: outcomePathQuality },
   ] = await Promise.all([
     supabase.from("setup_stats").select("*"),
     supabase.from("rules").select("key, name"),
@@ -33,8 +37,10 @@ export default async function StatsPage() {
       .select("signal_id", { count: "exact", head: true })
       .eq("status", "pending"),
     supabase.from("settings_effect").select("*"),
-    supabase.from("price_action_edge").select("*"),
+    supabase.from("price_action_edge_by_setup").select("*"),
     supabase.from("forward_test").select("*"),
+    supabase.from("confidence_v2_progress").select("*"),
+    supabase.from("outcome_path_quality").select("*"),
   ]);
 
   const rows = ((stats ?? []) as SetupStatRow[])
@@ -51,6 +57,9 @@ export default async function StatsPage() {
   const settingsRows = ((settings ?? []) as SettingsEffectRow[])
     .sort((a, b) => (b.last_fired ?? "").localeCompare(a.last_fired ?? ""));
 
+  const confidenceV2Rows = ((confidenceV2 ?? []) as ConfidenceV2ProgressRow[])
+    .sort((a, b) => b.captured_signals - a.captured_signals);
+
   // Cells this thin cannot say anything either way, and two dozen of them bury
   // the ones that might. They are counted below the table rather than dropped
   // silently -- an absence that is never explained reads as a bug.
@@ -59,6 +68,10 @@ export default async function StatsPage() {
     .filter((r) => r.trades >= 5)
     .sort((a, b) => b.trades - a.trades);
   const thinCells = allPriceAction.length - priceActionRows.length;
+
+  const pathQualityRows = ((outcomePathQuality ?? []) as OutcomePathQualityRow[])
+    .filter((row) => row.audited_signals > 0)
+    .sort((a, b) => b.audited_signals - a.audited_signals);
 
   const totalTrades = rows.reduce((sum, r) => sum + r.trades, 0);
   const totalWins = rows.reduce((sum, r) => sum + r.wins, 0);
@@ -87,6 +100,113 @@ export default async function StatsPage() {
           />
           <Tile label="กำลังรอผล" value={String(pending ?? 0)} />
         </div>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">ตรวจเส้นทางราคาในแท่ง</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            OHLC บอกได้แค่ว่าราคาวิ่งถึงไหน ไม่บอกว่าโดน SL หรือ TP ก่อนเมื่อทั้งคู่เกิดในแท่งเดียว
+            ระบบยังนับ SL ก่อนแบบระวังความเสี่ยง แต่บันทึกกรณีนั้นให้ตรวจสอบได้แล้ว
+          </p>
+
+          {pathQualityRows.length === 0
+            ? <Empty>เริ่ม audit กับผลลัพธ์ที่ปิดหลังการอัปเดตนี้</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[720px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["กฎ", "left"],
+                        ["สินทรัพย์", "left"],
+                        ["ทิศทาง", "left"],
+                        ["ตรวจแล้ว", "right"],
+                        ["กำกวม", "right"],
+                        ["สัดส่วน", "right"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {pathQualityRows.map((row) => (
+                      <tr
+                        key={`${row.rule_key}-${row.symbol}-${row.timeframe}-${row.direction}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5 font-medium">{ruleNames[row.rule_key] ?? row.rule_key}</td>
+                        <td className="px-4 py-2.5 tabular">{row.symbol} · {row.timeframe}</td>
+                        <td className="px-4 py-2.5"><DirectionTag direction={row.direction} /></td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.audited_signals}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.ambiguous_paths}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {row.ambiguous_share === null ? "–" : percent(num(row.ambiguous_share), 1)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+        </section>
+
+        <section className="mt-10">
+          <h2 className="text-base font-semibold">Confidence v2 — Shadow mode</h2>
+          <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
+            เก็บ feature ของสัญญาณ ณ เวลายิงเพื่อสร้างโมเดลที่สอบเทียบได้ภายหลัง
+            ตารางนี้บอกความพร้อมของข้อมูลเท่านั้น ไม่ใช่คะแนนพยากรณ์ และยังไม่เปลี่ยน Telegram
+          </p>
+
+          {confidenceV2Rows.length === 0
+            ? <Empty>เริ่มเก็บ feature แล้ว — รอสัญญาณ v2 ชุดแรกปิดผล</Empty>
+            : (
+              <div className="card mt-4 overflow-x-auto">
+                <table className="w-full min-w-[760px] text-sm">
+                  <thead>
+                    <Head
+                      cells={[
+                        ["กฎ", "left"],
+                        ["ทิศทาง", "left"],
+                        ["เก็บแล้ว", "right"],
+                        ["ปิดผลแล้ว", "right"],
+                        ["สินทรัพย์", "right"],
+                        ["เซสชัน", "right"],
+                        ["R/ไม้", "right"],
+                        ["สถานะ", "left"],
+                      ]}
+                    />
+                  </thead>
+                  <tbody>
+                    {confidenceV2Rows.map((row) => (
+                      <tr
+                        key={`${row.model_version}-${row.rule_key}-${row.direction}`}
+                        className="border-b last:border-0"
+                        style={{ borderColor: "var(--border-hairline)" }}
+                      >
+                        <td className="px-4 py-2.5 font-medium">
+                          {ruleNames[row.rule_key] ?? row.rule_key}
+                        </td>
+                        <td className="px-4 py-2.5"><DirectionTag direction={row.direction} /></td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.captured_signals}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.resolved_signals}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.symbols}</td>
+                        <td className="px-4 py-2.5 text-right tabular">{row.sessions}</td>
+                        <td className="px-4 py-2.5 text-right tabular">
+                          {row.r_per_trade === null ? "–" : signed(num(row.r_per_trade), 3)}
+                        </td>
+                        <td className="px-4 py-2.5 text-xs" style={{ color: "var(--text-muted)" }}>
+                          {confidenceV2Verdict(row)}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+
+          <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
+            “พร้อมสอบเทียบ” หมายถึงมีข้อมูลพอเริ่มสร้างโมเดล offline เท่านั้น; ก่อนใช้กรอง
+            ต้องตรึง model version แล้วพิสูจน์กับสัญญาณที่เกิดหลังจากนั้น (forward test)
+          </p>
+        </section>
 
         {rows.length === 0
           ? (
@@ -301,18 +421,20 @@ export default async function StatsPage() {
         <section className="mt-10">
           <h2 className="text-base font-semibold">price action flags คุ้มจะเอามากรองไหม</h2>
           <p className="mt-1 text-sm" style={{ color: "var(--text-secondary)" }}>
-            เก็บอย่างเดียวมาตลอด ยังไม่เคยกรองอะไร — วัดก่อน แล้วค่อยกรอง
-            วิธีเดียวกับที่ตัดสิน volume gate มา
+            เก็บอย่างเดียวมาตลอด ยังไม่เคยกรองอะไร — ตารางนี้เทียบภายในกฎ / สินทรัพย์ /
+            ทิศทางเดียวกันก่อน จึงไม่เอาผลของกลุ่มอื่นมาหลอกตา
           </p>
 
           {priceActionRows.length === 0
             ? <Empty>ยังไม่มีช่องไหนที่มีไม้ถึง 5 ไม้</Empty>
             : (
               <div className="card mt-4 overflow-x-auto">
-                <table className="w-full min-w-[720px] text-sm">
+                <table className="w-full min-w-[1080px] text-sm">
                   <thead>
                     <Head
                       cells={[
+                        ["กฎ", "left"],
+                        ["สินทรัพย์", "left"],
                         ["sweep", "left"],
                         ["zone", "left"],
                         ["ทิศทาง", "left"],
@@ -328,10 +450,12 @@ export default async function StatsPage() {
                   <tbody>
                     {priceActionRows.map((row) => (
                       <tr
-                        key={`${row.sweep}-${row.zone}-${row.direction}`}
+                        key={`${row.rule_key}-${row.symbol}-${row.timeframe}-${row.sweep}-${row.zone}-${row.direction}`}
                         className="border-b last:border-0"
                         style={{ borderColor: "var(--border-hairline)" }}
                       >
+                        <td className="px-4 py-2.5 font-medium">{ruleNames[row.rule_key] ?? row.rule_key}</td>
+                        <td className="px-4 py-2.5 tabular">{row.symbol} · {row.timeframe}</td>
                         <td className="px-4 py-2.5" style={{ color: row.sweep ? undefined : "var(--text-muted)" }}>
                           {row.sweep ?? "ไม่มี"}
                         </td>
@@ -365,10 +489,7 @@ export default async function StatsPage() {
 
           <p className="mt-3 text-xs" style={{ color: "var(--text-muted)" }}>
             เกณฑ์: ≥ 30 ไม้ และ ≥ 3 เซสชัน ถึงจะอ่านผลได้ · ช่องที่แยกตัวชัดค่อยเลื่อนขึ้นเป็นตัวกรอง
-            ช่องที่ไม่ต่างลบทิ้งได้โดยไม่เสียอะไร · เทียบกับค่าเฉลี่ยทุกช่อง{" "}
-            <span className="tabular">
-              {signed(num(allPriceAction[0]?.overall_r_per_trade), 3)} R/ไม้
-            </span>
+            ช่องที่ไม่ต่างลบทิ้งได้โดยไม่เสียอะไร · เทียบกับค่าเฉลี่ยของ setup เดียวกันเท่านั้น
             {thinCells > 0 && ` · อีก ${thinCells} ช่องมีไม้ไม่ถึง 5 ไม้ จึงยังไม่แสดง`}
           </p>
         </section>
@@ -402,6 +523,15 @@ function priceActionVerdict(row: PriceActionEdgeRow): string {
     return `ยังตอบไม่ได้ · ขาดอีก ${3 - row.sessions} เซสชัน`;
   }
   return row.verdict === "separates" ? "แยกตัวชัด" : "ไม่ต่างจากค่าเฉลี่ย";
+}
+
+function confidenceV2Verdict(row: ConfidenceV2ProgressRow): string {
+  if (row.verdict === "collecting: need more trades") {
+    return `กำลังเก็บ · ขาดอีก ${30 - row.resolved_signals} ไม้`;
+  }
+  if (row.verdict === "collecting: need more symbols") return "กำลังเก็บ · ยังมีสินทรัพย์เดียว";
+  if (row.verdict === "collecting: need more sessions") return "กำลังเก็บ · ยังไม่ครบ 3 เซสชัน";
+  return "พร้อมสร้างโมเดล offline";
 }
 
 function Verdict({ text, settled }: { text: string; settled: boolean }) {

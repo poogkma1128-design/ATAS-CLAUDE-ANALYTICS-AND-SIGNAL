@@ -2,10 +2,16 @@ import type { RuleContext, RuleEvaluator, RuleRow, RuleSignal } from "../types.t
 import { sortLevels } from "../util.ts";
 import { hasEnoughLiquidity } from "../liquidity.ts";
 import { priceActionContext } from "../price_action.ts";
+import { collectConfidenceV2 } from "../confidence_v2.ts";
 import { evaluate as stackedImbalance } from "./stacked_imbalance.ts";
 import { evaluate as deltaDivergence } from "./delta_divergence.ts";
 import { evaluate as absorption } from "./absorption.ts";
 import { evaluate as pocShift } from "./poc_shift.ts";
+import { evaluate as deltaFlip } from "./delta_flip.ts";
+import { evaluate as lvn } from "./lvn.ts";
+import { evaluate as nakedPoc } from "./naked_poc.ts";
+import { evaluate as speedOfTape } from "./speed_of_tape.ts";
+import { evaluate as mnqPullbackV1 } from "./mnq_pullback_v1.ts";
 
 /**
  * Registry of rule evaluators, keyed to match public.rules.key.
@@ -19,6 +25,11 @@ export const evaluators: Record<string, RuleEvaluator> = {
   delta_divergence: deltaDivergence,
   absorption: absorption,
   poc_shift: pocShift,
+  delta_flip: deltaFlip,
+  lvn: lvn,
+  naked_poc: nakedPoc,
+  speed_of_tape: speedOfTape,
+  mnq_pullback_v1: mnqPullbackV1,
 };
 
 export interface EvaluatedSignal extends RuleSignal {
@@ -59,10 +70,14 @@ export function runRules(
     try {
       const signals = evaluator(ruleCtx);
       for (const signal of signals) {
+        const payload = { ...signal.payload, priceAction };
         out.push({
           ...signal,
           ruleKey: rule.key,
-          payload: { ...signal.payload, priceAction },
+          payload: {
+            ...payload,
+            confidenceV2: collectConfidenceV2(rule.key, ruleCtx, signal, priceAction),
+          },
         });
       }
     } catch (error) {

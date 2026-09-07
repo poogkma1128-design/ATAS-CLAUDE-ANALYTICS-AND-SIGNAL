@@ -10,7 +10,7 @@ export default async function RulesPage() {
 
   const { data: rules } = await supabase
     .from("rules")
-    .select("key, name, description, enabled, telegram_enabled, horizon_bars, params, updated_at")
+    .select("key, name, description, enabled, telegram_enabled, announcement_mode, horizon_bars, params, updated_at")
     .order("name");
 
   return (

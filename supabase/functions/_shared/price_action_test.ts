@@ -12,6 +12,7 @@ function hist(pairs: [number, number][]): HistoryBar[] {
     close: (high + low) / 2,
     volume: 1000,
     delta: 0,
+    ticks: 200,
     pocPrice: (high + low) / 2,
   }));
 }

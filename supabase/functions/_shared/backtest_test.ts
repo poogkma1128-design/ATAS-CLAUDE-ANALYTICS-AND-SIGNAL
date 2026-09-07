@@ -60,22 +60,35 @@ Deno.test("backtest: a bar holding both stop and target is scored as the stop", 
   // only its range, so which came first is unknowable, and assuming the good
   // fill would inflate every statistic the system exists to produce.
   const plan: TradePlan = {
-    entry: 100, stop: 99, target: 102, riskTicks: 4, rewardTicks: 8,
-    trailTriggerTicks: 4, trailOffsetTicks: 2, holdBars: 5,
+    entry: 100,
+    stop: 99,
+    target: 102,
+    riskTicks: 4,
+    rewardTicks: 8,
+    trailTriggerTicks: 4,
+    trailOffsetTicks: 2,
+    holdBars: 5,
   };
 
   const got = scorePlan(plan, "long", [{ high: 103, low: 98, close: 101 }], 0.25);
 
   assertEquals(got.exitReason, "stop");
   assertEquals(got.pnlTicks, -4);
+  assertEquals(got.ambiguousPath, true);
 });
 
 Deno.test("backtest: the trail cannot use the same bar it was raised on", () => {
   // Raising the stop from a bar's own high and then testing that bar against
   // it would exit at a level that never existed while the bar was forming.
   const plan: TradePlan = {
-    entry: 100, stop: 99, target: 110, riskTicks: 4, rewardTicks: 40,
-    trailTriggerTicks: 4, trailOffsetTicks: 2, holdBars: 5,
+    entry: 100,
+    stop: 99,
+    target: 110,
+    riskTicks: 4,
+    rewardTicks: 40,
+    trailTriggerTicks: 4,
+    trailOffsetTicks: 2,
+    holdBars: 5,
   };
 
   // First bar runs up 8 ticks and closes back near the entry: enough to arm
@@ -91,6 +104,7 @@ Deno.test("backtest: the trail cannot use the same bar it was raised on", () => 
   // original stop would have given.
   assertEquals(got.exitPrice, 101.5);
   assertEquals(got.pnlTicks, 6);
+  assertEquals(got.ambiguousPath, false);
 });
 
 // ------------------------------------------------------- drawdown and fills

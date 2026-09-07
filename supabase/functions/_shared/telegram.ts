@@ -128,7 +128,6 @@ function tag(seq: number | null): string | null {
 
 export function formatSignal(msg: SignalMessage): string {
   const arrow = msg.direction === "long" ? "🟢 LONG" : "🔴 SHORT";
-  const confidence = Math.round(msg.confidence * 100);
 
   const label = tag(msg.seq);
 
@@ -145,7 +144,7 @@ export function formatSignal(msg: SignalMessage): string {
       `<code>${escapeHtml(msg.symbol)}</code> ${escapeHtml(msg.timeframe)}`,
       `<b>${arrow}</b>`,
     ].filter((part): part is string => part !== null).join(" · "),
-    `${escapeHtml(msg.ruleName)} · ความมั่นใจ ${confidence}%`,
+    `${escapeHtml(msg.ruleName)} · สัญญาณเชิงกฎ (ยังไม่สอบเทียบเป็นคะแนน)`,
   ];
 
   if (msg.plan) {
@@ -165,13 +164,16 @@ export function formatSignal(msg: SignalMessage): string {
     const away = msg.direction === "long" ? 1 : -1;
     const trailAt = p.entry + away * p.trailTriggerTicks * step;
     const trailBy = p.trailOffsetTicks * step;
+    // State the resulting stop as a price. A distance makes the alert reader
+    // do arithmetic exactly when they need an unambiguous order price.
+    const trailStop = trailAt - away * trailBy;
 
     lines.push(
       "",
       `🎯 เข้า <b>${p.entry}</b>`,
       `🛑 SL <b>${p.stop}</b>  (เสี่ยง ${fmt(risk)})`,
       `✅ TP <b>${p.target}</b>  (ได้ ${fmt(reward)} · RR 1:${rr})`,
-      `↕️ ราคาถึง ${fmt(trailAt)} แล้วเลื่อน SL ตามห่าง ${fmt(trailBy)}`,
+      `↕️ เมื่อราคาถึง ${fmt(trailAt)} ให้เลื่อน SL เป็น <b>${fmt(trailStop)}</b>`,
       `⏱ ถือไม่เกิน ${p.holdBars} แท่ง ไม่ถึง TP/SL ให้ปิดที่ราคาตลาด`,
       "",
     );

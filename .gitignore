@@ -26,3 +26,8 @@ Thumbs.db
 
 # Local Deno cache
 deno.lock
+
+# Offline research runtime (raw datasets/models stay outside this repository)
+__pycache__/
+*.pyc
+.pytest_cache/

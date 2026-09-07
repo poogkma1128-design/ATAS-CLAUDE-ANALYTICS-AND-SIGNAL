@@ -165,6 +165,11 @@ ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ�
 
 **ดับเบิลคลิก `scripts\update-indicator.bat`**
 
+สคริปต์จะดึง source จาก production branch `claude/form-signal-telegram-rz8am1` โดยตรง
+(ไม่ใช่ `main`) แล้ว build ใน Git worktree ชั่วคราว จึง **ไม่สลับ branch, ไม่ reset และไม่ทับงานที่
+แก้ค้างไว้** ใน checkout ปัจจุบัน. ก่อนวางไฟล์บน Desktop จะตรวจว่า version ใน DLL ตรงกับ REV
+ของ source และตรวจ SHA-256 หลังคัดลอกอีกครั้ง; ถ้าอย่างใดไม่ตรงจะหยุดและห้าม Import.
+
 ถ้าอยากสั่งจาก PowerShell ที่เปิดค้างอยู่:
 
 ```powershell
@@ -184,9 +189,12 @@ ATAS รันบน **.NET 10** (`Microsoft.WindowsDesktop.App 10.0.0`) ซึ�
 
 ### หรือทำเองทีละขั้น
 
+วิธีนี้ใช้เฉพาะ checkout ที่ไม่มีงานแก้ค้าง. วิธีดับเบิลคลิกด้านบนปลอดภัยกว่าเพราะไม่เปลี่ยน branch.
+
 ```powershell
-git checkout main
-git pull
+git fetch origin
+git switch claude/form-signal-telegram-rz8am1
+git pull --ff-only origin claude/form-signal-telegram-rz8am1
 cd atas-indicator
 dotnet build -c Release
 ```
@@ -229,12 +237,13 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 
 | ที่ | เห็นอะไร |
 |---|---|
-| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | `REV 1.1.0 \| commit 70776f6 \| built 2026-08-29 04:27` |
+| หน้า Indicators → คลิก **Signal Bridge** → แท็บ **About** | เช่น `REV 1.4.0 \| commit <indicator commit> \| built ...` |
 | แท็บ **Settings** → กลุ่ม **About** → ช่อง **Revision** | ข้อความเดียวกัน (อ่านอย่างเดียว แก้ไม่ได้) |
 | Log ของ ATAS ตอน indicator โหลด | บรรทัด `Signal Bridge REV ...` |
 
-**วิธีตอบคำถาม "ล่าสุดหรือยัง":** `scripts\update-indicator.ps1` จะพิมพ์ commit
-ที่มัน build ให้ตอนจบ เอาไปเทียบกับที่ขึ้นในแท็บ About ถ้าตรงกัน = ATAS ใช้ตัวใหม่แล้ว
+**วิธีตอบคำถาม "ล่าสุดหรือยัง":** `scripts\update-indicator.ps1` จะพิมพ์ production HEAD,
+indicator REV และ indicator commit ที่มัน build ให้ตอนจบ เอา REV/indicator commit ไปเทียบกับ
+แท็บ About ถ้าตรงกัน = ATAS ใช้ตัวใหม่แล้ว
 ถ้าไม่ตรง = ATAS ยังโหลดตัวเก่าค้างอยู่ ให้ปิด ATAS แล้ว Import ใหม่
 
 ถ้า build จากไฟล์ zip หรือเครื่องไม่มี git จะขึ้น `commit no-git` แทนตัวเลข
@@ -250,6 +259,45 @@ dotnet build -c Release "-p:AtasPath=D:\ATAS Platform\"
 | Send live bar updates | ปิดไว้ก่อนก็ได้ — กฎไม่เคยตัดสินแท่งที่ยังไม่ปิดอยู่แล้ว |
 
 ถ้ายังไม่ใส่ URL หรือ token indicator จะไม่ทำอะไรและขึ้นข้อความเตือนใน log ของ ATAS
+
+### Overlay จุดเข้า–ออกบน ATAS (REV 1.4.0 ขึ้นไป)
+
+ไม่ต้องใส่ URL หรือ token เพิ่ม: Indicator ใช้ Endpoint URL และ Ingest token ชุดเดิม แล้วเปลี่ยน
+ปลายทางจาก `ingest` เป็น `chart-annotations` เอง. เปิดใช้ได้บนทุกกราฟที่ส่งเข้าระบบ เช่น
+BTCUSDT, GC และ MNQU6.
+
+| ช่อง | ค่าแนะนำ | ความหมาย |
+|---|---:|---|
+| Show trade overlay | เปิด | วาดเฉพาะ signal ที่ server อนุญาตให้ใช้งาน |
+| Overlay refresh (seconds) | 30 | ดึง annotation แบบ background; ไม่ block กราฟ |
+| Overlay lookback bars | 200 | จำกัดจำนวนแท่งที่วาดเพื่อไม่ให้กราฟหนาแน่น |
+| Show Entry / SL / TP lines | **ปิด** | ซ่อนเส้นแผนแนวนอนเพื่อไม่ให้กราฟรก; เปิดเฉพาะเมื่อต้องการดูระดับแผน |
+| Overlay marker font size | 14 | ขนาดป้ายคงที่; ปรับได้ 8–32 px และไม่หดเมื่อซูมออก |
+| Show SL / TP price labels | **เปิด** | แสดง `SL ราคา` และ `TP ราคา` ของแผนที่แท่งเข้า; ปิดได้ถ้าต้องการลดป้าย |
+| Show signal IDs | **ปิด** | เติม `#S...` หลังราคาเพื่อ audit; ราคา Entry/Exit ยังแสดงแม้ปิดค่านี้ |
+| Marker opacity | 235 | ความทึบพื้นป้าย 80–255 |
+
+กลุ่ม `Overlay Colors` ปรับสีแยกได้สำหรับ Long entry, Short entry, Stop Loss, Take Profit,
+Trailing stop, Timeout, Other exit, Text และ Border. ค่าเริ่มต้นใช้เขียวสำหรับ Long/TP, แดงสำหรับ
+Short/SL, น้ำเงินสำหรับ trailing stop, ส้มสำหรับ timeout, ตัวอักษรขาวและขอบเกือบดำ.
+
+REV 1.4.0 แสดงราคาในป้ายโดยตรง: `▲ L 29069.75` = เข้า Long, `▼ S 77852.1` = เข้า Short,
+`SL 29055.50` และ `TP 29112.50` = ราคา Stop/Target ตามแผน ส่วนผลที่เกิดจริงใช้ `TP ราคา`,
+`SL ราคา`, `TR ราคา`, `TIME ราคา` หรือ `EXIT ราคา`. ป้ายมีขนาดคงที่เมื่อ zoom และ marker ที่อยู่
+แท่ง/ด้านเดียวกันจะถูกเลื่อนคนละชั้นอัตโนมัติ. เปิด `Show signal IDs` เมื่อต้องการผูกป้ายกับ
+signal ใน dashboard โดยไม่เปลี่ยนราคาหรือ logic ใด ๆ.
+
+เส้นที่ REV 1.3.0 วาดเต็มกราฟคือระดับ Entry สีเทา, SL สีแดง และ TP สีเขียวของแต่ละสัญญาณ;
+สัญญาณที่ยังไม่ปิดถูกยืดเป็น ray ไปทางขวา. เส้นยังปิดเป็นค่าเริ่มต้นและเปิดกลับได้จาก setting
+ข้างบน. การเปลี่ยนรูป marker/เส้นเป็น presentation เท่านั้น ไม่เปลี่ยน signal, Entry, SL หรือ TP.
+
+กราฟ NQU6 ถูกเก็บข้อมูลและ outcome ต่อ แต่ถูกตั้งเป็น **shadow** จึงไม่วาดเป็นคำสั่งใช้งาน.
+หากแท่งเดียวกันมี Long และ Short ที่ผ่านเกณฑ์ ระบบจะไม่วาดหรือแจ้งทั้งคู่ และเก็บเหตุผล
+`opposite_direction_same_bar` ไว้ตรวจย้อนหลัง.
+
+ถ้า endpoint overlay ตอบ error ให้ดู ATAS log คำว่า `Signal Bridge overlay`; feed เข้า ingest และ
+Telegram จะไม่หยุดเพราะปัญหานี้. หากเพิ่ง deploy function แต่ยังไม่มี marker ให้รอหนึ่งรอบ refresh
+แล้วตรวจว่า DLL ใน About ขึ้น REV 1.4.0 หรือใหม่กว่า.
 
 ---
 
