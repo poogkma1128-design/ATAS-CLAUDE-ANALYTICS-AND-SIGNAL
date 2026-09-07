@@ -243,10 +243,12 @@ to a couple of hundred bars instead of the whole table.
 ## 11. What this says to do next, in order
 
 1. **Do not loosen the thresholds.** §6 shows what that buys and it is the smaller half.
-2. **Give a setup somewhere to live between bars** — a durable row keyed on
-   `(strategy, instrument, direction, anchor, touch)` that ingest opens on the touch and closes on
-   the trigger, the invalidation or the sixth bar. This is what turns 1 into 5, and it is an owner
-   L3 decision because it changes what the live rule emits.
+2. ~~**Give a setup somewhere to live between bars.**~~ **Done, pending one deploy.** The owner
+   approved it (L3) on 2026-09-07 and it is built: the evaluator takes and returns its open
+   setups, `public.strategy_setups` holds them, and `ingest` reads and writes them around the bar
+   loop. The table is applied to production and empty; the live rule keeps its single-bar scope
+   until `supabase functions deploy ingest` runs. See HANDOFF §0AF.
 3. **Then find out why the footprint reconciles on only 36.5% of bars** (§8.1). Until that is
-   understood, every confirmation count on this strategy is a lower bound of unknown tightness.
+   understood, every confirmation count on this strategy is a lower bound of unknown tightness —
+   and with setups now able to wait, it is what closes 14 of the 30.
 4. **Only then** measure after-cost outcomes.
