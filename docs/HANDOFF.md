@@ -12,6 +12,63 @@
 
 ---
 
+## 0AD. Owner L3 override — MNQ Pullback live preview + backtest ทางเดียวกัน (2026-09-07)
+
+**คำสั่งเจ้าของ:** “เริ่มเลย…ยอมรับความเสี่ยงเอง ใช้ไป backtest ไปด้วยคู่ขนานกัน” จึงนับเป็น
+owner approval ชัดเจนให้เปิดสัญญาณที่ยังไม่ validated แบบ L3. Approval นี้ยอมรับความเสี่ยงการใช้งาน
+แต่ **ไม่ได้เปลี่ยนผลที่ยังไม่พิสูจน์ให้เป็น edge** และไม่ได้อนุมัติ `MNQ_REVERSAL_V1`/`GC_SWEEP_V1`.
+
+### 0AD.1 ขอบเขตที่ลงมือ
+
+- เพิ่ม rule `mnq_pullback_v1` และ adapter ที่ใช้ได้ทั้ง `ingest` กับ `backtest` ผ่าน registry เดียวกัน;
+  จำกัดแข็งที่ `MNQU6 5m`.
+- เปิดเฉพาะ strict subset แบบ `touch_bar_only`: แตะ previous CME trading-day H/L และ
+  `delta_flip` หรือ `stacked_imbalance` ยืนยันในแท่งปิดเดียวกัน. Full evaluator 6 แท่งยังไม่ต่อ live
+  เพราะต้องมี durable state; payload ทุกแถวประกาศข้อจำกัดนี้ตรง ๆ.
+- นิยามวันเทรดชั่วคราว: rollover 17:00 `America/Chicago`; วันก่อนต้องมีอย่างน้อย 70 แท่ง.
+  volatility ต้องมี 20 แท่ง 5m ติดกัน (ยอม spacing สูงสุด 6 นาที). ไม่มี session gate.
+- boolean-first ยังอยู่: `payload.score=null`; `signals.confidence=0` มีเพราะ schema เดิมบังคับ non-null
+  เท่านั้น ห้ามแสดงเป็นเปอร์เซ็นต์/อันดับ.
+- migration 0039 เพิ่ม rule เป็น `enabled=true`, `telegram_enabled=true`,
+  `announcement_mode=manual` ตาม owner override. **ไม่ได้ apply 0038** เพราะ backfill tick ตัวนั้นรู้แล้วว่าผิด.
+
+### 0AD.2 สิ่งที่แก้เพิ่มก่อนเปิด เพราะ probe เจอบั๊ก semantics
+
+1. ข้อมูลจบก่อนครบอายุ setup เคยถูกตีเป็น `expired_unfired` ทั้งที่เป็น right-censoring → เพิ่ม
+   `right_censored:end_of_data`.
+2. bias หายแต่ trigger ตรงทิศเคยยิงได้ → ตอนนี้ `data_unavailable:bias` และห้ามยิง.
+3. volatility หายตอนครบอายุเคยปนกับไม่มี trigger → ตอนนี้ `data_unavailable:volatility`.
+4. แท่งห่าง 5 ชั่วโมงเคยนับเป็นแท่งถัดกัน → contract เพิ่ม `maxBarSpacingMs` และปิดด้วย
+   `data_unavailable:feed_gap`.
+
+### 0AD.3 หลักฐาน ณ ก่อน deploy
+
+| ตรวจ | ผล |
+|---|---|
+| `deno task test` | **200 passed, 0 failed** (เดิม 194; เพิ่ม 6) |
+| `deno task check` | **PASS** ทั้ง 4 entry point |
+| fmt/lint ไฟล์ใหม่/ที่แก้ | **PASS**; การรันทั้ง repo ยังเจอ baseline line-ending + lint debt เดิม |
+| production | **ยังไม่ deploy ณ จุดเขียนนี้**; migration 0039 ยังไม่ apply |
+
+### 0AD.4 Kill switch / rollback / acceptance
+
+- หยุดเสียงทันทีโดยไม่เสียข้อมูล:
+  `update public.rules set telegram_enabled=false where key='mnq_pullback_v1';`
+- หยุด evaluator: ตั้ง `enabled=false`; signals/outcomes เก่าไม่ลบ.
+- rollback code: redeploy `ingest v17` และ `backtest v7`; migration 0039 เป็นเพียง rule row
+  จึงไม่ต้อง drop schema.
+- จะเรียกว่า “เปิดใช้งานแล้ว” ได้เมื่อ migration 0039 อยู่ production, Edge Function สองตัว deploy,
+  backtest รันจริงและบันทึก experiment id, และ live POST หลัง deploy ตอบ 200. หากยังไม่เกิด setup
+  ต้องรายงานว่า “เปิด detector แล้ว แต่ยังไม่มี signal” ห้ามสร้างสัญญาณเพื่อให้ครบโควตา.
+
+### 0AD.5 ยังไม่ได้ทำ / out of scope
+
+- ยังไม่มี persistent state สำหรับ touch ที่รอ trigger ได้ 6 แท่ง; live preview จึงไม่เท่ากับ full V1.
+- ยังไม่เปลี่ยน tick/`tick_value`, ไม่คำนวณผลหลังต้นทุน, ไม่ apply 0033–0038.
+- ไม่เปิดอีกสองกลยุทธ์, ไม่เพิ่ม numeric score, ไม่เปลี่ยนกฎเดิมหรือ NQU6 shadow policy.
+
+---
+
 ## 0AC. ขั้นที่ 2 — **สเปกสามกลยุทธ์ + evaluator ตัวแรกเสร็จ · isolated · ไม่แตะ production** (2026-09-07)
 
 เอกสารเต็ม: **`docs/STRATEGY_SPEC_V1.md`** — เป็น **ร่างสเปก** ไม่ใช่กฎที่เปิดใช้

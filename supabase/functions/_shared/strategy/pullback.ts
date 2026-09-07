@@ -98,6 +98,8 @@ export interface PullbackContract {
   invalidationDistance: number;
   /** Bars an eligible setup may wait for its trigger before expiring. */
   setupMaxAgeBars: number;
+  /** Maximum opened-at spacing between decision bars before an open setup is unavailable. */
+  maxBarSpacingMs: number;
   /** Anchor identities this version uses. An anchor outside this list is ignored entirely. */
   anchorIdentities: string[];
   /** The frozen alternatives of the "or". Order is not precedence. */
@@ -106,7 +108,8 @@ export interface PullbackContract {
 
 export type PullbackOutcome =
   | { kind: "triggered"; at: string; trigger: TriggerKind | "both" }
-  | { kind: "rejected"; at: string; reason: RejectionReason };
+  | { kind: "rejected"; at: string; reason: RejectionReason }
+  | { kind: "right_censored"; at: string; reason: "end_of_data" };
 
 export interface PullbackOpportunity {
   strategyKey: "MNQ_PULLBACK_V1";
@@ -157,6 +160,10 @@ interface OpenSetup {
   sawEvaluableTrigger: boolean;
   /** True if a listed trigger fired against the setup direction. */
   sawOpposingTrigger: boolean;
+  /** Missing bias prevents a trigger decision; it is not evidence that bias held. */
+  sawMissingBias: boolean;
+  /** Missing volatility prevents distance and invalidation checks. */
+  sawMissingVolatility: boolean;
 }
 
 function assertContract(contract: PullbackContract): void {
@@ -168,6 +175,9 @@ function assertContract(contract: PullbackContract): void {
   }
   if (!Number.isInteger(contract.setupMaxAgeBars) || contract.setupMaxAgeBars < 1) {
     throw new Error("pullback contract: setupMaxAgeBars must be a positive integer");
+  }
+  if (!Number.isSafeInteger(contract.maxBarSpacingMs) || contract.maxBarSpacingMs < 1) {
+    throw new Error("pullback contract: maxBarSpacingMs must be a positive integer");
   }
   if (contract.anchorIdentities.length === 0) {
     throw new Error("pullback contract: at least one anchor identity is required");
@@ -289,6 +299,7 @@ export function evaluatePullback(
 
   let barsWithoutVolatility = 0;
   let barsWithoutBias = 0;
+  let previousOpenedMs: number | null = null;
 
   /**
    * Anchors whose setup was resolved on the bar being evaluated. §1.5 of the
@@ -317,9 +328,24 @@ export function evaluatePullback(
   };
 
   for (const bar of bars) {
+    resolvedThisBar = new Set<string>();
+    const openedMs = Date.parse(bar.openedAt);
+    if (
+      previousOpenedMs !== null &&
+      openedMs - previousOpenedMs > contract.maxBarSpacingMs
+    ) {
+      for (const setup of [...open.values()]) {
+        close(setup, {
+          kind: "rejected",
+          at: bar.openedAt,
+          reason: "data_unavailable:feed_gap",
+        });
+      }
+    }
+    previousOpenedMs = openedMs;
+
     const direction = biasDirection(bar);
     const mtr = bar.medianTrueRange;
-    resolvedThisBar = new Set<string>();
 
     // --------------------------------------------------- advance open setups
     // An open setup is resolved on the information of this bar before any new
@@ -330,8 +356,13 @@ export function evaluatePullback(
       if (mtr === null) {
         // No distance can be measured, so neither invalidation nor the zone can
         // be judged. The setup survives the bar; the bar is recorded as unusable.
+        setup.sawMissingVolatility = true;
         if (setup.ageBars >= contract.setupMaxAgeBars) {
-          close(setup, { kind: "rejected", at: bar.openedAt, reason: "expired_unfired" });
+          close(setup, {
+            kind: "rejected",
+            at: bar.openedAt,
+            reason: "data_unavailable:volatility",
+          });
         }
         continue;
       }
@@ -352,6 +383,18 @@ export function evaluatePullback(
           at: bar.openedAt,
           reason: "invalidated:bias_flipped",
         });
+        continue;
+      }
+
+      if (bar.bias === null) {
+        setup.sawMissingBias = true;
+        if (setup.ageBars >= contract.setupMaxAgeBars) {
+          close(setup, {
+            kind: "rejected",
+            at: bar.openedAt,
+            reason: "data_unavailable:bias",
+          });
+        }
         continue;
       }
 
@@ -396,7 +439,13 @@ export function evaluatePullback(
           kind: "rejected",
           at: bar.openedAt,
           reason: setup.sawEvaluableTrigger
-            ? (setup.sawOpposingTrigger ? "direction_conflict" : "expired_unfired")
+            ? (setup.sawOpposingTrigger
+              ? "direction_conflict"
+              : setup.sawMissingBias
+              ? "data_unavailable:bias"
+              : setup.sawMissingVolatility
+              ? "data_unavailable:volatility"
+              : "expired_unfired")
             : "data_unavailable:footprint",
         });
       }
@@ -463,6 +512,8 @@ export function evaluatePullback(
         ageBars: 1,
         sawEvaluableTrigger: false,
         sawOpposingTrigger: false,
+        sawMissingBias: false,
+        sawMissingVolatility: false,
       };
       open.set(identity, setup);
 
@@ -488,16 +539,14 @@ export function evaluatePullback(
     }
   }
 
-  // A setup still open when the data ends has not been decided by the market.
-  // It is closed as expired so that no opportunity is silently dropped, and the
-  // count of bars it saw says how far it got.
+  // A setup still open when the data ends has not expired and has not been
+  // rejected by the market. Keep it in the census without manufacturing a
+  // negative label from a truncated dataset.
   for (const setup of [...open.values()]) {
     close(setup, {
-      kind: "rejected",
+      kind: "right_censored",
       at: bars[bars.length - 1].openedAt,
-      reason: setup.sawEvaluableTrigger
-        ? "expired_unfired"
-        : "data_unavailable:footprint",
+      reason: "end_of_data",
     });
   }
 

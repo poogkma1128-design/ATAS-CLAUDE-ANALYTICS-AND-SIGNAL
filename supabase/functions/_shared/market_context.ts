@@ -27,6 +27,8 @@ export interface MarketContextResult {
   volatility: {
     regime: VolatilityRegime | null;
     trueRange: number;
+    /** Median of the contiguous trailing true-range sample, excluding the decision bar. */
+    medianTrueRange: number | null;
     lowThreshold: number | null;
     highThreshold: number | null;
     sampleCount: number;
@@ -47,6 +49,14 @@ function trueRange(bar: BarInput, previousClose: number | null): number {
 function nearestRank(sorted: number[], percentile: number): number {
   const rank = Math.max(1, Math.ceil(percentile * sorted.length));
   return sorted[rank - 1];
+}
+
+function median(sorted: number[]): number | null {
+  if (sorted.length === 0) return null;
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 === 0
+    ? (sorted[middle - 1] + sorted[middle]) / 2
+    : sorted[middle];
 }
 
 function toHistory(bar: CausalMarketBar): HistoryBar {
@@ -184,6 +194,7 @@ export function computeMarketContext(
     volatility: {
       regime,
       trueRange: currentRange,
+      medianTrueRange: enough ? median(samples) : null,
       lowThreshold,
       highThreshold,
       sampleCount: samples.length,

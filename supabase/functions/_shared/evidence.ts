@@ -17,7 +17,9 @@ export function describeEvidence(
     }
     case "absorption": {
       const level = payload.level as { price?: number } | undefined;
-      return `Volume ${payload.observedMultiple}× ค่าเฉลี่ย ที่ ${level?.price ?? "?"} · ถอยกลับ ${payload.rejectionTicks} ticks`;
+      return `Volume ${payload.observedMultiple}× ค่าเฉลี่ย ที่ ${
+        level?.price ?? "?"
+      } · ถอยกลับ ${payload.rejectionTicks} ticks`;
     }
     case "poc_shift": {
       return `POC ขยับ ${payload.totalShiftTicks} ticks${payload.isHvn ? " · HVN" : ""}`;
@@ -44,6 +46,12 @@ export function describeEvidence(
       const side = payload.kind === "tape_burst_up" ? "ปิดบน" : "ปิดล่าง";
       const rate = `เทรด ${payload.trades} ครั้ง = ${payload.observedRatio}× ปกติ`;
       return `Tape เร่ง · ${rate} · ${side}สุดแท่ง`;
+    }
+    case "mnq_pullback_v1": {
+      const anchor = payload.anchor as { identity?: string; price?: number } | undefined;
+      return `Pullback ${payload.bias ?? "?"} ที่ ${anchor?.identity ?? "ระดับเดิม"} ${
+        anchor?.price ?? "?"
+      } · ยืนยันด้วย ${payload.trigger ?? "order flow"} · รุ่นทดลองสด`;
     }
     default:
       return null;
