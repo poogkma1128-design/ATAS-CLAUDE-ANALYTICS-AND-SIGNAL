@@ -30,7 +30,8 @@ import {
  *         "params": { "imbalanceRatio": 3.5 } }
  *     ],
  *     "symbols": ["BTCUSDT"],     // optional; default every instrument
- *     "maxBars": 400              // optional; most recent N bars per feed
+ *     "maxBars": 400,             // optional; N bars per feed
+ *     "barOffset": 400            // optional; skip this many newer bars
  *   }
  *
  * Every run also scores a `baseline` variant from the live settings, because a
@@ -43,6 +44,7 @@ import {
 const MAX_VARIANTS = 8;
 const DEFAULT_MAX_BARS = 400;
 const HARD_MAX_BARS = 1000;
+const HARD_MAX_BAR_OFFSET = 10_000;
 
 /** Below this a feed cannot warm up the rules' lookback and still leave trades
  *  with room to be scored, so it is skipped rather than reported thinly. */
@@ -66,6 +68,9 @@ interface RunRequest {
   variants: VariantSpec[];
   symbols?: string[];
   maxBars?: number;
+  /** Lets several bounded runs cover older, disjoint windows without asking one
+   *  edge-function invocation to exceed its CPU budget. */
+  barOffset?: number;
 }
 
 /** One instrument's bars at one timeframe: the unit a simulation runs over. */
@@ -110,6 +115,7 @@ Deno.serve(async (req: Request) => {
       supabase,
       body.symbols,
       Math.min(body.maxBars ?? DEFAULT_MAX_BARS, HARD_MAX_BARS),
+      body.barOffset ?? 0,
     );
     const usable = feeds.filter((feed) => feed.bars.length >= MIN_BARS_PER_FEED);
     if (usable.length === 0) return json({ error: "no feed has enough bars" }, 400);
@@ -147,6 +153,7 @@ Deno.serve(async (req: Request) => {
       ok: true,
       experimentId,
       feeds: usable.map((f) => `${f.symbol} ${f.timeframe} (${f.bars.length} bars)`),
+      barOffset: body.barOffset ?? 0,
       results: summaries,
       durationMs: Date.now() - startedAt,
     });
@@ -200,6 +207,20 @@ function validate(body: RunRequest): string | null {
 
   if (body.symbols !== undefined && !Array.isArray(body.symbols)) {
     return "symbols must be an array";
+  }
+  if (
+    body.maxBars !== undefined &&
+    (!Number.isInteger(body.maxBars) || body.maxBars < MIN_BARS_PER_FEED ||
+      body.maxBars > HARD_MAX_BARS)
+  ) {
+    return `maxBars must be an integer from ${MIN_BARS_PER_FEED} to ${HARD_MAX_BARS}`;
+  }
+  if (
+    body.barOffset !== undefined &&
+    (!Number.isInteger(body.barOffset) || body.barOffset < 0 ||
+      body.barOffset > HARD_MAX_BAR_OFFSET)
+  ) {
+    return `barOffset must be an integer from 0 to ${HARD_MAX_BAR_OFFSET}`;
   }
   return null;
 }
@@ -335,6 +356,7 @@ async function loadFeeds(
   supabase: SupabaseClient,
   symbols: string[] | undefined,
   maxBars: number,
+  barOffset: number,
 ): Promise<Feed[]> {
   let query = supabase.from("instruments").select("id, symbol, tick_size");
   if (symbols && symbols.length > 0) query = query.in("symbol", symbols);
@@ -347,7 +369,14 @@ async function loadFeeds(
     const tickSize = Number(row.tick_size);
     if (!(tickSize > 0)) continue;
 
-    for (const [timeframe, bars] of await loadBars(supabase, row.id, maxBars)) {
+    for (
+      const [timeframe, bars] of await loadBars(
+        supabase,
+        row.id,
+        maxBars,
+        barOffset,
+      )
+    ) {
       feeds.push({ symbol: row.symbol, timeframe, tickSize, bars });
     }
   }
@@ -386,6 +415,7 @@ async function loadBars(
   supabase: SupabaseClient,
   instrumentId: string,
   maxBars: number,
+  barOffset: number,
 ): Promise<Map<string, StoredBar[]>> {
   const collected: BarPageRow[] = [];
 
@@ -399,7 +429,7 @@ async function loadBars(
       .eq("instrument_id", instrumentId)
       .eq("is_closed", true)
       .order("opened_at", { ascending: false })
-      .range(from, to);
+      .range(barOffset + from, barOffset + to);
 
     if (error) throw new Error(`bar load failed: ${error.message}`);
 
