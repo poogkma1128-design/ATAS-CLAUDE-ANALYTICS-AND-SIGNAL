@@ -776,10 +776,18 @@ Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
   // Both signals are persisted and counted.
   assertEquals(result.signalsCreated, 2);
 
-  const statuses = client.callsFor("signals", "update").map((call) =>
-    (call.ops[0].args[0] as Record<string, unknown>).telegram_status
+  // One statement for the whole historical group, not one per signal: a
+  // catch-up request can carry hundreds of them.
+  const updates = client.callsFor("signals", "update");
+  assertEquals(updates.length, 1);
+  assertEquals(
+    (updates[0].ops[0].args[0] as Record<string, unknown>).telegram_status,
+    "skipped_historical",
   );
-  assertEquals(statuses, ["skipped_historical", "skipped_historical"]);
+  assertEquals(updates[0].ops.find((op) => op.name === "in")?.args, [
+    "id",
+    ["sig-1", "sig-2"],
+  ]);
 });
 
 Deno.test("ingest: a multi-bar request still announces its freshly closed bar", async () => {
@@ -814,12 +822,12 @@ Deno.test("ingest: a multi-bar request still announces its freshly closed bar", 
   );
 
   const statuses = client.callsFor("signals", "update").map((call) => ({
-    id: call.ops.find((op) => op.name === "eq")?.args[1],
+    ids: call.ops.find((op) => op.name === "in")?.args[1],
     status: (call.ops[0].args[0] as Record<string, unknown>).telegram_status,
   }));
   assertEquals(statuses, [
-    { id: "sig-old", status: "skipped_historical" },
-    { id: "sig-live", status: "skipped_unconfigured" },
+    { ids: ["sig-old"], status: "skipped_historical" },
+    { ids: ["sig-live"], status: "skipped_unconfigured" },
   ]);
 });
 
