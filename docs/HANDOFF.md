@@ -40,18 +40,17 @@
 
 | # | งานค้าง | **ส่งให้** | ทำไมคนอื่นทำแทนไม่ได้ | อ่านที่ |
 |---|---|---|---|---|
-| 1 | ~~§00.1 เดิมข้อ 1–6 (P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`)~~ **แก้ครบแล้วใน branch `codex/open-work-1-6` @ `9eab3a3` และ Claude ตรวจแล้ว = APPROVE** | — | ปิดแล้ว รอ merge | §0AJ |
-| 2 | **merge `PR #109`** (branch `codex/open-work-1-6`) | **เจ้าของ / GPT-Codex** | ผู้ตรวจไม่ merge งานที่ตัวเองตรวจ | §0AJ.1 |
-| 3 | **หลังเจ้าของลบแถวซ้ำ 8 แถวแล้ว: apply migration 3 ไฟล์ทีละไฟล์ แล้วจึง deploy `ingest`** — ห้ามสลับลำดับ ห้าม `db push` | **GPT/Codex** | ต้องมี credential deploy · ผู้ตรวจไม่ deploy | §0AJ.3 (F1/F2) |
+| 1 | ~~P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`~~ · ~~merge PR #109~~ · ~~apply migration + deploy~~ **ปิดครบแล้ว 2026-09-08 13:20 UTC — `ingest v24` live และยืนยันด้วยข้อมูลจริงแล้ว** | — | ปิดแล้ว | §0AJ.6 |
+| 2 | **F3/F4/F5/F6 จากผลตรวจ** — batch การเขียน `telegram_status`, `cluster_levels` ยังไม่ atomic, บันทึกข้อแลกเปลี่ยนเรื่องแท่งที่ evaluate ซ้ำไม่ได้, เทสต์ unique index ระดับ DB | **GPT/Codex** | เป็นการแก้ runtime ที่ผู้ตรวจไม่ควรเขียนเอง (§0T) · ไม่บล็อกอะไร | §0AJ.3 |
+| 3 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
 | # | งาน | หมายเหตุ |
 |---|---|---|
-| 1 | ตัดสินใจเรื่อง **ลบแถวซ้ำ 7 ชุด / 15 แถวใน `strategy_setups`** — ผู้ตรวจเสนอ **เก็บ id `5,6,8,9,10,11,12`** และ **ลบ id `13,14,15,16,17,19,20,21`** (8 แถว) พร้อมคำสั่ง `delete` สำเร็จรูป · **AI ไม่ลบให้** · ต้องทำ**ก่อน** apply migration `20260908090000` | ตาราง keep/delete ครบทุกกลุ่ม + เหตุผล อยู่ §0AJ.4 · **ห้ามลบ id 18** (หลักฐาน P1-2 ไม่ใช่แถวซ้ำ) |
-| 2 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
-| 3 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
-| 4 | build **`SignalBridgeIndicator.cs` REV 1.5.0** | ต้องใช้ ATAS SDK บน Windows |
+| 1 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
+| 2 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
+| 3 | build **`SignalBridgeIndicator.cs` REV 1.5.0** | ต้องใช้ ATAS SDK บน Windows |
 
 ### 00.3 รอเวลา ไม่ใช่รอคน
 
@@ -60,19 +59,22 @@
   ใช้คิวรีข้อ 2 ใน `docs/queries/footprint_reconcile_provenance.sql`
 - **ผลหลังต้นทุน** — คำนวณได้แล้วในทางเทคนิค (tick_value ครบ) แต่มีแค่ **4 signal** ของกฎใหม่
   ⇒ ยังสรุปอะไรไม่ได้ ต้องสะสมตัวอย่างก่อน
-- ⚠️ **ห้ามคำนวณความถี่ / อัตราหมดอายุ / ความเข้มของ trigger จาก `strategy_setups`
-  จนกว่าเจ้าของจะลบแถวซ้ำ 8 แถว (§00.2 ข้อ 1) และ apply `20260908090000` แล้ว** —
-  ตอนนี้ **8 ใน 23 แถว (35%) เป็นของที่ replay สร้าง** ไม่ใช่สิ่งที่รอบ live เห็น
+- ⚠️ **ยังห้ามคำนวณความถี่ / อัตราหมดอายุ / ความเข้มของ trigger จาก `strategy_setups`** —
+  ต้นเหตุถูกปิดแล้ว (unique index + `ingest v24`) แต่ **21 แถวที่เหลือเกิดในยุคที่ยังมีบั๊ก**
+  และในนั้นมีแถวที่ replay สร้างล้วน ๆ ปนอยู่ (id 18, 31, 32 — ไม่มีคู่จากรอบ live)
+  ⇒ นับได้เฉพาะแถวที่เกิด**หลัง 2026-09-08 13:20 UTC** และต้องสะสมตัวอย่างก่อน
 
 ### 00.4 สถานะระบบ ณ ตอนนี้ (ย่อ — รายละเอียดอยู่ §0AH)
 
 | | |
 |---|---|
-| Edge Functions | `ingest v23` · `backtest v13` · ACTIVE ทั้งคู่ |
+| Edge Functions | **`ingest v24`** (deploy 2026-09-08 13:20 UTC) · `backtest v13` · ACTIVE ทั้งคู่ |
 | กฎที่ live | `mnq_pullback_v1` · `mnq_reversal_v1` · `gc_sweep_v1` — enabled + telegram + `announcement_mode=manual` |
 | ฟีด | MNQU6 · GC · NQU6 · BTCUSDT 5m ไหลปกติ |
 | `tick_value` | MNQU6 `0.50` · NQU6 `5.00` · GC `10.00` · BTCUSDT `null` (ตั้งใจ) |
-| ผลการตรวจล่าสุด | §0AJ — `codex/open-work-1-6` @ `9eab3a3` **APPROVE** · 6 finding ไม่บล็อก · **ยังไม่ deploy** |
+| ผลการตรวจล่าสุด | §0AJ — **APPROVE** · 6 finding ไม่บล็อก |
+| migration ล่าสุด | `20260908085500` / `085800` / `090000` — **apply แล้วทั้งสาม** 2026-09-08 ~13:1x UTC |
+| `strategy_setups` | 21 แถว · **0 กลุ่มซ้ำ** · unique index `strategy_setups_one_row_per_touch` ทำงานแล้ว |
 | kill switch | `update public.rules set telegram_enabled=false where key in ('mnq_pullback_v1','mnq_reversal_v1','gc_sweep_v1');` |
 
 ### 00.5 กติกาการดูแลหัวข้อนี้
@@ -89,7 +91,7 @@
 
 ---
 
-## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · ยังไม่ deploy** (2026-09-08)
+## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
 ผู้ตรวจ: เซสชันนี้ ซึ่ง **ไม่ได้เขียน** branch นี้, ไม่ได้เขียน PR #105 และไม่ได้เขียน evaluator ทั้งสาม
@@ -189,10 +191,92 @@ delete from public.strategy_setups where id in (13,14,15,16,17,19,20,21);    -- 
 
 ### 0AJ.5 งานค้างหลังการตรวจนี้
 
-- **ยังไม่ deploy อะไรทั้งสิ้น** — ทั้ง migration และ `ingest`
-- เจ้าของตัดสินเรื่องลบ 8 แถวก่อน แล้วจึงเดินตามลำดับ F1 ทั้งสี่ขั้น
-- F3/F4/F5/F6 เป็นงานของ executor ไม่ใช่ผู้ตรวจ · ทำภายหลังได้ ไม่บล็อก merge
+- ~~ยังไม่ deploy อะไรทั้งสิ้น~~ **deploy ครบแล้ว 2026-09-08 13:20 UTC — ดู §0AJ.6**
+- ~~เจ้าของตัดสินเรื่องลบ 8 แถวก่อน~~ **ทำแล้ว** (สุดท้ายลบ 12 แถว เพราะมีแถวซ้ำเกิดเพิ่มระหว่างรอ)
+- F3/F4/F5/F6 เป็นงานของ executor ไม่ใช่ผู้ตรวจ · ทำภายหลังได้ ไม่บล็อกอะไร
 - ยังไม่มีหลักฐานใดในโปรเจกต์นี้ที่รองรับข้ออ้างเรื่องกำไร และการตรวจรอบนี้ไม่ได้เปลี่ยนข้อนั้น
+
+---
+
+### 0AJ.6 นำขึ้น production แล้ว — **เจ้าของอนุมัติให้ผู้ตรวจเป็นคนทำเอง** (2026-09-08 13:1x–13:20 UTC)
+
+> **การเปิดเผยที่จำเป็น:** §0T และ §00.1 เดิมระบุว่า apply/deploy เป็นงานของ Codex เพราะ
+> "ผู้ตรวจไม่ deploy" **เจ้าของยกเลิกข้อนี้เฉพาะครั้งนี้** และสั่งให้เซสชันผู้ตรวจทำเอง
+> เหตุผลเชิงปฏิบัติ: เจ้าของปิด ATAS รออยู่ และการเปิดเซสชันใหม่ไม่ได้ลดความเสี่ยงอะไร
+> เพราะสิ่งที่ deploy คือโค้ดที่ merge แล้วและตรวจแล้ว ไม่ใช่โค้ดที่ผู้ตรวจเขียนเอง
+
+**ลำดับที่ทำจริง** (ตรงตาม F1 ทุกขั้น):
+
+| # | ขั้น | ผล |
+|---|---|---|
+| 0 | เจ้าของ**ปิด ATAS** | ยืนยันด้วยคิวรี: 0 แท่งถูกเขียนใน 5 นาทีก่อนเริ่ม |
+| 1 | เจ้าของลบแถวซ้ำ (คิวรีแบบ min-id ไม่ใช่ id ตายตัว) | 33 → **21 แถว** · 0 กลุ่มซ้ำ |
+| 2 | apply `20260908085500_keep_richer_closed_bar_atomic` | ✅ trigger `keep_richer_closed_bar_before_update` ติดตั้งแล้ว |
+| 3 | apply `20260908085800_record_telegram_delivery` | ✅ 2 คอลัมน์ · backfill **945 `sent` / 3,774 `legacy_unknown`** |
+| 4 | apply `20260908090000_strategy_setups_idempotent` | ✅ ผ่านด่าน fail-closed · index `strategy_setups_one_row_per_touch` |
+| 5 | deploy `ingest` | ✅ **v23 → v24** · `verify_jwt=false` เหมือนเดิม |
+| 6 | เจ้าของเปิด ATAS กลับ | 299 แท่งถูกเขียนใน 15 นาที = backfill ตอนเปิดโปรแกรม |
+
+> **หมายเหตุเรื่องวิธี deploy:** `mcp__Supabase__deploy_edge_function` **ใช้ไม่ได้จริง**สำหรับ `ingest`
+> แล้ว — ต้องส่งเนื้อไฟล์ทั้ง **33 ไฟล์ / 226 KB** ในข้อความเดียว ซึ่งเกินความยาวข้อความที่โมเดลออกได้
+> รอบนี้จึงใช้ **Supabase CLI** (`npx supabase@latest functions deploy ingest --project-ref … --no-verify-jwt`)
+> ซึ่งอ่านไฟล์จากดิสก์ตรง ๆ จึงถูกต้องทุกไบต์ ต้องมี `SUPABASE_ACCESS_TOKEN`
+> (เจ้าของออก personal access token ชั่วคราวให้ แล้ว **revoke ทิ้งหลังเสร็จ**)
+> **⇒ แก้ข้อมูลใน §9 ที่ล้าสมัย:** รายชื่อไฟล์ของ `ingest` ในนั้นบอกไว้ ~16 ไฟล์ **ของจริงคือ 33**
+> ใครจะ deploy ด้วย MCP ต้องคำนวณ transitive import เอง อย่าเชื่อรายชื่อนั้น
+
+#### หลักฐานหลังเปิด ATAS — บททดสอบจริงของทั้งสามข้อ
+
+**P1-1 (แถวซ้ำ) — ผ่าน** การเปิด ATAS ใหม่คือเหตุการณ์ที่เคยสร้างแถวซ้ำทุกครั้ง
+รอบนี้ backfill 299 แท่งแล้ว `strategy_setups` **ยังเป็น 21 แถว · 0 กลุ่มซ้ำ** ไม่ขยับเลย
+
+**ข้อ 5 (multi-bar ไม่กลืนการประกาศ) — ผ่าน และเห็นภาพชัดในคำขอเดียว**
+คำขอ catch-up ที่ `13:24:08` มีแท่ง `12:25`–`13:15` อยู่ด้วยกัน ผลคือ:
+
+| แท่งในคำขอเดียวกัน | `telegram_status` |
+|---|---|
+| 12:25 – 13:10 | `skipped_historical` |
+| **13:15** | **`skipped_muted` / `skipped_rule_disabled`** |
+
+แท่งที่เพิ่งปิดถูกจัดเป็น "สด" และเข้าเส้นทางประกาศจริง (แล้วถูกกันด้วยเหตุผลที่ถูกต้องคนละเรื่อง)
+โค้ดเก่าจะตีตราทั้งคำขอเป็น historical แล้วแท่ง 13:15 จะไม่มีวันถูกพิจารณา
+
+**ข้อ 4 (สถานะ Telegram) — ผ่าน** เห็นครบ 3 สถานะจริงในข้อมูลใหม่:
+`skipped_historical`, `skipped_muted`, `skipped_rule_disabled` · **ไม่มีแถวไหนค้าง `pending`** และไม่มี `failed`
+
+**P1-2 (replay boundary) — ผ่านโดยโครงสร้าง** แท่ง `12:30`–`13:20` ที่หายไปตอน ATAS ปิด
+ถูก evaluate ตามปกติ (เป็นแท่งใหม่จริง) ส่วนแท่งที่เก็บเป็น closed อยู่แล้วไม่ถูก evaluate ซ้ำ
+⇒ ไม่มีสัญญาณย้อนหลังงอกจากการ reload
+
+**F1 (ความเสี่ยงที่ `strategy_setups` หยุดเขียนเงียบ ๆ) — ไม่เกิด**
+ค้น `function_logs` และ `postgres_logs` ช่วง 12:40–13:35 UTC ด้วยคำว่า
+`strategy setup` / `fail` / `unavailable` / `42P10` / `23505` / `duplicate` / `constraint` → **0 รายการ**
+(ยืนยันว่า source มีอยู่จริงและมี log ไหลอยู่ 102 + 137 รายการในหน้าต่างเดียวกัน จึงไม่ใช่ผลลบลวง)
+และ 42P10 เป็นไปไม่ได้แล้วโดยโครงสร้าง เพราะ index มีอยู่จริงก่อน deploy
+
+#### เส้นทางเขียน (upsert) — **พิสูจน์แล้ว 13:35:02 UTC**
+
+ตอนเขียนบันทึกนี้รอบแรกยังไม่มี setup เปิดเลย เส้นทาง `upsert … ON CONFLICT DO NOTHING`
+จึงยังไม่เคยรันจริง และการไม่มี error พิสูจน์ได้แค่ฝั่งอ่าน (`loadStrategyCarry`) เท่านั้น
+**15 นาทีต่อมาได้ของจริง:**
+
+| id | กฎ | touch | สถานะ | created |
+|---|---|---|---|---|
+| **42** | `mnq_pullback_v1` MNQU6 | `prev_day_high@2026-09-08T13:30:00.000Z` short | `open` · age 1 · `saw_evaluable_trigger=true` | **13:35:02** โดย `ingest v24` |
+
+`contract_version` = `MNQ_PULLBACK_V1@live-preview-1` (ไม่ขยับ ถูกต้อง) · `dup_groups` ยังเป็น 0
+⇒ **F1 ตกไปด้วยหลักฐานเชิงบวก ไม่ใช่แค่ "ไม่มี error"** และ 21 → 22 แถวคือแถวแรกที่นับสถิติได้จริง
+
+ยังไม่ผ่านสายตาคือ **เส้นทาง resolve** (`update … where status='open'`) ซึ่งจะรันเมื่อ setup id 42 ปิดตัว
+ไม่ใช่ความเสี่ยงระดับ F1 เพราะเป็น `update` ธรรมดาที่ไม่พึ่ง unique index
+
+#### Rollback
+
+- `ingest`: redeploy จาก commit ก่อนหน้า (`75cc307`) ได้ทันที
+- migration: มี `-- ROLLBACK` ในทุกไฟล์ · ถอนย้อนลำดับ `090000` → `085800` → `085500`
+- ⚠️ ถ้าถอน `090000` (drop unique index) **ต้อง rollback `ingest` กลับ v23 ด้วย**
+  ไม่งั้น v24 จะเจอ `42P10` แล้วหยุดเขียน `strategy_setups` เงียบ ๆ (คือ F1 กลับด้าน)
+- แถว 12 แถวที่ลบไปแล้ว **กู้คืนไม่ได้** — เป็นของที่ replay สร้าง ไม่ใช่หลักฐานของรอบ live
 
 ---
 
