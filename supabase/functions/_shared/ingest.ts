@@ -963,10 +963,16 @@ async function persistSignals(
   const created = data ?? [];
   if (created.length === 0) return 0;
 
-  const historical = created.filter((signal) => !liveBarIds.has(Number(signal.bar_id)));
-  for (const signal of historical) {
-    await recordTelegramStatus(supabase, signal.id as string, "skipped_historical");
-  }
+  // One statement, not one per row. A catch-up request can carry hundreds of
+  // new bars, and the round trips this file batches everywhere else are the
+  // difference between finishing in a second and timing out.
+  await recordTelegramStatusMany(
+    supabase,
+    created
+      .filter((signal) => !liveBarIds.has(Number(signal.bar_id)))
+      .map((signal) => signal.id as string),
+    "skipped_historical",
+  );
 
   const live = created.filter((signal) => liveBarIds.has(Number(signal.bar_id)));
   if (live.length > 0) {
@@ -1016,32 +1022,46 @@ async function announce(
 ): Promise<void> {
   const cfg = telegramConfig();
   if (!cfg) {
-    for (const signal of created) {
-      await recordTelegramStatus(supabase, signal.id as string, "skipped_unconfigured");
-    }
+    await recordTelegramStatusMany(
+      supabase,
+      created.map((signal) => signal.id as string),
+      "skipped_unconfigured",
+    );
     return;
   }
 
   const byKey = new Map(rules.map((rule) => [rule.key, rule]));
 
+  // Decide everything before writing anything. The two reasons a signal is not
+  // sent are the same for every row that has them, so they cost one statement
+  // each — and recording them before the first send means a later failure
+  // cannot leave a deliberate skip looking like an unfinished one.
+  const disabled: string[] = [];
+  const muted: string[] = [];
+  const sendable: Record<string, unknown>[] = [];
+
   for (const signal of created) {
     const rule = byKey.get(signal.rule_key as string);
     if (!rule?.telegram_enabled) {
-      await recordTelegramStatus(
-        supabase,
-        signal.id as string,
-        "skipped_rule_disabled",
-      );
+      disabled.push(signal.id as string);
       continue;
     }
 
     // Muted for this instrument. The row is already stored and will be scored
     // like any other, which is what lets a muted setup earn its way back.
     if (signal.muted === true) {
-      await recordTelegramStatus(supabase, signal.id as string, "skipped_muted");
+      muted.push(signal.id as string);
       continue;
     }
 
+    sendable.push(signal);
+  }
+
+  await recordTelegramStatusMany(supabase, disabled, "skipped_rule_disabled");
+  await recordTelegramStatusMany(supabase, muted, "skipped_muted");
+
+  for (const signal of sendable) {
+    const rule = byKey.get(signal.rule_key as string)!;
     const payload = (signal.payload ?? {}) as Record<string, unknown>;
 
     const delivery = await sendSignal(cfg, {
@@ -1085,6 +1105,26 @@ type TelegramStatus =
   | "skipped_unconfigured"
   | "sent"
   | "failed";
+
+/**
+ * The same status for many signals. Only the reasons that carry no per-row
+ * detail can travel this way; `sent` and `failed` each need their own
+ * message id or error text and stay one statement per row.
+ */
+async function recordTelegramStatusMany(
+  supabase: SupabaseClient,
+  signalIds: string[],
+  status: Extract<TelegramStatus, `skipped_${string}`>,
+): Promise<void> {
+  if (signalIds.length === 0) return;
+
+  const { error } = await supabase
+    .from("signals")
+    .update({ telegram_status: status, telegram_error: null })
+    .in("id", signalIds);
+
+  if (error) console.error("could not store telegram delivery status:", error.message);
+}
 
 async function recordTelegramStatus(
   supabase: SupabaseClient,

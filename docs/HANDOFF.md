@@ -41,8 +41,10 @@
 | # | งานค้าง | **ส่งให้** | ทำไมคนอื่นทำแทนไม่ได้ | อ่านที่ |
 |---|---|---|---|---|
 | 1 | ~~P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`~~ · ~~merge PR #109~~ · ~~apply migration + deploy~~ **ปิดครบแล้ว 2026-09-08 13:20 UTC — `ingest v24` live และยืนยันด้วยข้อมูลจริงแล้ว** | — | ปิดแล้ว | §0AJ.6 |
-| 2 | **F3/F4/F5/F6 จากผลตรวจ** — batch การเขียน `telegram_status`, `cluster_levels` ยังไม่ atomic, บันทึกข้อแลกเปลี่ยนเรื่องแท่งที่ evaluate ซ้ำไม่ได้, เทสต์ unique index ระดับ DB | **GPT/Codex** | เป็นการแก้ runtime ที่ผู้ตรวจไม่ควรเขียนเอง (§0T) · ไม่บล็อกอะไร | §0AJ.3 |
-| 3 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
+| 2 | ~~F3/F4/F5/F6~~ **เขียนครบแล้ว** — เจ้าของสั่งให้เซสชันผู้ตรวจทำเอง ⇒ **ยังไม่มีใครตรวจ** | **Claude/Codex เซสชันใหม่** | ผู้เขียนตรวจงานตัวเองไม่ได้ (§0T) · เป็นข้อยกเว้นที่เจ้าของสั่ง จึงต้องมีผู้ตรวจอิสระชดเชย | §0AJ.7 |
+| 3 | **apply `20260908150000_keep_richer_cluster_level`** (trigger ปิด race ของ `cluster_levels`) | **เจ้าของ / Codex** | ยังไม่ apply · เป็น additive ล้วน ไม่ผูกกับ deploy ⇒ apply เมื่อไหร่ก็ได้หลังผ่าน review | §0AJ.7 |
+| 4 | **deploy `ingest` รอบใหม่** หลัง F3 ผ่าน review | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.7 |
+| 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -277,6 +279,50 @@ delete from public.strategy_setups where id in (13,14,15,16,17,19,20,21);    -- 
 - ⚠️ ถ้าถอน `090000` (drop unique index) **ต้อง rollback `ingest` กลับ v23 ด้วย**
   ไม่งั้น v24 จะเจอ `42P10` แล้วหยุดเขียน `strategy_setups` เงียบ ๆ (คือ F1 กลับด้าน)
 - แถว 12 แถวที่ลบไปแล้ว **กู้คืนไม่ได้** — เป็นของที่ replay สร้าง ไม่ใช่หลักฐานของรอบ live
+
+---
+
+### 0AJ.7 ปิด F3–F6 — **เขียนแล้ว ยังไม่ deploy · ยังไม่มีใครตรวจ** (2026-09-08)
+
+> **การเปิดเผยที่จำเป็น:** §00.1 เดิมส่งงานนี้ให้ Codex เพราะผู้ตรวจไม่ควรเขียน implementation
+> ของสิ่งที่ตัวเองตรวจ (§0T) **เจ้าของสั่งให้เซสชันผู้ตรวจทำเองทั้งหมด** ⇒ ทั้งสี่ข้อนี้
+> **ยังไม่ผ่านสายตาใครนอกจากคนเขียน** ต้องมีผู้ตรวจอิสระก่อน deploy
+
+| finding | ทำอะไร | ที่ไหน |
+|---|---|---|
+| **F3** | `skipped_*` ที่ไม่มีรายละเอียดต่อแถว เขียนด้วย `.in("id", ids)` ครั้งเดียวต่อกลุ่ม · `announce()` แบ่งกลุ่มให้จบก่อนแล้วค่อยส่ง · `sent`/`failed` ยังรายแถวเพราะมี message id / error ต่างกัน | `_shared/ingest.ts` |
+| **F4** | trigger `keep_richer_cluster_level` — ให้ ladder ได้การป้องกันแบบเดียวกับ bar | `20260908150000_…sql` **ยังไม่ apply** |
+| **F5** | บันทึกข้อแลกเปลี่ยน: แท่งที่ปิดแล้ว evaluate ซ้ำไม่ได้ ⇒ ประเมินพลาดตอน live กู้ด้วยการส่งซ้ำไม่ได้ | `docs/SETUP.md` |
+| **F6** | เทสต์ระดับฐานข้อมูล 16 assertion ครอบคลุม migration ทั้งสี่ | `supabase/tests/20260908_signal_ingest_audit_gaps_test.sql` |
+
+**F3 เปลี่ยนพฤติกรรมที่เทสต์เดิมตรึงไว้** — เทสต์สองตัวใน `ingest_test.ts` เคยยืนยันว่ามี
+`update` หนึ่งครั้งต่อสัญญาณหนึ่งแถว ตอนนี้แก้ให้ยืนยันตรงข้าม คือ **หนึ่ง statement ต่อกลุ่ม
+พร้อมเช็ค `.in("id", […])` ว่าครอบคลุม id ครบ** ซึ่งเป็นการตรึงที่แข็งกว่าเดิม ไม่ใช่การผ่อนเกณฑ์
+
+#### F6 รันจริงแล้ว และพิสูจน์แล้วว่า "ไม่ผ่านฟรี"
+
+รันบน PostgreSQL 16.13 ที่ตั้งขึ้นชั่วคราวในคอนเทนเนอร์ (ไม่ได้แตะ production):
+apply migration ทั้งหมดตามลำดับชื่อไฟล์ → **36 ไฟล์ผ่าน** · 10 ไฟล์ล้มด้วยเหตุผลของสภาพแวดล้อม
+ล้วน ๆ (`pg_cron` / `pg_net` / publication `supabase_realtime` ไม่มี, และ guard ที่อิงข้อมูลจริง)
+ไม่มีข้อไหนเกี่ยวกับ schema ที่เทสต์นี้ใช้ · ยืนยันว่า index/trigger/คอลัมน์ทั้งสี่ติดตั้งครบก่อนรัน
+
+| ผล | |
+|---|---|
+| รันปกติ | **16 assertion ผ่าน · 0 ล้ม** |
+| control A — ลบ unique index (คือความพังตาม F1) | ❌ ล้มที่ *"the same touch cannot be recorded twice"* |
+| control B — ลบ trigger `cluster_levels` | ❌ ล้มที่ *"a thinner re-send cannot overwrite a richer footprint row"* |
+| control C — ตัดสถานะออกจาก CHECK | ❌ ล้มตอนวน `foreach` เขียนทุกสถานะที่โค้ดใช้ได้ |
+
+control ทั้งสามคือเหตุผลที่ไฟล์นี้มีอยู่ — เทสต์ TypeScript เดิม**ผ่านหมดแม้ index หายไป**
+เพราะมันตรวจแค่รูปแบบการเรียกผ่าน client ปลอม
+
+#### สถานะ · rollback
+
+- **ยังไม่ deploy** `ingest` ที่รันอยู่ยังเป็น v24 ซึ่งไม่มี F3 · F3 เป็นเรื่องจำนวน round trip
+  ไม่ใช่ความถูกต้อง ⇒ ไม่เร่ง
+- **ยังไม่ apply** `20260908150000` · เป็น trigger additive ล้วน ไม่ผูกกับเวอร์ชันโค้ด
+  ⇒ apply ก่อนหรือหลัง deploy ก็ได้ ไม่มีลำดับบังคับแบบ F1
+- rollback: revert commit · migration มี `-- ROLLBACK` ในไฟล์
 
 ---
 
@@ -6367,14 +6413,35 @@ deno task rev:check     # fail ถ้าแก้โค้ดของส่ว�
 cd web && npm run build
 ```
 
-**Deploy edge function:** ใช้ `mcp__Supabase__deploy_edge_function` ต้องส่ง **ทุกไฟล์**
-ที่ `ingest/index.ts` import ถึง (โดย transitive) ไม่งั้นได้ 400 "Entrypoint path does not exist"
+**Deploy edge function — ใช้ Supabase CLI ไม่ใช่ MCP** (แก้ 2026-09-08):
 
-รายการไฟล์ของ `ingest` สำหรับ Confidence v2: `ingest/index.ts`, `_shared/{ingest,confidence_v2,plan,liquidity,price_action,telegram,outcomes,overrides,types,util,evidence}.ts`,
-`_shared/rules/{index,stacked_imbalance,delta_divergence,absorption,poc_shift}.ts`
+```bash
+export SUPABASE_ACCESS_TOKEN=<personal access token>   # ขอจากเจ้าของ · revoke ทิ้งหลังใช้
+npx --yes supabase@latest functions deploy ingest \
+  --project-ref sckdriuwfyittcybnbhz --no-verify-jwt   # ทั้งสองฟังก์ชัน verify_jwt=false
+```
 
-รายการไฟล์ของ `backtest`: `backtest/index.ts`, `_shared/{backtest,plan,liquidity,price_action,types,util}.ts`,
-`_shared/rules/{index,stacked_imbalance,delta_divergence,absorption,poc_shift}.ts` (12 ไฟล์ ไม่มี telegram.ts — โดยตั้งใจ)
+CLI อ่านไฟล์จากดิสก์เอง จึงครบและถูกต้องทุกไบต์ ไม่ต้องไล่รายชื่อไฟล์
+
+> ⚠️ **`mcp__Supabase__deploy_edge_function` ใช้กับ `ingest` ไม่ได้แล้ว** — มันบังคับให้ส่งเนื้อไฟล์
+> ทุกไฟล์ในคำสั่งเดียว ซึ่งตอนนี้คือ **33 ไฟล์ / 226 KB** เกินความยาวข้อความที่โมเดลออกได้
+> (ตอนเขียนหัวข้อนี้ครั้งแรก `ingest` มีแค่ ~16 ไฟล์ จึงยังไหว)
+>
+> ถ้าจำเป็นต้องใช้ MCP จริง ๆ **ห้ามเชื่อรายชื่อไฟล์ที่จดไว้** — คำนวณ transitive import สดทุกครั้ง
+> เพราะรายชื่อเก่าล้าสมัยไปเงียบ ๆ ทุกครั้งที่มีคนเพิ่ม `import`:
+> ```bash
+> cd supabase/functions && python3 -c "
+> import os,re,collections
+> q=collections.deque(['ingest/index.ts']); seen=set()
+> while q:
+>     f=os.path.normpath(q.popleft())
+>     if f in seen or not os.path.exists(f): continue
+>     seen.add(f)
+>     for m in re.finditer(r'from\s+\"(\.[^\"]+)\"', open(f).read()):
+>         q.append(os.path.normpath(os.path.join(os.path.dirname(f), m.group(1))))
+> print(len(seen)); [print(x) for x in sorted(seen)]"
+> ```
+> ไฟล์ที่ขาดไปแม้ตัวเดียว = 400 "Entrypoint path does not exist"
 
 **สั่ง backtest:** ดูข้อ 3.10 — ยิงผ่าน `select public.run_backtest('{...}'::jsonb)` ไม่ใช่ curl
 
