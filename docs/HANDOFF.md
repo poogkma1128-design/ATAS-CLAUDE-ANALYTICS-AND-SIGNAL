@@ -40,18 +40,18 @@
 
 | # | งานค้าง | **ส่งให้** | ทำไมคนอื่นทำแทนไม่ได้ | อ่านที่ |
 |---|---|---|---|---|
-| 1 | **ตรวจ branch `codex/open-work-1-6`** — ครบข้อ 1–6 รวม finding เพิ่มจาก PR #105; ยังไม่ deploy | **Claude (เซสชันใหม่)** | ผู้เขียนตรวจงานตัวเองไม่ได้ · ต้อง re-query/re-run หลักฐาน ไม่อ่านแค่ narrative | `docs/reviews/2026-09-08-open-work-1-6-codex-review.md` |
-| 2 | หลัง review ผ่านและเจ้าของจัดการ duplicate evidence แล้ว: apply migration ใหม่ตามลำดับและ deploy `ingest` | **GPT/Codex** | unique index ตั้งใจ fail closed ขณะที่ 7 duplicate groups ยังอยู่; ห้ามลบเอง | review doc ด้านบน |
+| 1 | ~~§00.1 เดิมข้อ 1–6 (P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`)~~ **แก้ครบแล้วใน branch `codex/open-work-1-6` @ `9eab3a3` และ Claude ตรวจแล้ว = APPROVE** | — | ปิดแล้ว รอ merge | §0AJ |
+| 2 | **merge `PR #109`** (branch `codex/open-work-1-6`) | **เจ้าของ / GPT-Codex** | ผู้ตรวจไม่ merge งานที่ตัวเองตรวจ | §0AJ.1 |
+| 3 | **หลังเจ้าของลบแถวซ้ำ 8 แถวแล้ว: apply migration 3 ไฟล์ทีละไฟล์ แล้วจึง deploy `ingest`** — ห้ามสลับลำดับ ห้าม `db push` | **GPT/Codex** | ต้องมี credential deploy · ผู้ตรวจไม่ deploy | §0AJ.3 (F1/F2) |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
 | # | งาน | หมายเหตุ |
 |---|---|---|
-| 1 | merge **PR #107** (รายงาน independent review) | draft · CI เขียว |
-| 2 | ตัดสินใจเรื่อง **ลบแถวซ้ำ 7 ชุดใน `strategy_setups`** | AI ไม่ลบให้เอง — แถวเหล่านั้นคือหลักฐานว่าเกิดอะไรขึ้น |
-| 3 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
-| 4 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
-| 5 | build **`SignalBridgeIndicator.cs` REV 1.5.0** | ต้องใช้ ATAS SDK บน Windows |
+| 1 | ตัดสินใจเรื่อง **ลบแถวซ้ำ 7 ชุด / 15 แถวใน `strategy_setups`** — ผู้ตรวจเสนอ **เก็บ id `5,6,8,9,10,11,12`** และ **ลบ id `13,14,15,16,17,19,20,21`** (8 แถว) พร้อมคำสั่ง `delete` สำเร็จรูป · **AI ไม่ลบให้** · ต้องทำ**ก่อน** apply migration `20260908090000` | ตาราง keep/delete ครบทุกกลุ่ม + เหตุผล อยู่ §0AJ.4 · **ห้ามลบ id 18** (หลักฐาน P1-2 ไม่ใช่แถวซ้ำ) |
+| 2 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
+| 3 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
+| 4 | build **`SignalBridgeIndicator.cs` REV 1.5.0** | ต้องใช้ ATAS SDK บน Windows |
 
 ### 00.3 รอเวลา ไม่ใช่รอคน
 
@@ -61,8 +61,8 @@
 - **ผลหลังต้นทุน** — คำนวณได้แล้วในทางเทคนิค (tick_value ครบ) แต่มีแค่ **4 signal** ของกฎใหม่
   ⇒ ยังสรุปอะไรไม่ได้ ต้องสะสมตัวอย่างก่อน
 - ⚠️ **ห้ามคำนวณความถี่ / อัตราหมดอายุ / ความเข้มของ trigger จาก `strategy_setups`
-  จนกว่า unique migration จะ apply และ duplicate evidence เดิมได้รับคำตัดสินจากเจ้าของ** —
-  ตัวเลขจะเพี้ยนตามจำนวนครั้งที่รีโหลดกราฟ
+  จนกว่าเจ้าของจะลบแถวซ้ำ 8 แถว (§00.2 ข้อ 1) และ apply `20260908090000` แล้ว** —
+  ตอนนี้ **8 ใน 23 แถว (35%) เป็นของที่ replay สร้าง** ไม่ใช่สิ่งที่รอบ live เห็น
 
 ### 00.4 สถานะระบบ ณ ตอนนี้ (ย่อ — รายละเอียดอยู่ §0AH)
 
@@ -72,7 +72,7 @@
 | กฎที่ live | `mnq_pullback_v1` · `mnq_reversal_v1` · `gc_sweep_v1` — enabled + telegram + `announcement_mode=manual` |
 | ฟีด | MNQU6 · GC · NQU6 · BTCUSDT 5m ไหลปกติ |
 | `tick_value` | MNQU6 `0.50` · NQU6 `5.00` · GC `10.00` · BTCUSDT `null` (ตั้งใจ) |
-| ผลการตรวจล่าสุด | §0AI — **ENDORSE WITH CHANGES**, P1 สองข้อ, ไม่ต้องปิดอะไร |
+| ผลการตรวจล่าสุด | §0AJ — `codex/open-work-1-6` @ `9eab3a3` **APPROVE** · 6 finding ไม่บล็อก · **ยังไม่ deploy** |
 | kill switch | `update public.rules set telegram_enabled=false where key in ('mnq_pullback_v1','mnq_reversal_v1','gc_sweep_v1');` |
 
 ### 00.5 กติกาการดูแลหัวข้อนี้
@@ -86,6 +86,113 @@
 4. อย่าเขียนหลักฐานหรือเหตุผลยาว ๆ ตรงนี้ — ใส่แค่ **ชี้ว่าอ่านที่ไหน**
 
 <!-- END-OPEN-WORK -->
+
+---
+
+## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · ยังไม่ deploy** (2026-09-08)
+
+เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
+ผู้ตรวจ: เซสชันนี้ ซึ่ง **ไม่ได้เขียน** branch นี้, ไม่ได้เขียน PR #105 และไม่ได้เขียน evaluator ทั้งสาม
+⇒ เป็นผู้ตรวจอิสระตาม §0T · **ไม่แตะ production เลย** ทุกคำสั่งที่ยิงคือ `select`
+
+### 0AJ.1 คำตัดสิน: **APPROVE**
+
+ครบทั้ง 6 ข้อของ §00.1 · การวินิจฉัย P1-2 **ถูกต้องและตรวจซ้ำได้จากแถวใน production จริง**
+· migration ที่เปลี่ยนความหมายของข้อมูลทั้งสองตัวเป็นแบบระมัดระวัง (ไม่ลบอะไรเลย)
+· ไม่ต้อง revert และไม่ต้องปิดอะไร
+
+| ที่รัน | ผล |
+|---|---|
+| `deno task test` บน `9eab3a3` | **234 passed · 0 failed** |
+| `deno task test` บน `origin/main` (ฐานเทียบ) | 226 passed · 0 failed ⇒ **+8 เทสต์ใหม่** |
+| `deno task check` | **PASS** ทั้งสี่ entrypoint |
+| `deno lint` / `deno fmt --check` | 34 problem / 10 ไฟล์ **เท่ากันทั้งสอง branch** ⇒ ไม่ถอยหลัง |
+
+### 0AJ.2 ข้อ 2 (P1-2) — **เป็นเพราะ carry ไม่ใช่ footprint** ยืนยันจากแถวจริง
+
+สองแถวนี้ปิดคำถามได้เอง:
+
+| id | touch | ทิศ | สถานะ | resolved | created |
+|---|---|---|---|---|---|
+| **7** | `prev_day_high@03:00` | short | `rejected` · `invalidated:bias_flipped` | **03:15:02** | 03:05:02 |
+| **18** | `prev_day_high@03:10` | long | `triggered` · `stacked_imbalance` | **06:41:56** | **06:41:56** |
+
+แถว 18 **ไม่มีคู่จากรอบ live เลย** และเป็นต้นทางของสัญญาณ `9edec504` (seq 8995, แท่ง `03:15`,
+`fired_at 06:41:57`). แถว 7 ถูกปิดโดยคำขอ live ที่ปิดแท่ง **03:10**
+
+กลไกอยู่ในซอร์สเอง ไม่ใช่ในข้อมูล — `strategy/pullback.ts:418-441` เก็บ set `resolvedThisBar`
+และทุกทางที่จะเปิด setup ใหม่ (`:568`, `:581`, `:591`) ขึ้นต้นด้วย
+`if (open.has(identity) || resolvedThisBar.has(identity)) continue;` ตาม §1.5 ของ spec
+⇒ รอบ live ที่มาถึงแท่ง 03:10 พร้อม carry `@03:00` short ปิดมันบนแท่งนั้น แล้ว **ถูกห้ามโดยการออกแบบ**
+ไม่ให้เปิด `@03:10` long บนแท่งเดียวกัน · ส่วน replay 06:41 เริ่มกลางอายุ setup ไม่มี carry จึงเปิดได้
+
+**ตัด footprint ออกด้วยการวัด ไม่ใช่ด้วยการเถียง** — แท่ง 03:05/03:10/03:15/03:20/03:25 ปิดครบ
+และมี ladder 91 / 50 / 64 / 50 / 167 แถว · แต่ละแท่งมีสำเนาเก็บอยู่ **ชุดเดียว** ทั้งสองรอบอ่านชุดเดียวกัน
+⇒ ตัวแปรที่ต่างคือ carry เท่านั้น
+
+### 0AJ.3 6 finding — **ไม่มีข้อไหนบล็อก merge** แต่ F1/F2 คือกับดักตอน deploy
+
+- **F1 (P2) ลำดับ deploy สำคัญมาก และถ้าพลาดจะเงียบ** — `ignoreDuplicates` แปลเป็น
+  `ON CONFLICT … DO NOTHING` ซึ่ง Postgres จะโยน `42P10` ถ้ายังไม่มี unique index
+  และ `ingest.ts:758` **จับ error นั้นแล้ว log เฉย ๆ** ⇒ ถ้า deploy `ingest` ก่อน apply migration
+  ระบบจะ **หยุดเขียน `strategy_setups` แบบเงียบ ๆ** carry หาย กลับไปเป็นระบอบ 1 สัญญาณของ §0AF
+  โดยไม่มีใครเห็น error. ลำดับที่ห้ามสลับ:
+  **(1) เจ้าของลบแถวซ้ำ → (2) apply `085500` + `085800` → (3) apply `090000` → (4) deploy `ingest`**
+- **F2 (P2) ห้าม `supabase db push`** — remote history ไม่มี `0033/0034/0036/0037/0038`
+  (ยืนยันแล้ว) ซึ่งถูกกั้นตาม §0I/§0J/§0M ⇒ push แบบเหมาจะลากมันขึ้นไปด้วย
+  ให้ apply ทีละไฟล์แล้ว `migration repair --status applied` แบบเดียวกับ `20260908051500`
+- **F3 (P2)** `recordTelegramStatus()` ยิง `UPDATE` ทีละแถว ⇒ batch แท่งใหม่ N แท่งเสีย N round trip
+  สวนทางกับการ batch ที่ไฟล์เดียวกันตั้งใจทำไว้ (คอมเมนต์ `ingest.ts:258`) · แก้ได้ด้วย `.in("id", ids)` บรรทัดเดียว
+- **F4 (P3)** trigger ใหม่ทำให้ **`bars`** atomic แต่ **ไม่คุม `cluster_levels`** ⇒ ใน race ยังได้
+  bar หนา + ladder บาง ซึ่งคือ reconcile mismatch ของ §0AE.5 จากอีกด้าน · race ถูก**แคบลง ไม่ได้ปิด**
+- **F5 (P3)** แท่งที่เก็บเป็น closed แล้วจะ **evaluate ซ้ำไม่ได้อีกเลย** ⇒ แท่งที่ประเมินพลาดตอน live
+  กู้คืนด้วยการส่งซ้ำไม่ได้แล้ว (แลกมากับ idempotency — ยอมรับได้ แต่ยังไม่ได้บันทึกไว้)
+- **F6 (P3)** เทสต์ idempotency ยิงใส่ client ปลอม ตรวจแค่ "รูปแบบการเรียก" ⇒ **สอบผ่านได้แม้ index หายไป**
+  ซึ่งคือความพังตาม F1 พอดี · `supabase/tests/0040_…_test.sql` มีแบบอย่าง DB-level อยู่แล้ว
+
+### 0AJ.4 แถวซ้ำใน `strategy_setups` — ครบทุกกลุ่ม พร้อม id ที่ควรเก็บ / ควรลบ
+
+**ยังไม่ได้ลบอะไรทั้งสิ้น** นี่คือข้อเสนอให้เจ้าของ (§00.2 ข้อ 1)
+
+ตอนนี้ **23 แถว · 7 กลุ่มซ้ำ · 15 แถวอยู่ในกลุ่มซ้ำ** และรูปแบบเหมือนกันทุกกลุ่ม:
+**id ต่ำ = แถว live** (เขียนหลังแท่งไม่กี่นาที · `saw_*` เป็นค่าจริง) ·
+**id สูง = แถวจาก replay รอบ 06:40–06:41** (`saw_*` false ทั้งหมด · `age_bars` เกินมา 1 · `last_seen_at` ยาวไป 1 แท่ง)
+⇒ **เก็บแถว live ทิ้งแถว replay**
+
+| # | กฎ | สัญลักษณ์ | `anchor_touch_id` | สถานะ | **เก็บ** | **ลบ** |
+|---|---|---|---|---|---|---|
+| 1 | `gc_sweep_v1` | GC | `prev_day_high@2026-09-08T03:25:00.000Z` | rejected · `invalidated:swept_again` | **8** | **13** |
+| 2 | `gc_sweep_v1` | GC | `prev_day_high@2026-09-08T04:20:00.000Z` | rejected · `invalidated:swept_again` | **9** | **14** |
+| 3 | `gc_sweep_v1` | GC | `prev_day_high@2026-09-08T05:00:00.000Z` | rejected · `expired_unfired` | **10** | **15** |
+| 4 | `mnq_pullback_v1` | MNQU6 | `prev_day_high@2026-09-08T02:45:00.000Z` | rejected · `invalidated:closed_through_anchor` | **5** | **16, 17** |
+| 5 | `mnq_pullback_v1` | MNQU6 | `prev_day_high@2026-09-08T05:30:00.000Z` | **triggered** · `stacked_imbalance` | **12** | **19** |
+| 6 | `mnq_reversal_v1` | MNQU6 | `prev_day_high@2026-09-08T02:50:00.000Z` | rejected · `invalidated:attempt_resumed` | **6** | **20** |
+| 7 | `mnq_reversal_v1` | MNQU6 | `prev_day_high@2026-09-08T05:25:00.000Z` | rejected · `invalidated:attempt_resumed` | **11** | **21** |
+
+**เก็บ (7):** `5, 6, 8, 9, 10, 11, 12` — **ลบ (8):** `13, 14, 15, 16, 17, 19, 20, 21`
+(กลุ่ม 5 คือคู่ที่ §0AI ชี้ว่า `triggered` ทั้งคู่ · กลุ่ม 4 มีสามแถวเพราะ replay รันสองรอบ)
+
+คำสั่งสำหรับ **เจ้าของ** (AI ไม่รัน):
+
+```sql
+select * from public.strategy_setups where id in (13,14,15,16,17,19,20,21);  -- อ่านก่อนลบ
+delete from public.strategy_setups where id in (13,14,15,16,17,19,20,21);    -- คาดหวัง DELETE 8
+```
+
+ตรวจแบบ read-only แล้วว่าเท่านี้พอดี: เหลือ **15 แถว · 0 กลุ่มซ้ำ · 0 open-anchor conflict**
+⇒ `20260908090000` apply ผ่านตั้งแต่ครั้งแรก
+
+> ⚠️ **ห้ามลบ id 18** — `mnq_pullback_v1` / `prev_day_high@2026-09-08T03:10:00.000Z` / triggered.
+> มันไม่ใช่แถวซ้ำ (ไม่มีคู่) unique index ไม่สนใจมัน แต่มันคือ **หลักฐานของ P1-2** และเป็นพ่อของสัญญาณ
+> `9edec504` (seq 8995). เก็บทั้งคู่ไว้ · ถ้านับ census ใหม่ ให้ **ตัด seq 8995 ออกจาก "สัญญาณที่ระบบ live สร้าง"**
+> เพราะรอบ live ไม่เคยสร้างมัน และมันไม่เคยถึง Telegram
+
+### 0AJ.5 งานค้างหลังการตรวจนี้
+
+- **ยังไม่ deploy อะไรทั้งสิ้น** — ทั้ง migration และ `ingest`
+- เจ้าของตัดสินเรื่องลบ 8 แถวก่อน แล้วจึงเดินตามลำดับ F1 ทั้งสี่ขั้น
+- F3/F4/F5/F6 เป็นงานของ executor ไม่ใช่ผู้ตรวจ · ทำภายหลังได้ ไม่บล็อก merge
+- ยังไม่มีหลักฐานใดในโปรเจกต์นี้ที่รองรับข้ออ้างเรื่องกำไร และการตรวจรอบนี้ไม่ได้เปลี่ยนข้อนั้น
 
 ---
 
