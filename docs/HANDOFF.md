@@ -41,7 +41,7 @@
 | # | งานค้าง | **ส่งให้** | ทำไมคนอื่นทำแทนไม่ได้ | อ่านที่ |
 |---|---|---|---|---|
 | 1 | ~~P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`~~ · ~~merge PR #109~~ · ~~apply migration + deploy~~ **ปิดครบแล้ว 2026-09-08 13:20 UTC — `ingest v24` live และยืนยันด้วยข้อมูลจริงแล้ว** | — | ปิดแล้ว | §0AJ.6 |
-| 2 | **F3/F5 แก้ scope/เอกสารตาม corrective review แล้ว · F6 ผ่าน DB re-run · F4 รอ owner เลือก contract** | **Owner เลือก F4 แล้วส่ง draft PR ให้ Claude เซสชันใหม่ตรวจ** | Codex เขียน correction จึงตรวจของตัวเองไม่ได้ (§0T); F4 มี trade-off ที่ owner ต้องเลือก | §0AJ.8 |
+| 2 | **draft PR #112: F3/F5 แก้ scope/เอกสารแล้ว · F6 ผ่าน DB re-run · F4 รอ owner เลือก contract** | **Owner เลือก F4 แล้วส่ง PR #112 ให้ Claude เซสชันใหม่ตรวจ** | Codex เขียน correction จึงตรวจของตัวเองไม่ได้ (§0T); F4 มี trade-off ที่ owner ต้องเลือก | §0AJ.8 |
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
@@ -330,7 +330,7 @@ control ทั้งสามคือเหตุผลที่ไฟล์น
 
 เอกสารเต็ม: `docs/reviews/2026-09-08-f3-f6-codex-corrective-review.md`
 
-branch: `codex/review-f3-f6-main` · base `main@ffa282a` · correction `9124b31`
+draft PR **#112** · branch `codex/review-f3-f6-main` · base `main@ffa282a` · correction `9124b31`
 
 - **F3:** historical ยังคง batch ด้วย `.in("id", ids)` ครั้งเดียว แต่คืน live-path skip/sent/failed
   เป็นลำดับราย signal เดิม เพราะ finding ไม่ได้ขอเปลี่ยน sequencing ส่วนนั้น.
