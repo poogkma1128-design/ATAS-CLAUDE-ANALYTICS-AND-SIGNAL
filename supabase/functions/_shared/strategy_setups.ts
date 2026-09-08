@@ -163,6 +163,7 @@ export async function persistStrategyCarry(
   resolved: DurableOpportunity[],
 ): Promise<void> {
   const known = new Set(before.open.map((setup) => setup.anchorTouchId));
+  const conflictTarget = "strategy_key,instrument_id,timeframe,anchor_touch_id";
 
   // Resolutions first. A setup that closed and one that re-opened on the same
   // anchor in the same batch would otherwise both be open for an instant, and
@@ -170,29 +171,31 @@ export async function persistStrategyCarry(
   for (const opportunity of resolved) {
     const { status, reason } = resolutionOf(opportunity);
 
-    if (known.has(opportunity.anchorTouchId)) {
-      await resolveByTouchId(
-        supabase,
-        scope,
-        strategyKey,
-        [opportunity.anchorTouchId],
-        status,
-        reason,
-      );
-      continue;
-    }
-
-    const { error } = await supabase.from("strategy_setups").insert({
-      ...rowFor(
-        scope,
-        strategyKey,
-        contractVersion,
-        asOpenSetupFromOpportunity(opportunity),
-      ),
+    const updated = await resolveByTouchId(
+      supabase,
+      scope,
+      strategyKey,
+      [opportunity.anchorTouchId],
       status,
-      outcome_reason: reason,
-      resolved_at: new Date().toISOString(),
-    });
+      reason,
+    );
+    if (updated > 0) continue;
+
+    const { error } = await supabase.from("strategy_setups").upsert(
+      {
+        ...rowFor(
+          scope,
+          strategyKey,
+          contractVersion,
+          asOpenSetupFromOpportunity(opportunity),
+        ),
+        status,
+        outcome_reason: reason,
+        resolved_at: new Date().toISOString(),
+        updated_at: new Date().toISOString(),
+      },
+      { onConflict: conflictTarget, ignoreDuplicates: true },
+    );
     if (error) {
       throw new Error(`strategy setup insert (resolved) failed: ${error.message}`);
     }
@@ -224,7 +227,10 @@ export async function persistStrategyCarry(
 
     const { error } = await supabase
       .from("strategy_setups")
-      .insert(rowFor(scope, strategyKey, contractVersion, setup));
+      .upsert(rowFor(scope, strategyKey, contractVersion, setup), {
+        onConflict: conflictTarget,
+        ignoreDuplicates: true,
+      });
 
     if (error) throw new Error(`strategy setup insert failed: ${error.message}`);
   }
@@ -237,11 +243,11 @@ async function resolveByTouchId(
   touchIds: string[],
   status: "triggered" | "rejected",
   reason: string,
-): Promise<void> {
-  if (touchIds.length === 0) return;
+): Promise<number> {
+  if (touchIds.length === 0) return 0;
 
   const stamp = new Date().toISOString();
-  const { error } = await supabase
+  const { data, error } = await supabase
     .from("strategy_setups")
     .update({
       status,
@@ -253,9 +259,11 @@ async function resolveByTouchId(
     .eq("instrument_id", scope.instrumentId)
     .eq("timeframe", scope.timeframe)
     .in("anchor_touch_id", touchIds)
-    .eq("status", "open");
+    .eq("status", "open")
+    .select("id");
 
   if (error) throw new Error(`strategy setup resolve failed: ${error.message}`);
+  return (data ?? []).length;
 }
 
 /** The evaluator's own words for how a setup ended, never a summary of them. */

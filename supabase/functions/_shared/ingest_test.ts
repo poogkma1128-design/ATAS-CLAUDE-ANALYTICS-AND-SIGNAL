@@ -556,6 +556,9 @@ Deno.test("ingest: a re-send that is at least as complete still lands", async ()
   assertEquals(result.barsSuperseded, 0);
   assertEquals(result.barsWritten, 1);
   assertEquals(client.rowsFor("bars", "upsert").length, 1);
+  // The richer snapshot may repair stored data, but replay is not a second
+  // chance to create a signal after the original carry has already resolved.
+  assertEquals(client.callsFor("signals", "upsert").length, 0);
 });
 
 Deno.test("ingest: an unfinished stored bar is never treated as a re-send", async () => {
@@ -738,6 +741,7 @@ Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
       data: [
         {
           id: "sig-1",
+          bar_id: 101,
           rule_key: "stacked_imbalance",
           direction: "long",
           price: 100.75,
@@ -747,6 +751,7 @@ Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
         },
         {
           id: "sig-2",
+          bar_id: 102,
           rule_key: "stacked_imbalance",
           direction: "long",
           price: 100.75,
@@ -771,15 +776,58 @@ Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
   // Both signals are persisted and counted.
   assertEquals(result.signalsCreated, 2);
 
-  // Announcing writes the telegram id back onto the signal row. No update means
-  // nothing was sent.
-  assertEquals(client.callsFor("signals", "update").length, 0);
+  const statuses = client.callsFor("signals", "update").map((call) =>
+    (call.ops[0].args[0] as Record<string, unknown>).telegram_status
+  );
+  assertEquals(statuses, ["skipped_historical", "skipped_historical"]);
+});
+
+Deno.test("ingest: a multi-bar request still announces its freshly closed bar", async () => {
+  const client = new StubClient()
+    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("rules.select", { data: [STACKED_RULE], error: null })
+    .queue("bars.select", { data: [], error: null })
+    .queue("bars.upsert", {
+      data: [
+        { id: 101, opened_at: "2026-08-27T10:00:00.000Z" },
+        { id: 102, opened_at: "2026-08-27T10:05:00.000Z" },
+      ],
+      error: null,
+    })
+    .queue("signals.upsert", {
+      data: [
+        { id: "sig-old", bar_id: 101, rule_key: "stacked_imbalance" },
+        { id: "sig-live", bar_id: 102, rule_key: "stacked_imbalance" },
+      ],
+      error: null,
+    });
+
+  await ingest(
+    client.asClient(),
+    payload({
+      bars: [
+        bar({ openedAt: "2026-08-27T10:00:00.000Z" }),
+        bar({ openedAt: "2026-08-27T10:05:00.000Z" }),
+      ],
+    }),
+    new Date("2026-08-27T10:10:02.000Z"),
+  );
+
+  const statuses = client.callsFor("signals", "update").map((call) => ({
+    id: call.ops.find((op) => op.name === "eq")?.args[1],
+    status: (call.ops[0].args[0] as Record<string, unknown>).telegram_status,
+  }));
+  assertEquals(statuses, [
+    { id: "sig-old", status: "skipped_historical" },
+    { id: "sig-live", status: "skipped_unconfigured" },
+  ]);
 });
 
 Deno.test("ingest: a single closed bar is the live case and may be announced", async () => {
   const client = readyClient().queue("signals.upsert", {
     data: [{
       id: "sig-1",
+      bar_id: 101,
       rule_key: "stacked_imbalance",
       direction: "long",
       price: 100.75,
@@ -790,12 +838,75 @@ Deno.test("ingest: a single closed bar is the live case and may be announced", a
     error: null,
   });
 
-  const result = await ingest(client.asClient(), payload());
+  const result = await ingest(
+    client.asClient(),
+    payload(),
+    new Date("2026-08-27T10:05:02.000Z"),
+  );
 
   assertEquals(result.signalsCreated, 1);
-  // Telegram is unconfigured in tests, so announce returns before sending; the
-  // point here is that the single-bar path is not short-circuited as history.
-  assertEquals(client.callsFor("signals", "upsert").length, 1);
+  const status = client.callsFor("signals", "update")[0].ops[0]
+    .args[0] as Record<string, unknown>;
+  assertEquals(status.telegram_status, "skipped_unconfigured");
+});
+
+Deno.test("ingest: a Telegram failure is recorded with its reason", async () => {
+  const oldFetch = globalThis.fetch;
+  const oldToken = Deno.env.get("TELEGRAM_BOT_TOKEN");
+  const oldChat = Deno.env.get("TELEGRAM_CHAT_ID");
+  Deno.env.set("TELEGRAM_BOT_TOKEN", "test-token");
+  Deno.env.set("TELEGRAM_CHAT_ID", "test-chat");
+  globalThis.fetch = () =>
+    Promise.resolve(
+      new Response(
+        JSON.stringify({ ok: false, description: "bot was blocked" }),
+        { status: 400, headers: { "Content-Type": "application/json" } },
+      ),
+    );
+
+  try {
+    const client = readyClient().queue("signals.upsert", {
+      data: [{
+        id: "sig-failed",
+        bar_id: 101,
+        seq: 1,
+        rule_key: "stacked_imbalance",
+        direction: "long",
+        price: 100.75,
+        confidence: 0,
+        payload: {},
+        fired_at: "2026-08-27T10:00:00.000Z",
+        muted: false,
+        entry_price: 100.75,
+        stop_price: 99.75,
+        target_price: 102.75,
+        risk_ticks: 4,
+        reward_ticks: 8,
+        trail_trigger_ticks: 4,
+        trail_offset_ticks: 2,
+        hold_bars: 10,
+      }],
+      error: null,
+    });
+
+    await ingest(
+      client.asClient(),
+      payload(),
+      new Date("2026-08-27T10:05:02.000Z"),
+    );
+
+    const status = client.callsFor("signals", "update")[0].ops[0]
+      .args[0] as Record<string, unknown>;
+    assertEquals(status.telegram_status, "failed");
+    assertEquals(status.telegram_error, "bot was blocked");
+    assertEquals(status.telegram_message_id, null);
+  } finally {
+    globalThis.fetch = oldFetch;
+    if (oldToken === undefined) Deno.env.delete("TELEGRAM_BOT_TOKEN");
+    else Deno.env.set("TELEGRAM_BOT_TOKEN", oldToken);
+    if (oldChat === undefined) Deno.env.delete("TELEGRAM_CHAT_ID");
+    else Deno.env.set("TELEGRAM_CHAT_ID", oldChat);
+  }
 });
 
 Deno.test("ingest: evidence-first snapshots an unproven signal as muted", async () => {

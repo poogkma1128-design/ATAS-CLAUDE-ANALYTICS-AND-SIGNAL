@@ -41,7 +41,7 @@
 | # | งานค้าง | **ส่งให้** | ทำไมคนอื่นทำแทนไม่ได้ | อ่านที่ |
 |---|---|---|---|---|
 | 1 | ~~§00.1 เดิมข้อ 1–6 (P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`)~~ **แก้ครบแล้วใน branch `codex/open-work-1-6` @ `9eab3a3` และ Claude ตรวจแล้ว = APPROVE** | — | ปิดแล้ว รอ merge | §0AJ |
-| 2 | **merge branch `codex/open-work-1-6`** (ยังไม่มี PR) | **เจ้าของ / GPT-Codex** | ผู้ตรวจไม่ merge งานที่ตัวเองตรวจ | §0AJ.1 |
+| 2 | **merge `PR #109`** (branch `codex/open-work-1-6`) | **เจ้าของ / GPT-Codex** | ผู้ตรวจไม่ merge งานที่ตัวเองตรวจ | §0AJ.1 |
 | 3 | **หลังเจ้าของลบแถวซ้ำ 8 แถวแล้ว: apply migration 3 ไฟล์ทีละไฟล์ แล้วจึง deploy `ingest`** — ห้ามสลับลำดับ ห้าม `db push` | **GPT/Codex** | ต้องมี credential deploy · ผู้ตรวจไม่ deploy | §0AJ.3 (F1/F2) |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)

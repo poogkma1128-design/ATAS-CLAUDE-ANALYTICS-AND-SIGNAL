@@ -15,6 +15,8 @@ export const RULE_KEY = "gc_sweep_v1";
 export const CONTRACT_VERSION = "GC_SWEEP_V1@S-A-arm-2-live-preview-1";
 export const GC_MARKET_TICK_SIZE = 0.1;
 
+export type GcSweepContract = FailedBreakContract & { marketTickSize: number };
+
 const BASE_CONTRACT: FailedBreakContract = {
   version: CONTRACT_VERSION,
   strategyKey: "GC_SWEEP_V1",
@@ -28,24 +30,28 @@ const BASE_CONTRACT: FailedBreakContract = {
 
 export const EMPTY_CARRY: FailedBreakCarry = { open: [], lastDecisionAt: null };
 
-export function contractFor(params: Record<string, unknown>): FailedBreakContract {
+export function contractFor(params: Record<string, unknown>): GcSweepContract {
   const returnWindowBars = Math.max(1, Math.round(num(params, "returnWindowBars", 3)));
   const sweepDistance = num(params, "sweepDistance", 0.25);
   const setupMaxAgeBars = Math.max(1, Math.round(num(params, "setupMaxAgeBars", 6)));
   const confirmationMode = params.confirmationMode === "return_only"
     ? "return_only"
     : "order_flow";
+  const marketTickSize = num(params, "marketTickSize", GC_MARKET_TICK_SIZE);
   if (!(sweepDistance > 0)) throw new Error("sweepDistance must be positive");
+  if (!(marketTickSize > 0)) throw new Error("marketTickSize must be positive");
   const moved = [
     returnWindowBars === 3 ? null : `returnWindowBars=${returnWindowBars}`,
     sweepDistance === 0.25 ? null : `sweepDistance=${sweepDistance}`,
     setupMaxAgeBars === 6 ? null : `setupMaxAgeBars=${setupMaxAgeBars}`,
     confirmationMode === "order_flow" ? null : "confirmationMode=return_only",
+    marketTickSize === GC_MARKET_TICK_SIZE ? null : `marketTickSize=${marketTickSize}`,
   ].filter(Boolean);
   return {
     ...BASE_CONTRACT,
     setupMaxAgeBars,
     confirmationMode,
+    marketTickSize,
     version: moved.length ? `${CONTRACT_VERSION}+${moved.join(",")}` : CONTRACT_VERSION,
   };
 }
@@ -78,9 +84,9 @@ function step(ctx: RuleContext, carry: FailedBreakCarry | undefined) {
     attemptWindowBars: returnWindowBars,
     attemptDistance: sweepDistance,
     triggerKinds: contract.triggerKinds,
-    // ATAS currently reports 0.40 for GC. CME's contract tick is 0.10; the
-    // frozen value keeps footprint adjacency and Telegram plans on that grid.
-    marketTickSize: GC_MARKET_TICK_SIZE,
+    // ATAS currently reports 0.40 for GC. The production param defaults to
+    // CME's 0.10 contract tick, but remains explicit and versioned if curated.
+    marketTickSize: contract.marketTickSize,
   });
   const result = evaluateFailedBreak([built.decision], contract, carry);
   return {

@@ -28,11 +28,16 @@ export function escapeHtml(value: string): string {
     .replace(/>/g, "&gt;");
 }
 
-async function callTelegram(
+export interface TelegramSendResult {
+  messageId: number | null;
+  error: string | null;
+}
+
+async function callTelegramDetailed(
   cfg: TelegramConfig,
   method: string,
   body: Record<string, unknown>,
-): Promise<number | null> {
+): Promise<TelegramSendResult> {
   try {
     const response = await fetch(
       `https://api.telegram.org/bot${cfg.botToken}/${method}`,
@@ -43,20 +48,34 @@ async function callTelegram(
       },
     );
 
-    const result = await response.json();
-    if (!response.ok || !result.ok) {
+    const result = await response.json() as Record<string, unknown>;
+    if (!response.ok || result.ok !== true) {
       console.error(`telegram ${method} failed:`, JSON.stringify(result));
-      return null;
+      const description = typeof result.description === "string"
+        ? result.description
+        : `HTTP ${response.status}`;
+      return { messageId: null, error: description.slice(0, 500) };
     }
 
-    return typeof result.result?.message_id === "number"
-      ? result.result.message_id
-      : null;
+    const payload = result.result as Record<string, unknown> | undefined;
+    const messageId = typeof payload?.message_id === "number" ? payload.message_id : null;
+    return messageId === null
+      ? { messageId: null, error: "Telegram response contained no message_id" }
+      : { messageId, error: null };
   } catch (error) {
     // A Telegram outage must never fail an ingest: the data is already stored.
     console.error(`telegram ${method} threw:`, error);
-    return null;
+    const message = error instanceof Error ? error.message : String(error);
+    return { messageId: null, error: message.slice(0, 500) };
   }
+}
+
+async function callTelegram(
+  cfg: TelegramConfig,
+  method: string,
+  body: Record<string, unknown>,
+): Promise<number | null> {
+  return (await callTelegramDetailed(cfg, method, body)).messageId;
 }
 
 export interface SignalMessage {
@@ -189,7 +208,7 @@ export function formatSignal(msg: SignalMessage): string {
 export function sendSignal(
   cfg: TelegramConfig,
   msg: SignalMessage,
-): Promise<number | null> {
+): Promise<TelegramSendResult> {
   const body: Record<string, unknown> = {
     text: formatSignal(msg),
     parse_mode: "HTML",
@@ -205,7 +224,7 @@ export function sendSignal(
     };
   }
 
-  return callTelegram(cfg, "sendMessage", body);
+  return callTelegramDetailed(cfg, "sendMessage", body);
 }
 
 export interface OutcomeMessage {
