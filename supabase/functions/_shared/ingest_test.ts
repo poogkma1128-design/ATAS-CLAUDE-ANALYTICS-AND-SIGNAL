@@ -46,6 +46,9 @@ class StubBuilder implements PromiseLike<StubResult> {
   lt(...a: unknown[]) {
     return this.push("lt", a);
   }
+  in(...a: unknown[]) {
+    return this.push("in", a);
+  }
   order(...a: unknown[]) {
     return this.push("order", a);
   }
@@ -184,6 +187,17 @@ function readyClient(rules: RuleRow[] = [STACKED_RULE]): StubClient {
       error: null,
     })
     .queue("bars.select", { data: [], error: null });
+}
+
+/**
+ * History reads only. Ingest also selects from `bars` to see what it already
+ * holds for the timestamps in the request, and that lookup is not a history
+ * read: it is keyed by `in` and never ordered.
+ */
+function historyReads(client: StubClient): RecordedCall[] {
+  return client.callsFor("bars", "select").filter((call) =>
+    call.ops.some((op) => op.name === "order")
+  );
 }
 
 // ------------------------------------------------------------------ validation
@@ -359,7 +373,12 @@ Deno.test("ingest: stores the bar, its footprint, and the signal it triggers", a
 
   const result = await ingest(client.asClient(), payload());
 
-  assertEquals(result, { barsWritten: 1, levelsWritten: 5, signalsCreated: 1 });
+  assertEquals(result, {
+    barsWritten: 1,
+    levelsWritten: 5,
+    signalsCreated: 1,
+    barsSuperseded: 0,
+  });
 });
 
 Deno.test("ingest: records the point of control on the bar", async () => {
@@ -384,7 +403,7 @@ Deno.test("ingest: an unfinished bar is stored but never judged", async () => {
   assertEquals(result.signalsCreated, 0);
   assertEquals(client.callsFor("signals", "upsert").length, 0);
   // No history lookup either, since no rule ran.
-  assertEquals(client.callsFor("bars", "select").length, 0);
+  assertEquals(historyReads(client).length, 0);
 });
 
 Deno.test("ingest: deduplication is delegated to the unique constraint", async () => {
@@ -448,7 +467,7 @@ Deno.test("ingest: bars in one request go up as one ordered batch", async () => 
   assertEquals(levelBarIds.slice(-5), [103, 103, 103, 103, 103]);
 
   // And history is read once for the batch, not once per bar.
-  assertEquals(client.callsFor("bars", "select").length, 1);
+  assertEquals(historyReads(client).length, 1);
 });
 
 Deno.test("ingest: a bar repeated in one request is collapsed, not sent twice", async () => {
@@ -484,12 +503,120 @@ Deno.test("ingest: a footprint batch is chunked rather than sent whole", async (
   assertEquals(client.rowsFor("cluster_levels", "upsert", 1).length, 200);
 });
 
+// ------------------------------------------------- re-sends of finished bars
+//
+// A chart that reloads posts bars it already streamed. ATAS replays those from
+// its own history, which is thinner than what it saw tick by tick, and the
+// replay used to overwrite the bar row while `cluster_levels` kept the richer
+// live rows. The two then no longer summed to the same number of ticks, which
+// is exactly what `reconcilesFootprint()` checks before it will read a
+// footprint at all.
+
+/** A client whose first `bars` select answers the stored-bar lookup. */
+function clientHolding(stored: Record<string, unknown>[]): StubClient {
+  return new StubClient()
+    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("rules.select", { data: [STACKED_RULE], error: null })
+    .queue("bars.select", { data: stored, error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    })
+    .queue("signals.upsert", { data: [], error: null });
+}
+
+Deno.test("ingest: a re-send that remembers less than the live capture is left alone", async () => {
+  // The stored copy saw 90 ticks live; this replay claims 40 for the same bar.
+  const client = clientHolding([
+    { id: 101, opened_at: "2026-08-27T10:00:00.000Z", ticks: 90, is_closed: true },
+  ]);
+
+  const result = await ingest(client.asClient(), payload());
+
+  assertEquals(result.barsSuperseded, 1);
+  assertEquals(result.barsWritten, 0);
+  assertEquals(result.levelsWritten, 0);
+
+  // Neither half of the bar is touched, so the two cannot drift apart.
+  assertEquals(client.callsFor("bars", "upsert").length, 0);
+  assertEquals(client.callsFor("cluster_levels", "upsert").length, 0);
+
+  // And it is not judged a second time: it was judged when it was captured.
+  assertEquals(client.callsFor("signals", "upsert").length, 0);
+  assertEquals(historyReads(client).length, 0);
+});
+
+Deno.test("ingest: a re-send that is at least as complete still lands", async () => {
+  const client = clientHolding([
+    { id: 101, opened_at: "2026-08-27T10:00:00.000Z", ticks: 40, is_closed: true },
+  ]);
+
+  const result = await ingest(client.asClient(), payload());
+
+  assertEquals(result.barsSuperseded, 0);
+  assertEquals(result.barsWritten, 1);
+  assertEquals(client.rowsFor("bars", "upsert").length, 1);
+});
+
+Deno.test("ingest: an unfinished stored bar is never treated as a re-send", async () => {
+  // An in-progress bar legitimately shrinks between snapshots — ATAS restates
+  // it as volume lands. Only a bar the database already calls finished is
+  // protected.
+  const client = clientHolding([
+    { id: 101, opened_at: "2026-08-27T10:00:00.000Z", ticks: 90, is_closed: false },
+  ]);
+
+  const result = await ingest(client.asClient(), payload());
+
+  assertEquals(result.barsSuperseded, 0);
+  assertEquals(result.barsWritten, 1);
+});
+
+Deno.test("ingest: a failed lookup writes every bar rather than dropping the feed", async () => {
+  const client = clientHolding([]);
+  client.responses["bars.select"] = [{ data: null, error: { message: "boom" } }];
+
+  const result = await ingest(client.asClient(), payload());
+
+  assertEquals(result.barsSuperseded, 0);
+  assertEquals(result.barsWritten, 1);
+  assertEquals(client.callsFor("bars", "upsert").length, 1);
+});
+
+Deno.test("ingest: the stored-bar lookup is scoped and asks only for this request's bars", async () => {
+  const client = clientHolding([]);
+  client.responses["bars.upsert"] = [{
+    data: [
+      { id: 101, opened_at: "2026-08-27T10:00:00.000Z" },
+      { id: 102, opened_at: "2026-08-27T10:05:00.000Z" },
+    ],
+    error: null,
+  }];
+
+  await ingest(
+    client.asClient(),
+    payload({ bars: [bar(), bar({ openedAt: "2026-08-27T10:05:00.000Z" })] }),
+  );
+
+  const lookup = client.callsFor("bars", "select").find((call) =>
+    call.ops.some((op) => op.name === "in")
+  );
+  assertExists(lookup);
+  assertEquals(lookup.ops.map((op) => op.name), ["select", "eq", "eq", "in"]);
+  assertEquals(lookup.ops[1].args, ["instrument_id", "inst-1"]);
+  assertEquals(lookup.ops[2].args, ["timeframe", "5m"]);
+  assertEquals(lookup.ops[3].args, [
+    "opened_at",
+    ["2026-08-27T10:00:00.000Z", "2026-08-27T10:05:00.000Z"],
+  ]);
+});
+
 Deno.test("ingest: history is scoped to the same instrument, timeframe and past", async () => {
   const client = readyClient().queue("signals.upsert", { data: [], error: null });
 
   await ingest(client.asClient(), payload());
 
-  const call = client.callsFor("bars", "select")[0];
+  const call = historyReads(client)[0];
   const names = call.ops.map((o) => o.name);
   assertEquals(names, ["select", "eq", "eq", "eq", "lt", "order", "limit"]);
 
@@ -513,7 +640,7 @@ Deno.test("ingest: a disabled rule produces nothing", async () => {
   assertEquals(result.signalsCreated, 0);
   assertEquals(client.callsFor("signals", "upsert").length, 0);
   // Nothing to judge, so history is never read either.
-  assertEquals(client.callsFor("bars", "select").length, 0);
+  assertEquals(historyReads(client).length, 0);
 });
 
 Deno.test("ingest: a database error is surfaced, not swallowed", async () => {

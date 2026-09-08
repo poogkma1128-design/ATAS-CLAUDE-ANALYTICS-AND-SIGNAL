@@ -164,6 +164,8 @@ export interface IngestResult {
   barsWritten: number;
   levelsWritten: number;
   signalsCreated: number;
+  /** Bars a re-send would have made less complete, so they were left alone. */
+  barsSuperseded: number;
 }
 
 type InstrumentSignalRole = "primary" | "shadow";
@@ -214,11 +216,55 @@ export async function ingest(
     return { bar, levels, pocPrice: pointOfControl(levels)?.price ?? null };
   });
 
+  // A chart that reloads re-sends bars it already streamed live, and ATAS
+  // replays them from its own stored history. That replay is thinner than what
+  // the terminal saw tick by tick: measured on production, a re-sent bar-row
+  // carries 1.3-1.5x fewer ticks than the footprint written during the live
+  // pass, and never more (`ladder thinner than bar: 0` across 2,172 mismatched
+  // bars, four instruments).
+  //
+  // The bar row is replaced wholesale by such a re-send while `cluster_levels`
+  // is upserted per price, so the ladder keeps the richer live rows. The two
+  // then disagree, and `reconcilesFootprint()` — which asks that the ladder's
+  // ticks sum to the bar's — refuses the footprint. That is the whole of the
+  // "36.5% reconcile" in HANDOFF §0AE.5: bars written only live reconcile at
+  // 100.0%, in every hour of the day, including the US session.
+  //
+  // So a snapshot that would make an already-finished bar *less* complete is
+  // not written at all. It is the same bar; ATAS simply remembers less about it
+  // now than it did at the time.
+  const stored = await loadStoredBars(
+    supabase,
+    instrumentId,
+    payload.timeframe,
+    prepared,
+  );
+  const fresh: PreparedBar[] = [];
+  let superseded = 0;
+  for (const entry of prepared) {
+    const prior = stored.get(Date.parse(entry.bar.openedAt));
+    if (prior?.isClosed && (entry.bar.ticks ?? 0) < prior.ticks) {
+      superseded++;
+      continue;
+    }
+    fresh.push(entry);
+  }
+  if (superseded > 0) {
+    console.log(
+      `ingest: kept ${superseded} stored bar(s) for ${payload.symbol} ${payload.timeframe}; ` +
+        `the re-sent copy carried fewer ticks than the live capture`,
+    );
+  }
+
   // Everything below is batched. A hundred-bar backfill used to cost four round
   // trips per bar; it now costs a handful for the whole request, which is the
   // difference between the function finishing in a second and timing out.
-  const barIds = await upsertBars(supabase, instrumentId, payload.timeframe, prepared);
-  const levelsWritten = await upsertLevels(supabase, prepared, barIds);
+  const barIds = fresh.length === 0
+    ? []
+    : await upsertBars(supabase, instrumentId, payload.timeframe, fresh);
+  const levelsWritten = fresh.length === 0
+    ? 0
+    : await upsertLevels(supabase, fresh, barIds);
 
   const evaluatedRows = await evaluateBars(
     supabase,
@@ -227,7 +273,7 @@ export async function ingest(
     overrides,
     announcementEligibility,
     instrumentPolicy,
-    prepared,
+    fresh,
     barIds,
     tickSize,
   );
@@ -241,7 +287,66 @@ export async function ingest(
     isHistoricalBatch,
   );
 
-  return { barsWritten: prepared.length, levelsWritten, signalsCreated };
+  return {
+    barsWritten: fresh.length,
+    levelsWritten,
+    signalsCreated,
+    barsSuperseded: superseded,
+  };
+}
+
+interface StoredBar {
+  id: number;
+  ticks: number;
+  isClosed: boolean;
+}
+
+/**
+ * What the database already holds for the timestamps in this request, so a
+ * re-send can be compared against the copy it would replace.
+ *
+ * A failure here is not allowed to stop the request. Bars arriving is the one
+ * thing ingest must never stop doing, so the comparison is simply skipped and
+ * every bar is written exactly as it was before this guard existed.
+ */
+async function loadStoredBars(
+  supabase: SupabaseClient,
+  instrumentId: string,
+  timeframe: string,
+  prepared: PreparedBar[],
+): Promise<Map<number, StoredBar>> {
+  const byInstant = new Map<number, StoredBar>();
+  if (prepared.length === 0) return byInstant;
+
+  const { data, error } = await supabase
+    .from("bars")
+    .select("id, opened_at, ticks, is_closed")
+    .eq("instrument_id", instrumentId)
+    .eq("timeframe", timeframe)
+    .in("opened_at", prepared.map(({ bar }) => new Date(bar.openedAt).toISOString()));
+
+  if (error) {
+    console.error(
+      `ingest: stored bar lookup failed, writing every bar: ${error.message}`,
+    );
+    return byInstant;
+  }
+
+  for (const row of (data ?? []) as StoredBarRow[]) {
+    byInstant.set(Date.parse(row.opened_at), {
+      id: row.id,
+      ticks: Number(row.ticks ?? 0),
+      isClosed: row.is_closed === true,
+    });
+  }
+  return byInstant;
+}
+
+interface StoredBarRow {
+  id: number;
+  opened_at: string;
+  ticks: number | null;
+  is_closed: boolean | null;
 }
 
 /**
