@@ -93,10 +93,44 @@ indicator อ่านแค่ status code ไม่ parse body (`HttpSender.cs
 - rollback: redeploy `ingest` เวอร์ชันก่อนหน้า (v22) — ไม่มี migration ไม่มีการแก้ข้อมูล
   จึงไม่มีอะไรต้องย้อนในฐานข้อมูล
 
-### 0AH.5 ยังค้างจาก §0AG ที่รอบนี้ไม่ได้แตะ
+### 0AH.5 migration `tick_value` ที่เตรียมไว้ — **ยังไม่ apply · รอเจ้าของรัน**
 
-ยังไม่คำนวณผลหลังต้นทุน · ยังไม่มี independent review ของทั้ง §0AG และ §0AH ·
-ยัง apply 0033/0034/0036/0037/0038 ไม่ครบ · `SignalBridgeIndicator.cs` REV 1.5.0 ยังไม่ build
+ไฟล์: `supabase/migrations/20260908051500_the_tick_value_that_was_never_sent.sql`
+
+“ยังไม่คำนวณผลหลังต้นทุน” ค้างมาตั้งแต่ §0AE.6 เพราะ **คำนวณไม่ได้จริง ๆ** ไม่ใช่เพราะไม่มีใครทำ:
+bridge ส่งแต่ `TickSize` ⇒ `tick_value` ของทุกตัว index เป็น `null` มาตลอด ⇒ ผลทุกอย่างระบุได้แค่
+เป็น ticks แปลงเป็นเงินไม่ได้ (ตรวจแล้ว: MNQU6 `null`, NQU6 `null`, BTCUSDT `null`, GC `10.00`)
+
+| symbol | ค่าที่ migration ตั้ง | ที่มา (contract fact) |
+|---|---:|---|
+| MNQU6 | **0.50** | MNQ $2 ต่อจุด · tick 0.25 จุด |
+| NQU6 | **5.00** | NQ $20 ต่อจุด · tick 0.25 จุด |
+| BTCUSDT | **ตั้งใจปล่อย null** | ฟีดคือ Binance perpetual ไม่ใช่สัญญาขนาดคงที่ (§0R) — ใส่ตัวเลขคือการเดา |
+
+ใช้ guard แบบเดียวกับที่ตั้ง GC ใน `20260907164016`: ค่าเดิมที่ไม่ใช่ null **ไม่ถูกเขียนทับ**,
+ค่าที่ผิดคาด **หยุด migration** แทนที่จะแก้เงียบ ๆ, ไม่ rewrite signal/outcome เก่าแม้แถวเดียว
+(ผลที่บันทึกไปแล้วคงหน่วย ticks เดิม เฉพาะที่คำนวณหลังจากนี้จึงระบุเป็นเงินได้)
+
+**หลักฐาน dry-run บน schema production จริง (วิธีเดียวกับ §0AG.3):**
+
+| การตรวจ | ผล |
+|---|---|
+| `begin` → รัน migration → `select` → `rollback` | PASS · ในทรานแซกชันเห็น MNQU6 `0.50`, NQU6 `5.00`, GC คงที่ `10.00`, BTCUSDT คง `null` |
+| ตรวจหลัง rollback | ทุกค่ากลับเป็น `null` ตามเดิม — **ไม่มี state หลุด** |
+| รัน migration ซ้ำสองรอบในทรานแซกชันเดียว | PASS · รอบสองเป็น no-op ค่าคงเดิม (idempotent) |
+| ตั้ง `tick_value=9.99` แล้วรัน | **หยุดตามที่ต้องการ**: `refusing to overwrite MNQU6 tick_value 9.99 with 0.50` |
+| ตรวจหลังเทสต์ guard | production ยัง `null` ทั้งหมด — ไม่ถูกแตะ |
+
+⏳ **ยังไม่ apply** — เจ้าของเป็นคนรัน. หมายเหตุจาก §0AG.3: local numeric migrations ไม่ตรง
+remote timestamp history ⇒ **ห้าม `db push` แบบเหมา** ให้ apply เฉพาะไฟล์นี้ไฟล์เดียว
+rollback: `update public.instruments set tick_value = null where symbol in ('MNQU6','NQU6');`
+
+### 0AH.6 ยังค้างจาก §0AG ที่รอบนี้ไม่ได้แตะ
+
+ยังไม่มี independent review ของทั้ง §0AG และ §0AH · ยัง apply 0033/0034/0036/0037/0038 ไม่ครบ
+(ทั้งหมดถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M ไม่ใช่งานค้างเชิงเทคนิค) ·
+`SignalBridgeIndicator.cs` REV 1.5.0 ยังไม่ build · ผลหลังต้นทุน **ยังคำนวณไม่ได้จนกว่า
+migration ใน §0AH.5 จะถูก apply** และถึงตอนนั้นก็ยังมีแค่ 2 trade ของกฎใหม่ ⇒ ยังสรุปอะไรไม่ได้
 
 ---
 
