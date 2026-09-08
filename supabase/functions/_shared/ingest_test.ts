@@ -823,11 +823,12 @@ Deno.test("ingest: a multi-bar request still announces its freshly closed bar", 
 
   const statuses = client.callsFor("signals", "update").map((call) => ({
     ids: call.ops.find((op) => op.name === "in")?.args[1],
+    id: call.ops.find((op) => op.name === "eq")?.args[1],
     status: (call.ops[0].args[0] as Record<string, unknown>).telegram_status,
   }));
   assertEquals(statuses, [
-    { ids: ["sig-old"], status: "skipped_historical" },
-    { ids: ["sig-live"], status: "skipped_unconfigured" },
+    { ids: ["sig-old"], id: undefined, status: "skipped_historical" },
+    { ids: undefined, id: "sig-live", status: "skipped_unconfigured" },
   ]);
 });
 
