@@ -42,7 +42,7 @@
 |---|---|---|---|---|
 | 1 | ~~P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`~~ · ~~merge PR #109~~ · ~~apply migration + deploy~~ **ปิดครบแล้ว 2026-09-08 13:20 UTC — `ingest v24` live และยืนยันด้วยข้อมูลจริงแล้ว** | — | ปิดแล้ว | §0AJ.6 |
 | 2 | **F3/F4/F5/F6 จากผลตรวจ** — batch การเขียน `telegram_status`, `cluster_levels` ยังไม่ atomic, บันทึกข้อแลกเปลี่ยนเรื่องแท่งที่ evaluate ซ้ำไม่ได้, เทสต์ unique index ระดับ DB | **GPT/Codex** | เป็นการแก้ runtime ที่ผู้ตรวจไม่ควรเขียนเอง (§0T) · ไม่บล็อกอะไร | §0AJ.3 |
-| 3 | **ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง** — ตอน deploy ยังไม่มี setup เปิด เส้นทาง `ON CONFLICT DO NOTHING` จึงยังไม่เคยรันบน production | **Claude/Codex (คิวรี read-only)** | ต้องรอตลาดแตะ prev_day_high/low | §0AJ.6 |
+| 3 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -254,12 +254,21 @@ delete from public.strategy_setups where id in (13,14,15,16,17,19,20,21);    -- 
 (ยืนยันว่า source มีอยู่จริงและมี log ไหลอยู่ 102 + 137 รายการในหน้าต่างเดียวกัน จึงไม่ใช่ผลลบลวง)
 และ 42P10 เป็นไปไม่ได้แล้วโดยโครงสร้าง เพราะ index มีอยู่จริงก่อน deploy
 
-#### สิ่งที่ยัง **ไม่ได้** พิสูจน์
+#### เส้นทางเขียน (upsert) — **พิสูจน์แล้ว 13:35:02 UTC**
 
-ตั้งแต่ deploy ยัง**ไม่มี setup เปิดใหม่เลยสักตัว** (ราคายังไม่แตะ prev_day_high/low)
-⇒ เส้นทาง `upsert … ON CONFLICT DO NOTHING` **ยังไม่เคยรันจริงบน production**
-การไม่มี error จึงพิสูจน์ได้แค่ว่า `loadStrategyCarry` (SELECT) ทำงาน ไม่ใช่ฝั่งเขียน
-**ต้องตามดูอีกครั้งเมื่อ setup แรกเปิด** — บันทึกไว้ที่ §00.1 ข้อ 3
+ตอนเขียนบันทึกนี้รอบแรกยังไม่มี setup เปิดเลย เส้นทาง `upsert … ON CONFLICT DO NOTHING`
+จึงยังไม่เคยรันจริง และการไม่มี error พิสูจน์ได้แค่ฝั่งอ่าน (`loadStrategyCarry`) เท่านั้น
+**15 นาทีต่อมาได้ของจริง:**
+
+| id | กฎ | touch | สถานะ | created |
+|---|---|---|---|---|
+| **42** | `mnq_pullback_v1` MNQU6 | `prev_day_high@2026-09-08T13:30:00.000Z` short | `open` · age 1 · `saw_evaluable_trigger=true` | **13:35:02** โดย `ingest v24` |
+
+`contract_version` = `MNQ_PULLBACK_V1@live-preview-1` (ไม่ขยับ ถูกต้อง) · `dup_groups` ยังเป็น 0
+⇒ **F1 ตกไปด้วยหลักฐานเชิงบวก ไม่ใช่แค่ "ไม่มี error"** และ 21 → 22 แถวคือแถวแรกที่นับสถิติได้จริง
+
+ยังไม่ผ่านสายตาคือ **เส้นทาง resolve** (`update … where status='open'`) ซึ่งจะรันเมื่อ setup id 42 ปิดตัว
+ไม่ใช่ความเสี่ยงระดับ F1 เพราะเป็น `update` ธรรมดาที่ไม่พึ่ง unique index
 
 #### Rollback
 
