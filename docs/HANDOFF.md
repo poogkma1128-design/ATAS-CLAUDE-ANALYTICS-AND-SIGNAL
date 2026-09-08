@@ -125,9 +125,10 @@ bridge ส่งแต่ `TickSize` ⇒ `tick_value` ของทุกตั�
 rollback: `update public.instruments set tick_value = null where symbol in ('MNQU6','NQU6');`
 
 หมายเหตุ: apply เฉพาะไฟล์นี้ไฟล์เดียวตาม §0AG.3 (local numeric migrations ไม่ตรง remote
-timestamp history ⇒ ห้าม `db push` แบบเหมา). **ยังไม่ได้รัน `supabase migration repair
---status applied 20260908051500`** ⇒ remote migration history ยังไม่มีแถวของไฟล์นี้ แม้ผลของมัน
-จะอยู่ในฐานข้อมูลแล้ว — งานเล็กที่ควรเก็บให้เรียบร้อยก่อน apply migration ตัวถัดไป
+timestamp history ⇒ ห้าม `db push` แบบเหมา). เนื่องจาก apply ผ่าน SQL Editor จึงต้องจดลง history
+เอง — **รัน `supabase migration repair --status applied 20260908051500` แล้ว** และตรวจยืนยันว่า
+remote migration history มีแถว `20260908051500 / the_tick_value_that_was_never_sent` เป็นแถว
+ล่าสุดจริง ⇒ ครั้งหน้าที่ apply migration ตัวถัดไป CLI จะไม่พยายามรันไฟล์นี้ซ้ำ
 
 ### 0AH.7 ✅ ยืนยันหลัง deploy — **ตัวป้องกันทำงานจริงบนการส่งซ้ำจริง**
 
