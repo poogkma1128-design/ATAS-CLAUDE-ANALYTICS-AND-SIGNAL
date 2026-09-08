@@ -184,6 +184,7 @@ interface PreparedBar {
 export async function ingest(
   supabase: SupabaseClient,
   payload: IngestPayload,
+  receivedAt = new Date(),
 ): Promise<IngestResult> {
   const instrumentId = await upsertInstrument(supabase, payload);
   const rules = await loadRules(supabase);
@@ -204,13 +205,9 @@ export async function ingest(
   // Oldest first, so a request carrying several bars builds history in order.
   const bars = orderBars(payload.bars);
 
-  // The indicator posts exactly one bar as it closes, and the whole visible
-  // history in a single batch when it starts up. Announcing that batch means a
-  // phone full of alerts for bars that closed hours ago, so a multi-bar request
-  // is treated as history: the signals are still stored and still counted in
-  // the statistics, they are simply not announced.
-  const isHistoricalBatch = bars.length > 1;
-
+  // The indicator usually posts one bar as it closes, but it may mix the fresh
+  // close into a wider catch-up request. Delivery is therefore decided per bar
+  // below: old signals stay measurable without becoming a phone full of alerts.
   const prepared: PreparedBar[] = bars.map((bar) => {
     const levels = collapseLevels(bar.levels ?? []);
     return { bar, levels, pocPrice: pointOfControl(levels)?.price ?? null };
@@ -262,9 +259,23 @@ export async function ingest(
   const barIds = fresh.length === 0
     ? []
     : await upsertBars(supabase, instrumentId, payload.timeframe, fresh);
+  const liveBarIds = liveClosedBarIds(fresh, barIds, payload.timeframe, receivedAt);
   const levelsWritten = fresh.length === 0
     ? 0
     : await upsertLevels(supabase, fresh, barIds);
+
+  // An existing closed bar may accept a richer snapshot, but it must never be
+  // judged again. Replaying a slice after its earlier carry has already closed
+  // can otherwise manufacture a setup that the original live pass correctly
+  // suppressed at the batch boundary.
+  const decisionEntries: PreparedBar[] = [];
+  const decisionBarIds: number[] = [];
+  for (const [index, entry] of fresh.entries()) {
+    const prior = stored.get(Date.parse(entry.bar.openedAt));
+    if (prior?.isClosed) continue;
+    decisionEntries.push(entry);
+    decisionBarIds.push(barIds[index]);
+  }
 
   const evaluatedRows = await evaluateBars(
     supabase,
@@ -273,8 +284,8 @@ export async function ingest(
     overrides,
     announcementEligibility,
     instrumentPolicy,
-    fresh,
-    barIds,
+    decisionEntries,
+    decisionBarIds,
     tickSize,
   );
   const signalRows = suppressOpposingSignals(evaluatedRows);
@@ -284,7 +295,7 @@ export async function ingest(
     { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
     rules,
     signalRows,
-    isHistoricalBatch,
+    liveBarIds,
   );
 
   return {
@@ -293,6 +304,36 @@ export async function ingest(
     signalsCreated,
     barsSuperseded: superseded,
   };
+}
+
+/**
+ * A request can contain history and the bar that just closed. Classifying the
+ * whole request as historical silently dropped that fresh bar's announcement.
+ * Time-based feeds can identify live bars from their own close time; non-time
+ * charts retain the old conservative single-bar rule.
+ */
+function liveClosedBarIds(
+  prepared: PreparedBar[],
+  barIds: number[],
+  timeframe: string,
+  receivedAt: Date,
+): Set<number> {
+  const live = new Set<number>();
+  const minutes = timeframeMinutes(timeframe);
+
+  for (const [index, entry] of prepared.entries()) {
+    if (!entry.bar.isClosed) continue;
+    if (minutes === null) {
+      if (prepared.length === 1) live.add(barIds[index]);
+      continue;
+    }
+
+    const periodMs = minutes * 60_000;
+    const closedAt = Date.parse(entry.bar.openedAt) + periodMs;
+    const lagMs = receivedAt.getTime() - closedAt;
+    if (lagMs >= -60_000 && lagMs <= periodMs) live.add(barIds[index]);
+  }
+  return live;
 }
 
 interface StoredBar {
@@ -900,7 +941,7 @@ async function persistSignals(
   target: SignalTarget,
   rules: RuleRow[],
   rows: SignalRow[],
-  isHistoricalBatch: boolean,
+  liveBarIds: Set<number>,
 ): Promise<number> {
   if (rows.length === 0) return 0;
 
@@ -914,7 +955,7 @@ async function persistSignals(
       ignoreDuplicates: true,
     })
     .select(
-      "id, seq, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars",
+      "id, seq, bar_id, rule_key, direction, price, confidence, payload, fired_at, muted, entry_price, stop_price, target_price, risk_ticks, reward_ticks, trail_trigger_ticks, trail_offset_ticks, hold_bars",
     );
 
   if (error) throw new Error(`signal insert failed: ${error.message}`);
@@ -922,8 +963,14 @@ async function persistSignals(
   const created = data ?? [];
   if (created.length === 0) return 0;
 
-  if (!isHistoricalBatch) {
-    await announce(supabase, target, rules, created);
+  const historical = created.filter((signal) => !liveBarIds.has(Number(signal.bar_id)));
+  for (const signal of historical) {
+    await recordTelegramStatus(supabase, signal.id as string, "skipped_historical");
+  }
+
+  const live = created.filter((signal) => liveBarIds.has(Number(signal.bar_id)));
+  if (live.length > 0) {
+    await announce(supabase, target, rules, live);
   }
 
   return created.length;
@@ -968,21 +1015,36 @@ async function announce(
   created: Record<string, unknown>[],
 ): Promise<void> {
   const cfg = telegramConfig();
-  if (!cfg) return;
+  if (!cfg) {
+    for (const signal of created) {
+      await recordTelegramStatus(supabase, signal.id as string, "skipped_unconfigured");
+    }
+    return;
+  }
 
   const byKey = new Map(rules.map((rule) => [rule.key, rule]));
 
   for (const signal of created) {
     const rule = byKey.get(signal.rule_key as string);
-    if (!rule?.telegram_enabled) continue;
+    if (!rule?.telegram_enabled) {
+      await recordTelegramStatus(
+        supabase,
+        signal.id as string,
+        "skipped_rule_disabled",
+      );
+      continue;
+    }
 
     // Muted for this instrument. The row is already stored and will be scored
     // like any other, which is what lets a muted setup earn its way back.
-    if (signal.muted === true) continue;
+    if (signal.muted === true) {
+      await recordTelegramStatus(supabase, signal.id as string, "skipped_muted");
+      continue;
+    }
 
     const payload = (signal.payload ?? {}) as Record<string, unknown>;
 
-    const messageId = await sendSignal(cfg, {
+    const delivery = await sendSignal(cfg, {
       signalId: signal.id as string,
       seq: signal.seq === null || signal.seq === undefined ? null : Number(signal.seq),
       ruleName: rule.name,
@@ -1006,15 +1068,41 @@ async function announce(
       },
     });
 
-    if (messageId === null) continue;
-
-    const { error } = await supabase
-      .from("signals")
-      .update({ telegram_message_id: messageId })
-      .eq("id", signal.id as string);
-
-    if (error) console.error("could not store telegram message id:", error.message);
+    await recordTelegramStatus(
+      supabase,
+      signal.id as string,
+      delivery.messageId === null ? "failed" : "sent",
+      delivery.error,
+      delivery.messageId,
+    );
   }
+}
+
+type TelegramStatus =
+  | "skipped_historical"
+  | "skipped_rule_disabled"
+  | "skipped_muted"
+  | "skipped_unconfigured"
+  | "sent"
+  | "failed";
+
+async function recordTelegramStatus(
+  supabase: SupabaseClient,
+  signalId: string,
+  status: TelegramStatus,
+  failureReason: string | null = null,
+  messageId: number | null = null,
+): Promise<void> {
+  const { error } = await supabase
+    .from("signals")
+    .update({
+      telegram_status: status,
+      telegram_error: status === "failed" ? failureReason : null,
+      telegram_message_id: status === "sent" ? messageId : null,
+    })
+    .eq("id", signalId);
+
+  if (error) console.error("could not store telegram delivery status:", error.message);
 }
 
 /**
