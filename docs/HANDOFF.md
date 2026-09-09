@@ -6805,4 +6805,3 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 21. **อย่าใช้ Confidence v2 เป็นคะแนนหรือ filter ก่อนผ่าน forward test** — `v2-shadow-1`
     เก็บ feature เพื่อสร้างหลักฐานเท่านั้น (`score: null`) และ verdict ของ view คือ permission
     ให้เริ่มทดลอง offline ไม่ใช่ permission ให้แตะ Telegram/กฎ (ข้อ 5.20)
-
