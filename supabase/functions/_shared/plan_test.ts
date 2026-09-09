@@ -5,10 +5,20 @@ import { buildPlan } from "./plan.ts";
 function bar(overrides: Partial<BarInput> = {}): BarInput {
   return {
     openedAt: "2026-08-27T10:00:00.000Z",
-    open: 100, high: 101, low: 99.5, close: 100.75,
-    volume: 500, askVolume: 300, bidVolume: 200,
-    delta: 100, minDelta: -20, maxDelta: 120,
-    ticks: 40, trades: 30, isClosed: true, levels: [],
+    open: 100,
+    high: 101,
+    low: 99.5,
+    close: 100.75,
+    volume: 500,
+    askVolume: 300,
+    bidVolume: 200,
+    delta: 100,
+    minDelta: -20,
+    maxDelta: 120,
+    ticks: 40,
+    trades: 30,
+    isClosed: true,
+    levels: [],
     ...overrides,
   };
 }
@@ -67,6 +77,24 @@ Deno.test("plan: every level lands on the tick grid", () => {
   }
 });
 
+Deno.test("plan: GC distances use the exchange tick, not an aggregated chart row", () => {
+  const plan = buildPlan(
+    "long",
+    bar({ close: 4424, high: 4424.4, low: 4420.8 }),
+    0.1,
+    { ...params, rewardRatio: 3, trailAfterR: 0.5, trailOffsetR: 0.25 },
+    10,
+  );
+
+  assertEquals(plan.entry, 4424);
+  assertEquals(plan.stop, 4420.6);
+  assertEquals(plan.target, 4434.2);
+  assertEquals(plan.riskTicks, 34);
+  assertEquals(plan.rewardTicks, 102);
+  assertEquals(plan.trailTriggerTicks, 17);
+  assertEquals(plan.trailOffsetTicks, 8.5);
+});
+
 Deno.test("plan: params override every default", () => {
   const plan = buildPlan("long", bar(), 0.25, {
     bufferTicks: 0,
@@ -86,8 +114,14 @@ Deno.test("plan: params override every default", () => {
 function history(count: number, range: number): HistoryBar[] {
   return Array.from({ length: count }, (_, i) => ({
     openedAt: `2026-08-27T0${i % 10}:00:00.000Z`,
-    open: 100, high: 100 + range, low: 100, close: 100,
-    volume: 500, delta: 0, ticks: 100, pocPrice: null,
+    open: 100,
+    high: 100 + range,
+    low: 100,
+    close: 100,
+    volume: 500,
+    delta: 0,
+    ticks: 100,
+    pocPrice: null,
   }));
 }
 
