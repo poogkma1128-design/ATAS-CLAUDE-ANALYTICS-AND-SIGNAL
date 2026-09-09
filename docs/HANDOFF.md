@@ -45,6 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** (trigger ปิด race ของ `cluster_levels`) | **เจ้าของ / Codex** | ยังไม่ apply · เป็น additive ล้วน ไม่ผูกกับ deploy ⇒ apply เมื่อไหร่ก็ได้หลังผ่าน review | §0AJ.7 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง F3 ผ่าน review | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.7 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
+| 6 | สร้าง MBO shadow collector สำหรับ `GCZ6@COMEX` ตามลำดับ Phase A–E; เริ่มจากแก้ GC risk-unit + regression test และห้ามเปลี่ยน live/Telegram | **GPT/Codex implementation session แล้วส่ง Independent Reviewer เซสชันใหม่** | เอกสารนี้เป็นผู้เสนอและผู้ลงมือ จึงอนุมัติผลตัวเองไม่ได้; ต้อง replay raw evidence และผ่าน Gate 0 ก่อน owner gate | `SIGNAL PARAMETER.MD` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
