@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **1.6.3 ผ่าน review/ติดตั้งแล้ว; MBO JSON ปกติ; Phase A ยังไม่ผ่านเพราะเวลา event และชุดหลักฐานไม่ครบ** | **Owner จัดการ clock sync → Codex เก็บหลักฐานใหม่ → Independent Reviewer ตรวจ raw logs** | นาฬิกาเครื่องช้า ~0.76s; event-time basis ยังไม่พิสูจน์; executor อนุมัติหลักฐานตนเองไม่ได้ | §0AK.6.6 · `docs/reviews/2026-09-09-mbo-installation-record.md` |
+| 6 | **Phase A reviewer REQUEST CHANGES: false low p95; correction 1.6.4 awaiting independent rerun** | **Independent Reviewer checks 1.6.4 → Codex imports/captures; Owner resolves Windows clock admin access** | Executor cannot approve own correction; timing, active/quiet and lifecycle evidence still incomplete | §0AK.6.7 · `docs/reviews/2026-09-09-mbo-latency-correction.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -392,6 +392,16 @@ behind. No clock/service setting was changed. Next: clock synchronization and ev
 exact contract/settings, both 15-minute windows, deliberate toggle/restart checks, then independent raw
 review. Probe remains enabled. No server deployment, migration, Telegram or trading action occurred.
 
+#### 0AK.6.7 Fresh Phase A review and invalid-latency correction (2026-09-09)
+
+Owner requested immediate independent review and completion. Fresh `mbo_phase_a_review` re-ran the raw
+packet and issued REQUEST CHANGES: future events clamped to zero yield false low p95. Root Executor
+corrects diagnostic validity and adds bounded raw timestamp/kind samples in REV 1.6.4; no time conversion,
+market data, signal or server change. Reviewer must independently rerun the exact candidate before import.
+Reports: `docs/reviews/2026-09-09-mbo-phase-a-final-review.md` and
+`docs/reviews/2026-09-09-mbo-latency-correction.md`. Windows denied Start-Service W32Time; owner asked
+for administrator clock sync. No service/clock state changed. Full Phase A remains incomplete; source
+correction, fresh installation, clock/event-time validation and empirical review remain distinct gates.
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
@@ -469,7 +479,7 @@ review. Probe remains enabled. No server deployment, migration, Telegram or trad
 | 3 | `gc_sweep_v1` | GC | `prev_day_high@2026-09-08T05:00:00.000Z` | rejected · `expired_unfired` | **10** | **15** |
 | 4 | `mnq_pullback_v1` | MNQU6 | `prev_day_high@2026-09-08T02:45:00.000Z` | rejected · `invalidated:closed_through_anchor` | **5** | **16, 17** |
 | 5 | `mnq_pullback_v1` | MNQU6 | `prev_day_high@2026-09-08T05:30:00.000Z` | **triggered** · `stacked_imbalance` | **12** | **19** |
-| 6 | `mnq_reversal_v1` | MNQU6 | `prev_day_high@2026-09-08T02:50:00.000Z` | rejected · `invalidated:attempt_resumed` | **6** | **20** |
+| 6 | **Phase A reviewer REQUEST CHANGES: false low p95; correction 1.6.4 awaiting independent rerun** | **Independent Reviewer checks 1.6.4 → Codex imports/captures; Owner resolves Windows clock admin access** | Executor cannot approve own correction; timing, active/quiet and lifecycle evidence still incomplete | §0AK.6.7 · `docs/reviews/2026-09-09-mbo-latency-correction.md` |
 | 7 | `mnq_reversal_v1` | MNQU6 | `prev_day_high@2026-09-08T05:25:00.000Z` | rejected · `invalidated:attempt_resumed` | **11** | **21** |
 
 **เก็บ (7):** `5, 6, 8, 9, 10, 11, 12` — **ลบ (8):** `13, 14, 15, 16, 17, 19, 20, 21`
@@ -516,7 +526,7 @@ delete from public.strategy_setups where id in (13,14,15,16,17,19,20,21);    -- 
 | 3 | apply `20260908085800_record_telegram_delivery` | ✅ 2 คอลัมน์ · backfill **945 `sent` / 3,774 `legacy_unknown`** |
 | 4 | apply `20260908090000_strategy_setups_idempotent` | ✅ ผ่านด่าน fail-closed · index `strategy_setups_one_row_per_touch` |
 | 5 | deploy `ingest` | ✅ **v23 → v24** · `verify_jwt=false` เหมือนเดิม |
-| 6 | เจ้าของเปิด ATAS กลับ | 299 แท่งถูกเขียนใน 15 นาที = backfill ตอนเปิดโปรแกรม |
+| 6 | **Phase A reviewer REQUEST CHANGES: false low p95; correction 1.6.4 awaiting independent rerun** | **Independent Reviewer checks 1.6.4 → Codex imports/captures; Owner resolves Windows clock admin access** | Executor cannot approve own correction; timing, active/quiet and lifecycle evidence still incomplete | §0AK.6.7 · `docs/reviews/2026-09-09-mbo-latency-correction.md` |
 
 > **หมายเหตุเรื่องวิธี deploy:** `mcp__Supabase__deploy_edge_function` **ใช้ไม่ได้จริง**สำหรับ `ingest`
 > แล้ว — ต้องส่งเนื้อไฟล์ทั้ง **33 ไฟล์ / 226 KB** ในข้อความเดียว ซึ่งเกินความยาวข้อความที่โมเดลออกได้
@@ -3909,7 +3919,7 @@ instrument upsert failed: JWT issued at future
 | 3 | ATAS indicator + Telegram + Next.js dashboard | ครบวงจร |
 | 4 | ไม่แจ้งเตือนแท่งย้อนหลัง | backfill เคยยิง Telegram 71 ข้อความรวด |
 | 5 | Batch ingest | backfill 100 แท่งเคยใช้ 25–51 วิ (≈400 round trip) เหลือ ~9 |
-| 6 | จูน `poc_shift` | เคยยิง 45 จาก 71 สัญญาณ |
+| 6 | **Phase A reviewer REQUEST CHANGES: false low p95; correction 1.6.4 awaiting independent rerun** | **Independent Reviewer checks 1.6.4 → Codex imports/captures; Owner resolves Windows clock admin access** | Executor cannot approve own correction; timing, active/quiet and lifecycle evidence still incomplete | §0AK.6.7 · `docs/reviews/2026-09-09-mbo-latency-correction.md` |
 | 7 | Revision stamp ใน About ของ ATAS | รู้ว่า DLL ที่โหลดอยู่เป็นตัวไหน |
 | 8 | **Trade plan** ทุกสัญญาณ + ให้คะแนนตามแผนจริง | สัญญาณที่บอกแค่ทิศทาง วัดผลไม่ได้ |
 | 9 | **Liquidity gate** | ตัดแท่ง volume บาง |
@@ -6352,7 +6362,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | 3 | Email template (Magic Link + Confirm signup) เติม `<p>รหัส: <strong>{{ .Token }}</strong></p>` | เหตุผลเดียวกับข้อ 2 |
 | 4 | Revoke Telegram bot token เก่า (`8549812393:...` หลุดในแชต) ที่ @BotFather แล้วใส่ตัวใหม่ใน Supabase | ต้องใช้บัญชี Telegram ของเจ้าของ |
 | 5 | ปิด "Allow new users to sign up" หลังสร้างบัญชี dashboard | Supabase dashboard |
-| 6 | ~~เช็กความลึกของข้อมูล 5m OHLCV บน ATAS~~ | ✅ **เสร็จแล้ว 2026-09-03** — เช็ก GC/MNQU6 แล้ว: M5 ลึกแค่ ~3-4 วัน (สั้นกว่าข้อมูลที่มีอยู่แล้ว) ⇒ ปิด V3.1 ดู §ญ.11 ของ `2026-09-03-candle-signature-v3.md` และแถว AA ใน §7.2 |
+| 6 | **Phase A reviewer REQUEST CHANGES: false low p95; correction 1.6.4 awaiting independent rerun** | **Independent Reviewer checks 1.6.4 → Codex imports/captures; Owner resolves Windows clock admin access** | Executor cannot approve own correction; timing, active/quiet and lifecycle evidence still incomplete | §0AK.6.7 · `docs/reviews/2026-09-09-mbo-latency-correction.md` |
 
 หลักฐานเดิมของข้อ 2–3 คือ redirect เคยกลับ `http://localhost:3000/` แทน
 `.../auth/callback`; ต้องทดสอบ login ใหม่ก่อนใช้คำว่า “ยังเสียอยู่”.
@@ -6622,7 +6632,7 @@ select * from public.setup_stats order by total_r desc nulls last;
 |---|---|---|---|
 | 4 | Large / Block Trades | Time & Sales | **มี proxy แล้ว ยังไม่มีของจริง** — `volume / ticks` = ขนาดไม้เฉลี่ยต่อบาร์ คำนวณได้วันนี้ และ `speed_of_tape` บันทึกลง payload ทุกสัญญาณแล้ว (ข้อ 5.16) แต่ค่าเฉลี่ยแยกไม้ยักษ์ 1 ไม้ออกจากไม้กลาง ๆ ทั้งบาร์ไม่ได้ ของจริงยังต้องแก้ indicator ให้ส่ง trade รายตัวหรือ histogram ของ size · **หมายเหตุ: `bars.trades` เป็น 0 ทุกแถว ใช้ไม่ได้** |
 | 5 | CVD Divergence ข้าม session | delta เดิม | **column `bars.cum_delta` มี แต่ไม่มีใครเติม** — `Dto.cs` ไม่มีฟิลด์นี้เลย indicator จึงไม่เคยส่ง ค่าเป็น null ทุกแถว ต้องแก้ indicator = build DLL ใหม่ + ขยับ REV (ข้อ 3.8) |
-| 6 | Speed of Tape | `bars.ticks` | ✅ **ทำแล้ว** (migration 0028 · ข้อ 5.16) — ข้อความเดิมตรงนี้ผิด: ใช้ `bars.trades` ไม่ได้เพราะเป็น 0 ทุกแถว ตัวที่มีข้อมูลจริงคือ `bars.ticks` **ตัวเลขชุดแรกไม่ดี** ฝั่ง long ติดลบและแย่ลงเมื่อขันเกลียว — อ่านข้อ 5.16 ก่อนคิดจะเปิดเสียง |
+| 6 | **Phase A reviewer REQUEST CHANGES: false low p95; correction 1.6.4 awaiting independent rerun** | **Independent Reviewer checks 1.6.4 → Codex imports/captures; Owner resolves Windows clock admin access** | Executor cannot approve own correction; timing, active/quiet and lifecycle evidence still incomplete | §0AK.6.7 · `docs/reviews/2026-09-09-mbo-latency-correction.md` |
 | 7 | Liquidity Sweep / Stop Run | bars เดิม | **มีอยู่แล้วครึ่งหนึ่ง** — `price_action.ts` คำนวณ `sweep` (wick ทะลุ swing แล้วปิดกลับ) และเก็บลงทุกสัญญาณมานานแล้ว ไม่ต้องเขียน swing detection ใหม่ ทำเป็นกฎคือหยิบ flag เดิมมาเป็นเงื่อนไข — ดูข้อ 5.14 |
 | 8 | P-Shape / b-Shape | footprint เดิม | ต่อยอด `lvn` + `poc_shift` ได้ (รูปทรงคือ POC อยู่ปลายไหนของ profile) |
 | 9 | Bid/Ask Imbalance ที่ DOM | **ต้องมี L2** | ตอบแล้วในข้อ 8.4: **ยังไม่ได้ต่อ Level 2 เลย** DxFeed ผ่าน ATAS ให้แต่ trade ที่เกิดแล้ว ต้องรอ REV-RITHMIC-001 |

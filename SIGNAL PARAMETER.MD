@@ -741,6 +741,9 @@ Phase A probe cannot yet prove rebuild/completeness or real feed epoch boundarie
 Gate 0 gap for the collector/replay phase, not a pass inferred from a counter.
 
 **Local implementation status (2026-09-09):** REV `1.6.3` independently reviewed and installed; GC MBO JSON is valid in live logs. Windows clock trails the NTP reference by ~0.76s and event-time basis remains unverified; latency and full Phase A acceptance remain UNVERIFIED. See `docs/reviews/2026-09-09-mbo-installation-record.md`.
+REV `1.6.4` candidate corrects false low p95: any future event makes the window percentile unavailable.
+`mboLatencyStatus` / `tradeLatencyStatus` and last raw timestamp/kind samples explain invalid timing.
+Positive timing remains provisional until the connector timestamp basis and machine clock are verified.
 `Enable MBO probe` defaults to `false`. Both initialization and subsequent settings recalculation synchronize
 the probe lifecycle. Enable emits immediate evidence and subscribes; disable stops collection/timer, interval
 change replaces the timer, and dispose ignores late callbacks/task completion. Re-enable reuses the SDK

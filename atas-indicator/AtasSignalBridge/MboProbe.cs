@@ -44,6 +44,8 @@ namespace AtasSignalBridge
         private long _nullTradeOrderId;
         private long _nullAggressorOrderId;
         private long _futureTradeEvents;
+        private DateTime? _windowLastMboRawTime;
+        private DateTime? _windowLastTradeRawTime;
 
         public MboProbe(Func<DateTime> utcNow = null)
         {
@@ -100,6 +102,7 @@ namespace AtasSignalBridge
                     // Its old order timestamps must not poison live latency.
                     if (update.Type == MarketByOrderUpdateTypes.Snapshot) continue;
                     _lastMboReceivedUtc = receivedAtUtc;
+                    _windowLastMboRawTime = update.Time;
 
                     var eventUtc = AsUtc(update.Time);
                     if (_lastMboEventUtc != DateTime.MinValue && eventUtc < _lastMboEventUtc)
@@ -137,6 +140,7 @@ namespace AtasSignalBridge
             {
                 _trades++;
                 _lastTradeReceivedUtc = receivedAtUtc;
+                _windowLastTradeRawTime = trade.Time;
                 if (!trade.ExchangeOrderId.HasValue) _nullTradeOrderId++;
                 if (!trade.AggressorExchangeOrderId.HasValue) _nullAggressorOrderId++;
                 ObserveLatency(_tradeLatencyBuckets, receivedAtUtc, AsUtc(trade.Time),
@@ -174,6 +178,8 @@ namespace AtasSignalBridge
                     liveMboAgeMs = AgeMs(now, _lastMboReceivedUtc),
                     tradeAgeMs = AgeMs(now, _lastTradeReceivedUtc),
                     latencyScope = "window_live_events_only;unspecified_time_assumed_utc",
+                    mboTimeSample = TimeSample(_windowLastMboRawTime, _lastMboReceivedUtc),
+                    tradeTimeSample = TimeSample(_windowLastTradeRawTime, _lastTradeReceivedUtc),
                     updates = new
                     {
                         snapshot = _snapshot,
@@ -184,12 +190,14 @@ namespace AtasSignalBridge
                     zeroOrderId = _zeroOrderId,
                     clockRegressions = _clockRegressions,
                     futureMboEvents = _futureMboEvents,
-                    mboLatencyP95UpperMs = P95Upper(_mboLatencyBuckets),
+                    mboLatencyStatus = LatencyStatus(_mboLatencyBuckets, _futureMboEvents),
+                    mboLatencyP95UpperMs = P95Upper(_mboLatencyBuckets, _futureMboEvents),
                     trades = _trades,
                     nullTradeOrderId = _nullTradeOrderId,
                     nullAggressorOrderId = _nullAggressorOrderId,
                     futureTradeEvents = _futureTradeEvents,
-                    tradeLatencyP95UpperMs = P95Upper(_tradeLatencyBuckets)
+                    tradeLatencyStatus = LatencyStatus(_tradeLatencyBuckets, _futureTradeEvents),
+                    tradeLatencyP95UpperMs = P95Upper(_tradeLatencyBuckets, _futureTradeEvents)
                 });
                 ResetWindow();
                 _windowStartUtc = now;
@@ -206,6 +214,7 @@ namespace AtasSignalBridge
             _snapshot = _created = _changed = _deleted = _zeroOrderId = 0;
             _clockRegressions = _futureMboEvents = 0;
             _trades = _nullTradeOrderId = _nullAggressorOrderId = _futureTradeEvents = 0;
+            _windowLastMboRawTime = _windowLastTradeRawTime = null;
             // Preserve last receive/event time across windows: a silent feed
             // must age, and a regression across the boundary must be visible.
         }
@@ -220,7 +229,7 @@ namespace AtasSignalBridge
             if (latency < 0)
             {
                 futureEvents++;
-                latency = 0;
+                return; // Invalid timing is never a zero-latency observation.
             }
 
             var bucket = LatencyUpperBoundsMs.Length;
@@ -235,8 +244,30 @@ namespace AtasSignalBridge
             buckets[bucket]++;
         }
 
-        private static string P95Upper(long[] buckets)
+        private static string LatencyStatus(long[] buckets, long futureEvents)
         {
+            if (futureEvents > 0) return "invalid:future_events";
+            foreach (var count in buckets)
+                if (count > 0) return "provisional:timestamp_basis_unverified";
+            return "unavailable:no_live_events";
+        }
+
+        // Last observed event in this window only; bounded diagnostic evidence,
+        // not a declaration that the connector's timestamp basis is correct.
+        private static object TimeSample(DateTime? raw, DateTime receivedUtc) =>
+            raw.HasValue ? new
+            {
+                rawTime = raw.Value.ToString("O"),
+                kind = raw.Value.Kind.ToString(),
+                interpretedUtc = Iso(AsUtc(raw.Value)),
+                receivedAtUtc = Iso(receivedUtc),
+                signedLatencyMs = (receivedUtc - AsUtc(raw.Value)).TotalMilliseconds
+            } : null;
+
+        private static string P95Upper(long[] buckets, long futureEvents)
+        {
+            // Suppress the entire affected window, including mixed samples.
+            if (futureEvents > 0) return "unavailable";
             long total = 0;
             foreach (var count in buckets) total += count;
             if (total == 0) return "unavailable";

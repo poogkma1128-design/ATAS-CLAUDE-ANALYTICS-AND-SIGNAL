@@ -62,6 +62,62 @@ internal static class Program
         Check(restarted.GetProperty("sessionId").GetString() != session, "restart changes collector session");
         Check(restarted.GetProperty("liveMboAgeMs").ValueKind == JsonValueKind.Null, "restart clears old age");
 
+        var futureRaw = DateTime.SpecifyKind(now.AddMilliseconds(750), DateTimeKind.Unspecified);
+        probe.ObserveMboBatch(new[] { new MarketByOrder {
+            Type = MarketByOrderUpdateTypes.New, Time = futureRaw, ExchangeOrderId = 101
+        } }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = futureRaw }, now);
+        var future = Snapshot(probe);
+        Check(future.GetProperty("futureMboEvents").GetInt64() == 1 &&
+            future.GetProperty("futureTradeEvents").GetInt64() == 1, "future counters preserved");
+        Check(future.GetProperty("mboLatencyP95UpperMs").GetString() == "unavailable" &&
+            future.GetProperty("tradeLatencyP95UpperMs").GetString() == "unavailable", "all-future p95 suppressed");
+        Check(future.GetProperty("mboLatencyStatus").GetString() == "invalid:future_events" &&
+            future.GetProperty("tradeLatencyStatus").GetString() == "invalid:future_events", "future validity explicit");
+        var timeSample = future.GetProperty("mboTimeSample");
+        Check(timeSample.GetProperty("rawTime").GetString() == futureRaw.ToString("O") &&
+            timeSample.GetProperty("kind").GetString() == "Unspecified", "raw timestamp kind preserved");
+        Check(timeSample.GetProperty("signedLatencyMs").GetDouble() == -750 &&
+            future.GetProperty("tradeTimeSample").GetProperty("signedLatencyMs").GetDouble() == -750,
+            "signed latency exposes clock offset without clamping");
+        Check(timeSample.GetProperty("interpretedUtc").GetString() == now.AddMilliseconds(750).ToString("O"),
+            "existing unspecified UTC assumption remains explicit");
+        var emptyAfterFuture = Snapshot(probe);
+        Check(emptyAfterFuture.GetProperty("mboTimeSample").ValueKind == JsonValueKind.Null &&
+            emptyAfterFuture.GetProperty("tradeTimeSample").ValueKind == JsonValueKind.Null, "window samples reset");
+        Check(emptyAfterFuture.GetProperty("mboLatencyStatus").GetString() == "unavailable:no_live_events",
+            "invalid window does not poison empty successor");
+        probe.ObserveMboBatch(new[] {
+            new MarketByOrder { Type = MarketByOrderUpdateTypes.Change, Time = now.AddMilliseconds(-40) },
+            new MarketByOrder { Type = MarketByOrderUpdateTypes.New, Time = futureRaw }
+        }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = now.AddMilliseconds(-40) }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = futureRaw }, now);
+        var mixed = Snapshot(probe);
+        Check(mixed.GetProperty("mboLatencyP95UpperMs").GetString() == "unavailable" &&
+            mixed.GetProperty("tradeLatencyP95UpperMs").GetString() == "unavailable", "mixed window p95 suppressed");
+        probe.ObserveMboBatch(new[] { new MarketByOrder {
+            Type = MarketByOrderUpdateTypes.New, Time = now.AddMilliseconds(-20)
+        } }, now);
+        var recovered = Snapshot(probe);
+        Check(recovered.GetProperty("mboLatencyP95UpperMs").GetString() == "25" &&
+            recovered.GetProperty("mboLatencyStatus").GetString() == "provisional:timestamp_basis_unverified",
+            "new positive window recovers provisional percentile");
+        Check(recovered.GetProperty("mboTimeSample").GetProperty("kind").GetString() == "Utc",
+            "UTC source kind observable");
+        probe.ObserveTrade(new MarketDataArg { Time = now.ToLocalTime().AddMilliseconds(-30) }, now);
+        var localSample = Snapshot(probe).GetProperty("tradeTimeSample");
+        Check(localSample.GetProperty("kind").GetString() == "Local" &&
+            localSample.GetProperty("interpretedUtc").GetString() == now.AddMilliseconds(-30).ToString("O"),
+            "local source kind and existing conversion observable");
+        probe.ObserveMboBatch(new[] { new MarketByOrder {
+            Type = MarketByOrderUpdateTypes.Snapshot, Time = futureRaw
+        } }, now);
+        var cacheOnly = Snapshot(probe);
+        Check(cacheOnly.GetProperty("mboTimeSample").ValueKind == JsonValueKind.Null &&
+            cacheOnly.GetProperty("futureMboEvents").GetInt64() == 0, "cached timestamp excluded from live diagnostics");
+        probe.Start();
+
         var logs = new List<string>();
         var timers = new Dictionary<Action, TimeSpan>();
         var subscription = new TaskCompletionSource();
