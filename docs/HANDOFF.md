@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **re-review `436c5c0` = REQUEST CHANGES 1 ข้อเรื่อง legacy unit provenance → Executor แก้ให้ freeze missing/v1/v2 units พร้อมคง annotation path แล้ว รอ independent re-review ที่ pushed head ใหม่ของ PR #114**; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Reviewer รอบนี้พบ defect แล้วเจ้าของสั่งให้เปลี่ยนเป็น executor จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ใหม่ต้อง rerun focused/native SQL, concurrency และตรวจ runbook drain; เจ้าของอนุมัติ production/ATAS GUI | §0AK.6.2 · `docs/runbooks/tick-unit-cutover.md` |
+| 6 | **138b30a: fresh engineering re-run ผ่าน; HOLD install/production — Windows build stamp เป็น no-git และยังไม่มี Phase A live log** | **Implementation session แก้ build stamp → independent reviewer; Owner เคลียร์พื้นที่/ติดตั้ง/รัน probe** | Reviewer ไม่แก้ finding ของตัวเอง; ATAS GUI/live evidence ต้องทำที่เครื่องเจ้าของ; C เหลือ ~2.56 GiB ต่ำกว่า 10 GB | §0AK.6.3 · `docs/reviews/2026-09-09-mbo-independent-readiness.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -318,6 +318,25 @@ Production GO. Full migration-chain/RLS, remote maintenance routes/admission/dra
 raw-gap recovery และ ATAS GUI/live feed/epoch ยังคง **UNVERIFIED**; offline tests/JSON ไม่แทน remote proof.
 
 ---
+
+#### 0AK.6.3 Fresh independent MBO readiness review (2026-09-09)
+
+Reviewed PR #114 exact source `138b30a14842370c36a5d3853ddc1f976c1bab31` after owner requested “ทำเลย อนมุติ”.
+Fresh reviewer did not author the patch. Deno 255 tests, typecheck, REV, C# 33 assertions, focused PGlite/native
+PostgreSQL 16.13 SQL, legacy provenance and six native concurrency cases passed. Full detail and limitations:
+`docs/reviews/2026-09-09-mbo-independent-readiness.md`.
+
+**HOLD installation/production, Phase A incomplete.** Default Windows build succeeds but stamp is `no-git`:
+Git called by MSBuild reports `invalid --pretty format: h`. This pre-existing build target issue needs an
+implementation session and separate verification. C has only ~2.56 GiB free; runbook requires >=10 GB.
+No ATAS process found; GUI/live probe not run. Owner approval to progress is recorded, not an evidence override.
+
+Next: implementation session repairs build stamping without trading changes; independent reviewer checks the
+artifact identity; owner performs disk/ATAS GUI/active+quiet probe; independent reviewer checks raw logs before
+Phase B–E. Production migration/deploy/drain and full staging/RLS remain UNVERIFIED. No install, production
+mutation or historical rewrite occurred. Review artifacts remain outside Git at
+`E:/atas/mbo-review-evidence-138b30a/`; DLL is held for review, not ready to install. No runtime rollback needed.
+The review report is the only extra document needed for this readiness check.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
@@ -6786,3 +6805,4 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 21. **อย่าใช้ Confidence v2 เป็นคะแนนหรือ filter ก่อนผ่าน forward test** — `v2-shadow-1`
     เก็บ feature เพื่อสร้างหลักฐานเท่านั้น (`score: null`) และ verdict ของ view คือ permission
     ให้เริ่มทดลอง offline ไม่ใช่ permission ให้แตะ Telegram/กฎ (ข้อ 5.20)
+
