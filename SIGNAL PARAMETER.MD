@@ -742,7 +742,7 @@ data-status transitions work; feature age is measurable; restart cannot duplicat
 Phase A probe cannot yet prove rebuild/completeness or real feed epoch boundaries. Those remain an explicit
 Gate 0 gap for the collector/replay phase, not a pass inferred from a counter.
 
-**Local implementation status (2026-09-09):** REV `1.6.5` is independently reviewed and installed; it proves the diagnostic lifecycle only. Its live GC logs expose `MarketByOrder.Time` and trade `Time` as `DateTimeKind.Unspecified`; neither event-time basis nor latency is accepted. Source candidate REV `1.6.6` / `MBO_PROBE_V3` is independently reviewed but has **not** been imported into ATAS. It retains those raw values but fails closed instead of silently treating them as UTC. See `docs/HANDOFF.md` §0AK.6.9 and `docs/reviews/2026-09-09-mbo-timestamp-basis-independent-signoff.md`.
+**Local implementation status (2026-09-10):** The independently reviewed REV `1.6.6` / `MBO_PROBE_V3` artifact has been copied to the local ATAS Indicators directory with SHA256 verified; the prior REV `1.6.5` file is preserved as a rollback backup. ATAS detected the library change and requires an indicator reload, so the currently running GC instances still emit REV `1.6.5` / `MBO_PROBE_V2` until that reload completes. The correction retains `DateTimeKind.Unspecified` values as raw evidence and fails closed instead of silently treating them as UTC. Neither event-time basis nor latency is accepted. See `docs/HANDOFF.md` §0AK.6.9, `docs/reviews/2026-09-09-mbo-timestamp-basis-independent-signoff.md`, and `docs/reviews/2026-09-10-mbo-timestamp-basis-installation-record.md`.
 REV `1.6.4` first corrected false low p95: any declared future event makes the window percentile unavailable. REV `1.6.6` adds separate `unresolvedMboTimeEvents` and `unresolvedTradeTimeEvents` counters so unlabelled timestamps are not misclassified as a proven UTC future event.
 `mboLatencyStatus` / `tradeLatencyStatus`, time-basis labels, and last raw timestamp/kind samples explain invalid timing.
 Positive timing remains provisional until the connector timestamp basis and machine clock are verified.
@@ -751,7 +751,7 @@ the probe lifecycle. Enable emits immediate evidence and subscribes; disable sto
 change replaces the timer, and dispose ignores late callbacks/task completion. Re-enable reuses the SDK
 subscription (no unsubscribe API was found), starts a fresh collector session and reads the current cache.
 Subscription completion explicitly reads `MarketByOrders`; initial cached data need not arrive as callbacks.
-The installed REV `1.6.5` emits `MBO_PROBE_V2`. The pending timestamp-basis candidate emits `MBO_PROBE_V3`:
+The running REV `1.6.5` instance emits `MBO_PROBE_V2` until ATAS reloads the changed library. The installed-and-pending-reload REV `1.6.6` artifact emits `MBO_PROBE_V3`:
 
 ```text
 sessionId, windowSequence, windowStartUtc, observedAtUtc, windowDurationMs, counterScope=window,
@@ -789,8 +789,8 @@ Phase B–D work.
    was explicitly delegated to Codex. Authentication remains manual.
 3. Open `GCZ6@COMEX` 5m with the Rithmic Level 2 connection and Aggregated Quotes disabled.
 4. Use the existing Signal Bridge instance (add only if absent), verify About/Revision shows the reviewed version and commit, then enable `MBO Probe` and Apply.
-   Immediately check for the probe schema stated in the reviewed artifact (`MBO_PROBE_V2` for the currently
-   installed 1.6.5; `MBO_PROBE_V3` only after a reviewed 1.6.6 import) with `reason=enabled`. If absent, stop and inspect revision/settings;
+   Immediately check for the probe schema stated in the reviewed artifact (`MBO_PROBE_V2` before the changed
+   library is reloaded; `MBO_PROBE_V3` only after the reviewed 1.6.6 artifact reload) with `reason=enabled`. If absent, stop and inspect revision/settings;
    **do not wait 30 minutes**. Check subscription success/failure and the `subscription_active` summary.
 5. Run at least 15 minutes in an active period and 15 minutes in a quiet period. Do not trade from the probe.
 6. Export ATAS log lines beginning `Signal Bridge MBO probe {` as the deterministic evidence artifact.
