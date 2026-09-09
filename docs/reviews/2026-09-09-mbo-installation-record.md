@@ -33,3 +33,19 @@ candidate above based on isolated raw reruns. The usage interruption did not rev
 Owner logged in and confirmed “เข้าแล้ว”; current ATAS GC main window is reachable. The candidate hash
 was reverified again after fetching Git; remote implementation remains f12fc3b. Installation is now proceeding
 under the existing explicit local authorization. Production cutover and trading remain outside scope.
+
+## Installation completed (2026-09-09 20:42 Bangkok / 13:42 UTC)
+
+Imported the reviewed DLL through ATAS Indicators > Add custom indicator > Open, using the exact candidate
+path. ATAS replaced its existing Roaming/ATAS/Indicators/AtasSignalBridge.dll, resolved the assembly to
+v1.6.2.0 and reloaded the existing Signal Bridge instances. No duplicate producer was added and connection
+credentials were not changed. Destination SHA256 exactly equals the approved candidate hash above.
+UI Revision displayed `REV 1.6.2 | commit 5e23e16 | built 2026-09-09 19:43`. Runtime log confirms four
+instances loaded that revision from 20:42:31 through 20:42:39 local time. Installation evidence retained at
+E:/atas/mbo-install-1.6.2/installation.log and install-state.json.
+
+On the existing GC chart Signal Bridge, filtered properties to MBO, enabled the checkbox and pressed Apply.
+No immediate enabled log was observed before restart. A mistakenly opened Save Template dialog was canceled;
+no new template was saved. Then saved the existing GC workspace and gracefully restarted ATAS to initialize
+from persisted settings. Owner handled Authorization manually and confirmed login. We are now checking the
+post-restart probe; installation success must not be confused with live collection success.

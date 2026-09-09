@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **REV 1.6.2: Independent Reviewer APPROVE แล้ว; owner อนุญาต local install/probe และ login แล้ว; กำลังติดตั้ง** | **Codex ติดตั้ง/ตรวจ About → เก็บ Phase A log** | Review แยกจาก executor ผ่านแล้ว; Phase A live evidence ยังไม่ครบ | §0AK.6.5 · `docs/reviews/2026-09-09-mbo-installation-record.md` |
+| 6 | **1.6.2 ติดตั้ง/รับ MBO แล้ว; แก้ JSON logger เป็น 1.6.3 รอ independent review; timestamp ยัง UNVERIFIED** | **Independent Reviewer ตรวจแพตช์ → Codex ติดตั้ง/เก็บ log** | ผู้แก้ตรวจอนุมัติของตนเองไม่ได้; Phase A ยังไม่ผ่าน | §0AK.6.6 · `docs/reviews/2026-09-09-mbo-logging-correction.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -53,7 +53,7 @@
 |---|---|---|
 | 1 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
 | 2 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
-| 3 | หลัง re-review ผ่าน: ติดตั้ง DLL **REV 1.6.2** และรัน Phase A probe | build ในเครื่องผ่านแล้ว; GUI/live-feed ยัง UNVERIFIED; ห้ามใช้ DLL 1.6.0 ตาม runbook เก่า |
+
 
 ### 00.3 รอเวลา ไม่ใช่รอคน
 
@@ -373,6 +373,17 @@ C has ~17.94 GiB free. Computer Use was found through node_repl + @oai/sky (earl
 superseded). ATAS currently exposes Authorization; owner asked to log in manually. No import or live probe
 started yet; server deployment, migration, Telegram and trading are outside this local approval.
 
+#### 0AK.6.6 Installed 1.6.2; live logger correction (2026-09-09)
+
+Supersedes installation-pending statements in 0AK.6.5. Reviewed 1.6.2 installed via ATAS Import;
+UI Revision, destination hash and four runtime instances match 5e23e16. Owner manually logged in after
+saved-workspace restart. GC probe started and read 2,870 initial orders, but JSON braces trigger the SDK
+logger format exception. Executor corrected only the logging call and bumped REV to 1.6.3.
+Build and 33 assertions pass; actual SDK regression reproduces failure and exact corrected output.
+Fresh Independent Reviewer must check this patch and artifact before import. Details and rollback:
+`docs/reviews/2026-09-09-mbo-logging-correction.md`; installed evidence in installation record.
+Future-event counts invalidate latency interpretation; active/quiet evidence and timestamp provenance
+remain pending. No server deployment, migration, Telegram change or trading action occurred.
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
@@ -6840,3 +6851,4 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 21. **อย่าใช้ Confidence v2 เป็นคะแนนหรือ filter ก่อนผ่าน forward test** — `v2-shadow-1`
     เก็บ feature เพื่อสร้างหลักฐานเท่านั้น (`score: null`) และ verdict ของ view คือ permission
     ให้เริ่มทดลอง offline ไม่ใช่ permission ให้แตะ Telegram/กฎ (ข้อ 5.20)
+

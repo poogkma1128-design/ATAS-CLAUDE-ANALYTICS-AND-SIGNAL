@@ -50,7 +50,7 @@ namespace AtasSignalBridge
                 () => SubscribeMarketByOrderData(),
                 (interval, action) => SubscribeToTimer(interval, action),
                 (interval, action) => UnsubscribeFromTimer(interval, action),
-                message => this.LogInfo("Signal Bridge MBO probe " + message),
+                message => this.LogInfo("{0}", "Signal Bridge MBO probe " + message),
                 () => InstrumentInfo == null ? "unknown" : InstrumentInfo.Instrument,
                 probe => probe.ObserveInitialSnapshot(MarketByOrders));
             // Nothing is plotted; the indicator exists purely to move data.
