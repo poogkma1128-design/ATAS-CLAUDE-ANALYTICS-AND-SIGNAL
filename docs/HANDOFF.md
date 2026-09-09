@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **Owner accepts MBO latency as non-authoritative for signal observation only; 1.6.5 lifecycle is installed and restart-proven. ATAS is at Authorization for the remaining interval check.** | **Owner login → Codex interval capture → Independent Reviewer** | Authentication is owner-only; independent raw reparse and Phase A evidence remain incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-independent-signoff.md` |
+| 6 | **MBO 1.6.5 lifecycle passes locally: off/on, cache, restart, and interval 60→15→60. Owner accepts timing as non-authoritative for signal observation only.** | **Independent Reviewer** | Executor cannot approve its own raw packet; Phase A evidence is still incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-independent-signoff.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -453,6 +453,22 @@ post-restart session `2da8e87aa32343229288ebf9c998dddf` did persist revision 1.6
 callbacks. Its intervals likewise retain `invalid:future_events`; they are usable only as diagnostic
 collection evidence. A final GUI interval-change check is pending a manual login because ATAS is again
 at Authorization.
+
+**Interval-setting completion (22:50–22:53 Bangkok):** after a manual login, executor changed the
+actual existing indicator setting from 60 to 15 seconds and Apply logged `reason:"interval_changed"` at
+22:50:09. The subsequent full interval was 15,001 ms with live callbacks. Executor then restored 60
+seconds and Apply logged the second `interval_changed` at 22:51:44. One residual 15-second timer tick
+occurred at 22:51:59; the next full interval was 60,003 ms at 22:52:59 with live callbacks. The ATAS
+process remained responsive. The persisted operator setting is **MBO enabled, 60 seconds**. This closes
+the local property/lifecycle acceptance path: compiled properties, actual off/on, new cache sessions,
+restart persistence, and timer replacement all have direct evidence.
+
+The owner accepts timing only as non-authoritative diagnostic/signal observation. Every interval in this
+test still records `invalid:future_events` and an unavailable p95; no latency-quality claim is accepted.
+No signal rule, Telegram behavior, server, database, order, or trade execution was changed. An independent
+raw reparse is still required before calling the evidence packet independently accepted or closing any
+Phase A assertion. Attempts to start the fresh independent reviewer were unavailable because the reviewer
+service/model hit an account usage limit; that is a review-availability limitation, not a passing verdict.
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**

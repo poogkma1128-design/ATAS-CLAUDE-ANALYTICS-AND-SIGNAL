@@ -59,3 +59,20 @@ The required fresh-process lifecycle verification, interval-change test, indepen
 clock/event-time validation, and active/quiet windows remain open. The Windows clock remains about
 0.77–0.80 seconds offset from time.windows.com, therefore all latency percentile conclusions remain
 unaccepted.
+
+## Interval-setting live check and restored operator state (22:50–22:53 Bangkok)
+
+After owner login, the executor used the existing Signal Bridge property's UI to change **Probe log
+interval (seconds)** from 60 to 15 and applied it. The running session
+`c150d8aa3b044b9f9f903c73a1fa82e6` emitted `reason:"interval_changed"` at 22:50:09, followed by a
+15,001 ms interval with live callbacks. The executor then restored 60 seconds and applied it. A second
+`interval_changed` emitted at 22:51:44; one previously scheduled short tick occurred at 22:51:59, and
+the next full interval at 22:52:59 was 60,003 ms with live callbacks. ATAS process responsiveness was
+checked after the operation.
+
+The operator state is restored to **Enable MBO probe=true** and **Probe log interval=60**. This validates
+actual timer replacement through the ATAS UI without changing any signal behavior, service, database,
+Telegram setting, order, or trading state. The owner accepts the collected timing only for
+non-authoritative diagnostic/signal observation. The raw records remain `invalid:future_events`, their
+event time is `Unspecified`, and p95 is unavailable; this test makes no latency or book-completeness
+claim. Independent raw reparse and all Phase A empirical gates remain open.
