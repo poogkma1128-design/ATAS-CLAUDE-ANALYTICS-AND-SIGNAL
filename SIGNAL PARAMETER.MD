@@ -740,8 +740,8 @@ data-status transitions work; feature age is measurable; restart cannot duplicat
 Phase A probe cannot yet prove rebuild/completeness or real feed epoch boundaries. Those remain an explicit
 Gate 0 gap for the collector/replay phase, not a pass inferred from a counter.
 
-**Local implementation status (2026-09-09):** REV `1.6.3` independently reviewed and installed; GC MBO JSON is valid in live logs. Windows clock trails the NTP reference by ~0.76s and event-time basis remains unverified; latency and full Phase A acceptance remain UNVERIFIED. See `docs/reviews/2026-09-09-mbo-installation-record.md`.
-REV `1.6.4` candidate corrects false low p95: any future event makes the window percentile unavailable.
+**Local implementation status (2026-09-09):** REV `1.6.4` independently reviewed and installed; GC MBO JSON is valid in live logs. Windows clock trails the NTP reference by ~0.76s and event-time basis remains unverified; latency and full Phase A acceptance remain UNVERIFIED. See `docs/reviews/2026-09-09-mbo-installation-record.md`.
+REV `1.6.4` corrects false low p95: any future event makes the window percentile unavailable.
 `mboLatencyStatus` / `tradeLatencyStatus` and last raw timestamp/kind samples explain invalid timing.
 Positive timing remains provisional until the connector timestamp basis and machine clock are verified.
 `Enable MBO probe` defaults to `false`. Both initialization and subsequent settings recalculation synchronize
@@ -780,7 +780,7 @@ Phase B–D work.
 #### Phase A operator runbook — only after independent review
 
 1. Free at least 10 GB on the ATAS data volume before recording anything.
-2. Build the independently reviewed REV (current installed version `1.6.3`), import the exact reviewed DLL and
+2. Build the independently reviewed REV (current installed version `1.6.4`), import the exact reviewed DLL and
    verify installed hash/Revision. GUI installation requires owner authorization; the 2026-09-09 local import
    was explicitly delegated to Codex. Authentication remains manual.
 3. Open `GCZ6@COMEX` 5m with the Rithmic Level 2 connection and Aggregated Quotes disabled.
