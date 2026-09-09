@@ -18,7 +18,13 @@ No runtime C# or signal/business logic changed.
 - Server tests were not rerun for this build-only change. The previous 255-test result applies to 138b30a.
 - Disk gate cleared: C free 19,279,126,528 bytes (~17.96 GiB).
 - OFT.Platform running; inspected current Roaming ATAS log file is empty. Actual live probe remains UNVERIFIED.
-- Final committed build/hash and REV-check result will be appended after committing the source correction.
+- Source correction commit: `5e23e16` (last indicator-directory commit).
+- Post-commit default build PASS; generated BuildInfo and DLL binary both contain `REV 1.6.2 | commit 5e23e16`.
+- REV check PASS: indicator 1.6.2 / web 1.3.2. Final diff whitespace check PASS.
+- Prepared DLL: `E:/atas/mbo-build-1.6.2-5e23e16/AtasSignalBridge.dll`.
+- SHA256: `A3E1B971F442B954D98AFC5D69E3A3B6ED536988C0587BBCCAD36E8C39B1F36C`.
+- Build log and generated BuildInfo retained alongside the DLL. This is the candidate for independent review;
+  it has not been installed or run inside ATAS. The earlier no-git artifact is superseded.
 
 ## Standalone independent-review prompt
 
