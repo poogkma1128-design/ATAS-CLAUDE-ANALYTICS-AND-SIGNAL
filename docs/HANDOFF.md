@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **1.6.2 ติดตั้ง/รับ MBO แล้ว; แก้ JSON logger เป็น 1.6.3 รอ independent review; timestamp ยัง UNVERIFIED** | **Independent Reviewer ตรวจแพตช์ → Codex ติดตั้ง/เก็บ log** | ผู้แก้ตรวจอนุมัติของตนเองไม่ได้; Phase A ยังไม่ผ่าน | §0AK.6.6 · `docs/reviews/2026-09-09-mbo-logging-correction.md` |
+| 6 | **1.6.3 ผ่าน review/ติดตั้งแล้ว; MBO JSON ปกติ; Phase A ยังไม่ผ่านเพราะเวลา event และชุดหลักฐานไม่ครบ** | **Owner จัดการ clock sync → Codex เก็บหลักฐานใหม่ → Independent Reviewer ตรวจ raw logs** | นาฬิกาเครื่องช้า ~0.76s; event-time basis ยังไม่พิสูจน์; executor อนุมัติหลักฐานตนเองไม่ได้ | §0AK.6.6 · `docs/reviews/2026-09-09-mbo-installation-record.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -373,17 +373,25 @@ C has ~17.94 GiB free. Computer Use was found through node_repl + @oai/sky (earl
 superseded). ATAS currently exposes Authorization; owner asked to log in manually. No import or live probe
 started yet; server deployment, migration, Telegram and trading are outside this local approval.
 
-#### 0AK.6.6 Installed 1.6.2; live logger correction (2026-09-09)
+#### 0AK.6.6 Reviewed 1.6.3 installed; Phase A clock/evidence gap (2026-09-09)
 
 Supersedes installation-pending statements in 0AK.6.5. Reviewed 1.6.2 installed via ATAS Import;
 UI Revision, destination hash and four runtime instances match 5e23e16. Owner manually logged in after
 saved-workspace restart. GC probe started and read 2,870 initial orders, but JSON braces trigger the SDK
 logger format exception. Executor corrected only the logging call and bumped REV to 1.6.3.
 Build and 33 assertions pass; actual SDK regression reproduces failure and exact corrected output.
-Fresh Independent Reviewer must check this patch and artifact before import. Details and rollback:
+Fresh Independent Reviewer APPROVE of exact source/artifact is recorded in
+`docs/reviews/2026-09-09-mbo-logger-independent-signoff.md`. Reviewed DLL was imported at 20:59:49 Bangkok;
+destination hash, UI 1.6.3/fdce650 and clean live JSON match. Details and rollback:
 `docs/reviews/2026-09-09-mbo-logging-correction.md`; installed evidence in installation record.
 Future-event counts invalidate latency interpretation; active/quiet evidence and timestamp provenance
-remain pending. No server deployment, migration, Telegram change or trading action occurred.
+remain pending. Independent post-install verification also passed the installed hash and strict parsing
+of the frozen packet (seven JSON rows, two nonzero intervals, zero format-error envelopes). It explicitly
+does not approve latency or Phase A. W32Time is stopped; NTP reference comparison puts local clock ~0.76s
+behind. No clock/service setting was changed. Next: clock synchronization and event-time provenance,
+exact contract/settings, both 15-minute windows, deliberate toggle/restart checks, then independent raw
+review. Probe remains enabled. No server deployment, migration, Telegram or trading action occurred.
+
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
@@ -6851,4 +6859,3 @@ docs/SETUP.md                       คู่มือติดตั้งฉ�
 21. **อย่าใช้ Confidence v2 เป็นคะแนนหรือ filter ก่อนผ่าน forward test** — `v2-shadow-1`
     เก็บ feature เพื่อสร้างหลักฐานเท่านั้น (`score: null`) และ verdict ของ view คือ permission
     ให้เริ่มทดลอง offline ไม่ใช่ permission ให้แตะ Telegram/กฎ (ข้อ 5.20)
-

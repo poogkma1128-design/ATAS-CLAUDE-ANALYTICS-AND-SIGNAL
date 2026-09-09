@@ -49,3 +49,44 @@ No immediate enabled log was observed before restart. A mistakenly opened Save T
 no new template was saved. Then saved the existing GC workspace and gracefully restarted ATAS to initialize
 from persisted settings. Owner handled Authorization manually and confirmed login. We are now checking the
 post-restart probe; installation success must not be confused with live collection success.
+
+## Reviewed 1.6.3 installed; clean runtime logging verified
+
+Post-login 1.6.2 session began 13:48:54 UTC and read 2,870 initial orders. It exposed an SDK formatted-logger
+defect: JSON braces became log4net error envelopes. The executor repaired only the logger call, bumped the
+indicator to 1.6.3, and obtained fresh scoped APPROVE from `mbo_logger_review` before import. See
+`2026-09-09-mbo-logger-independent-signoff.md` for independent reruns and limitations.
+
+Exact source: `fdce6500ce0b0084f36fba10149e90b673bf28e1`.
+Candidate: `E:/atas/mbo-build-1.6.3/AtasSignalBridge.dll`.
+SHA256: `5D4FB593473855EBB10F5D7C7E0272F1F437A3331A6E2D47F88D031474CAC3DF`.
+At 20:59:49 Bangkok, ATAS loaded 1.6.3 through its Import workflow. Installed destination hash matches;
+UI Revision displays `REV 1.6.3 | commit fdce650 | built 2026-09-09 20:55`. Existing configured instances
+reloaded; no extra producer was added. The indicators dialog was closed after read-only version inspection.
+
+Frozen raw runtime packet: `E:/atas/mbo-install-1.6.3/probe.log`, SHA256
+`A6C808A7F34972FC8E52B524AF774CEC8468472BBAC04EDD4F0C37110661EEFE`.
+It contains seven clean JSON summaries, two interval summaries, and zero log4net error envelopes. The first
+1.6.3 subscription read 2,856 initial orders. Closing the dialog reinitialized the chart's configured probe;
+the subsequent session `85f7358d05d1410eaea6b1a81aad99fd` read 2,867 initial orders. Its first 22.185-second
+interval has 4,101 callbacks, 4,168 live MBO updates and 143 trades. This is a short diagnostic smoke check,
+not an accepted 15-minute active/quiet run. All 4,168 events and 143 trades in that interval were counted
+as future timestamps; reported 10ms percentile values must not be used as valid latency evidence.
+
+Read-only clock check: W32Time is Stopped/Manual; `w32tm /query /status` returns service-not-started
+0x80070426. Three NTP stripchart samples against time.windows.com show +0.755, +0.770 and +0.768 seconds
+(the local clock trails that reference). Raw output: `E:/atas/mbo-logging-regression/clock-check.txt`.
+This supports a clock-skew concern, but does not prove the connector's event timestamp basis. No system
+clock/service setting was changed. The UI showed #GCZ6 while probe payload says GC; exact feed/contract
+mapping and Aggregated Quotes setting have not been independently verified for the acceptance run.
+
+Current runtime: reviewed 1.6.3 installed and diagnostic probe enabled. Full Phase A remains incomplete:
+establish synchronized clocks and event-time provenance, verify exact contract/settings, repeat both
+15-minute windows, and separately verify deliberate disable/re-enable plus full 1.6.3 process restart.
+Hot reload and chart reinitialization do not replace those lifecycle checks. Book epoch remains unavailable.
+Executor must gather the corrected raw packet; a fresh independent empirical reviewer must assess it.
+No server deployment, migration, alert setting, account/credential or trading action occurred.
+
+Rollback copy of installed 1.6.2 is at `E:/atas/mbo-install-1.6.3/backup/AtasSignalBridge.dll`, hash
+`A3E1B971F442B954D98AFC5D69E3A3B6ED536988C0587BBCCAD36E8C39B1F36C`.
+Import that reviewed backup only if rollback is needed; preserve logs and its known malformed-logger caveat.
