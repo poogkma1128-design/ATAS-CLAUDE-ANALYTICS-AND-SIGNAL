@@ -35,6 +35,8 @@ namespace AtasSignalBridge
         private readonly HttpSender _sender = new HttpSender();
         private readonly AnnotationClient _annotations = new AnnotationClient();
         private readonly MboProbeLifecycle _mboProbeLifecycle;
+        private bool _enableMboProbe;
+        private int _mboProbeLogIntervalSeconds = 60;
 
         private int _lastBar = -1;
         private bool _seeded;
@@ -165,11 +167,29 @@ namespace AtasSignalBridge
 
         [Display(Name = "Enable MBO probe", GroupName = "MBO Probe", Order = 300,
             Description = "Diagnostic only: count raw MBO/print events and latency in the ATAS log. It never creates signals or sends data.")]
-        public bool EnableMboProbe { get; set; }
+        public bool EnableMboProbe
+        {
+            get => _enableMboProbe;
+            set
+            {
+                _enableMboProbe = value;
+                // ATAS property edits do not automatically recalculate. Sync
+                // only this diagnostic; do not replay the sender's history.
+                _mboProbeLifecycle?.ApplySettings(value, _mboProbeLogIntervalSeconds);
+            }
+        }
 
         [Display(Name = "Probe log interval (seconds)", GroupName = "MBO Probe", Order = 310)]
         [Range(15, 300)]
-        public int MboProbeLogIntervalSeconds { get; set; } = 60;
+        public int MboProbeLogIntervalSeconds
+        {
+            get => _mboProbeLogIntervalSeconds;
+            set
+            {
+                _mboProbeLogIntervalSeconds = value;
+                _mboProbeLifecycle?.ApplySettings(_enableMboProbe, value);
+            }
+        }
 
         #endregion
 
