@@ -35,3 +35,27 @@ import. No source author self-approval. Rollback is the backed-up reviewed 1.6.4
 settings/lifecycle limitation. After import, explicitly verify disabled/enabled/session/cache evidence,
 interval changes and process restart, then gather synchronized, independently classified active/quiet
 windows. Full Phase A and book reset/replay remain unapproved until their evidence is complete.
+
+## Local installation and GUI evidence (22:02–22:06 Bangkok)
+
+Independent source/artifact approval is recorded separately in
+`docs/reviews/2026-09-09-mbo-property-independent-signoff.md`. Only after that approval, the executor
+backed up the installed 1.6.4 DLL at `E:/atas/mbo-install-1.6.5/backup/` and used ATAS's Import UI for
+the approved candidate. The installed destination SHA256 is
+`5F9CEFE21E56431E2E79E939A443053207C6D21D5FAB8F5B22BCF07A0AC4087A`, matching the reviewed artifact.
+
+Runtime log evidence records revision 1.6.5, old-session dispose, then enabled session
+`c3649470f6c04167a0df3096dcade51f` with `initialSnapshotReads=1` and 2,329 initial orders. In the
+actual existing indicator's property editor, clearing **Enable MBO probe** and applying emitted
+`reason:"disabled"` on that same session. Setting it back and applying emitted a different enabled
+session `84f653feb41f4ace947d30581c1854d7`, with `initialSnapshotReads=1` and 3,022 initial orders.
+This is live evidence for the corrected setting-to-lifecycle transition and cache read, not a claim of
+book completeness or latency validity.
+
+ATAS then exited at 22:06 after a generic WPF dispatcher exception while the property editor was being
+used. The inspected log contains no Signal Bridge exception, so its relationship to the DLL is
+**UNVERIFIED**. Relaunch reaches Authorization and requires owner login; no automated login is allowed.
+The required fresh-process lifecycle verification, interval-change test, independent raw reparse,
+clock/event-time validation, and active/quiet windows remain open. The Windows clock remains about
+0.77–0.80 seconds offset from time.windows.com, therefore all latency percentile conclusions remain
+unaccepted.

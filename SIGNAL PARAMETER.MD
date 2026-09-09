@@ -6,7 +6,9 @@
 engineering findings. Fixes are on `claude/signal-handoff-docs-x26vdd`; independent re-review is pending.
 Correction `b8e607e`, synced with `main@5ca9665` via `b67d7d4`, is shared in
 [draft PR #114](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/114).
-**Do not deploy ingest, apply the new tick guard migration, or install the DLL before that review.**
+The diagnostic-only MBO DLL revision 1.6.5 is independently reviewed and locally installed for
+evidence capture; it does not authorize an ingest deploy, tick-guard migration, signal change,
+Telegram change, or order execution.
 
 **Written:** 2026-09-09 (Asia/Bangkok)
 

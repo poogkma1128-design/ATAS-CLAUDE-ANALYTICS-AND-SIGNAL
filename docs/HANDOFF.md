@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **Owner clock sync succeeded; precision still ~0.77s off. MBO property wiring fix 1.6.5 awaits independent rerun** | **Independent Reviewer → Codex install/lifecycle/capture → independent raw review** | Real property change did not update collector; helper-only tests missed wiring; Phase A evidence incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md` |
+| 6 | **MBO 1.6.5 is independently approved and locally installed; GUI off/on lifecycle passes. ATAS restart is at Authorization; clock precision remains ~0.77s off.** | **Owner login → Codex restart verification/capture → Independent Reviewer** | Authentication is owner-only; raw runtime packet and Phase A evidence are still incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-independent-signoff.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -421,6 +421,27 @@ in REV 1.6.5 without replaying unrelated history. Actual compiled-indicator prop
 failure on 1.6.4 and passes 12 assertions on correction. Exact reviewed artifact must precede import.
 Details, roles, source evidence and rollback: `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md`.
 Full Phase A still requires clock/event-time validation, actual lifecycle/restart and active/quiet evidence.
+
+**Update 22:02–22:06 Bangkok:** independent reviewer approved exact `d4d5449` and candidate
+`AtasSignalBridge.dll` SHA256 `5F9CEFE21E56431E2E79E939A443053207C6D21D5FAB8F5B22BCF07A0AC4087A` after a clean build,
+46 lifecycle assertions, 12 compiled-property assertions, and the expected 1.6.4 negative control.
+Executor backed up the installed 1.6.4 DLL at `E:/atas/mbo-install-1.6.5/backup/` and imported the
+approved 1.6.5 file. Destination hash matches. ATAS logged revision 1.6.5, disposed the old session,
+then logged a new enabled session with `initialSnapshotReads=1` and 2,329 orders.
+
+The existing indicator's actual setting was then set off and Apply produced `reason:"disabled"` for
+session `c3649470f6c04167a0df3096dcade51f`; no helper-only inference is used. Re-enabling it and Apply
+produced a distinct session `84f653feb41f4ace947d30581c1854d7` with `initialSnapshotReads=1` and
+3,022 orders. This closes the directly observed property-to-lifecycle off/on/cache path. It does not
+establish book completeness, event-time semantics, a valid latency percentile, or Phase A acceptance.
+
+At 22:06 ATAS exited after a WPF dispatcher exception (`Dispatcher processing has been suspended, but
+messages are still being processed`) while the property editor sequence was being exercised. No
+Signal Bridge exception is present in the inspected log; causality is **UNVERIFIED**. ATAS relaunches
+to Authorization. Owner authentication is the remaining required action before executor verifies the
+fresh process lifecycle and freezes a new packet. Do not automate that login. Interval-change verification
+was not completed because the process ended. Clock stripchart still measures approximately +0.77 to
++0.80 seconds against time.windows.com, so p95 remains unaccepted.
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
