@@ -670,7 +670,10 @@ Deno.test("ingest: a known instrument keeps its curated tick, whatever the chart
   // tick rewritten by an ingest, or a corrected value silently reverts the
   // next time the terminal is opened.
   const client = new StubClient()
-    .queue("instruments.select", { data: [{ id: "inst-1" }], error: null })
+    .queue("instruments.select", {
+      data: [{ id: "inst-1", tick_size: 0.1, tick_value: 10 }],
+      error: null,
+    })
     .queue("rules.select", { data: [], error: null })
     .queue("bars.upsert", {
       data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
@@ -681,6 +684,63 @@ Deno.test("ingest: a known instrument keeps its curated tick, whatever the chart
 
   assertEquals(client.callsFor("instruments", "upsert").length, 0);
   assertEquals(client.callsFor("instruments", "select").length, 1);
+});
+
+Deno.test("ingest: GC plan distances use the curated tick, not the chart row", async () => {
+  const gcLevels = [
+    level(4420.8, 2, 5),
+    level(4421.2, 30, 4),
+    level(4421.6, 40, 3),
+    level(4422.0, 35, 2),
+    level(4422.4, 3, 2),
+  ];
+  const client = new StubClient()
+    .queue("instruments.select", {
+      data: [{ id: "inst-1", tick_size: 0.1, tick_value: 10 }],
+      error: null,
+    })
+    .queue("rules.select", { data: [STACKED_RULE], error: null })
+    .queue("bars.upsert", {
+      data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
+      error: null,
+    })
+    .queue("bars.select", { data: [], error: null })
+    .queue("signals.upsert", { data: [], error: null });
+
+  await ingest(
+    client.asClient(),
+    payload({
+      symbol: "GC",
+      exchange: "",
+      tickSize: 0.4,
+      bars: [bar({
+        open: 4420.8,
+        high: 4424.4,
+        low: 4420.8,
+        close: 4424,
+        levels: gcLevels,
+      })],
+    }),
+  );
+
+  const signal = client.rowsFor("signals", "upsert")[0];
+  // The footprint still uses 0.40 chart rows and therefore still triggers,
+  // while the complete plan is built in the curated 0.10 market tick.
+  assertEquals(signal.entry_price, 4424);
+  assertEquals(signal.stop_price, 4420.6);
+  assertEquals(signal.target_price, 4430.8);
+  assertEquals(signal.risk_ticks, 34);
+  assertEquals(signal.reward_ticks, 68);
+  assertEquals(signal.trail_trigger_ticks, 34);
+  assertEquals(signal.trail_offset_ticks, 17);
+  const executionUnits = (signal.payload as Record<string, unknown>)
+    .executionUnits;
+  assertEquals(executionUnits, {
+    version: "market-tick-v1",
+    chartTickSize: 0.4,
+    marketTickSize: 0.1,
+    planTickSize: 0.1,
+  });
 });
 
 Deno.test("ingest: an unknown instrument is still seeded from the payload", async () => {

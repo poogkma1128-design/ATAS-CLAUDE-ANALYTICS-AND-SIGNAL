@@ -74,14 +74,14 @@ Current production parameters remain unchanged:
 No extra filter such as delta alignment, MBO iceberg, or order-book pressure may be turned on from this
 small in-sample slice. Such filters remain hypotheses under the shadow protocol in the rest of this file.
 
-### 0.3 Blocking safety defect: Telegram risk unit is wrong for the current GC chart
+### 0.3 Blocking safety defect: live plan and outcome units disagree
 
 The latest Telegram-sent GC signal at `2026-09-09T04:30:04.660084Z` recorded:
 
 ```text
 entry = 4424.0
 stop = 4420.0
-displayed risk_ticks = 10
+stored risk_ticks = 10 chart rows
 true GC tick size = 0.1
 true entry-to-stop distance = 4.0 points = 40 ticks = about USD 400 per GC contract
 modeled result = stop, -4.0 points = about USD -400 per GC contract before costs
@@ -89,12 +89,40 @@ modeled result = stop, -4.0 points = about USD -400 per GC contract before costs
 
 The bridge supplied a chart price step of `0.4` to the plan builder, whereas the curated COMEX GC tick is
 `0.1`. The plan therefore called a 4-point stop “10 ticks”; the outcome scorer, correctly using `0.1`,
-recorded `-40 ticks`. This can cause a trader to risk about four times the cash implied by the Telegram tick
-label.
+recorded `-40 ticks`. The old Telegram formatter displayed the physical price risk (`4.0`) but did not show
+true ticks or cash risk. More importantly, stored R and trailing thresholds mixed the two units, so modeled
+outcomes from this path are not a valid estimate of the corrected contract.
 
-Until the plan and Telegram message carry an immutable, exchange-verified `market_tick_size = 0.1` and a
-verified dollar-risk field, Telegram may remain live **only as an observation channel**. Do not place a
-real-money order from its displayed risk number.
+#### Local implementation completed — not deployed
+
+Branch `codex/gc-l2-live-readiness` now separates the units:
+
+```text
+chartTickSize      = payload.tickSize       # footprint adjacency only
+instrumentTickSize = instruments.tick_size # plan, score and true ticks
+tickValue          = instruments.tick_value
+```
+
+- existing instruments are loaded with curated `tick_size` and `tick_value`;
+- rules continue to evaluate aggregated footprint rows with the chart step;
+- Entry/SL/TP and all plan tick distances use the curated market tick, matching backtest semantics;
+- every new signal payload records `executionUnits.version = market-tick-v1` plus all three unit values;
+- Telegram now displays price risk, true ticks, and approximate USD risk per one contract when `tick_value`
+  is known.
+
+For the same observed bar, the corrected `speed_of_tape` plan would be:
+
+```text
+entry = 4424.0
+stop = 4420.6
+target = 4434.2
+risk = 3.4 points = 34 true GC ticks = about USD 340 per GC contract
+```
+
+This changes future plan geometry from the defective live contract. Historical results produced by the old
+unit path must not be pooled with `market-tick-v1`; collect and evaluate the corrected version separately.
+Until independent review and deployment verification are complete, Telegram may remain live **only as an
+observation channel**.
 
 ### 0.4 MBO cannot be promoted today on current evidence
 
@@ -119,8 +147,10 @@ Another AI or operator must keep the result `NO_GO` until every item below has e
 1. Free at least 10 GB on the ATAS data volume; record the free-space measurement.
 2. Reconnect Rithmic with aggregated quotes disabled and prove `GCZ6@COMEX` MBO snapshots and incremental
    events run for at least 15 minutes without `get_order_book error : 13`.
-3. Correct the plan/risk unit so Entry, SL, true ticks, and USD per contract agree for GC tick size `0.1`.
-4. Add regression tests covering the observed `0.4` chart-step versus `0.1` market-tick case.
+3. **LOCAL DONE / NOT DEPLOYED:** correct the plan/risk unit so Entry, SL, true ticks, and USD per contract
+   agree for GC tick size `0.1`.
+4. **LOCAL DONE:** regression tests cover the observed `0.4` chart-step versus `0.1` market-tick case and
+   Telegram cash risk. Full suite: `237 passed, 0 failed`; typecheck, format and revision checks pass.
 5. Deploy only the reviewed risk-unit fix; confirm one fresh Telegram test message displays the correct
    physical and cash risk. Do not place a broker order for this test.
 6. Collect MBO events in shadow, prove event completeness/latency, and run the pre-registered walk-forward
@@ -677,6 +707,34 @@ detector_version, book_epoch, evidence_status
 
 **Acceptance:** confirmed current book rebuild; no callback exceptions; bounded memory; data-status transitions
 work; feature age is measurable; restarting ATAS creates a new epoch rather than duplicating orders.
+
+**Local implementation status (2026-09-09):** implemented and compiled as indicator REV `1.6.0`, but not
+installed or run inside ATAS. `Enable MBO probe` defaults to `false`; when enabled it subscribes to the raw
+MBO callback and prints one bounded JSON summary every 60 seconds plus a final dispose summary. It records:
+
+```text
+callbacks, maxCallbackBatch, bookEpoch,
+Snapshot/New/Change/Delete counts, zeroOrderId,
+clockRegressions, futureMboEvents, mboLatencyP95UpperMs,
+trades, nullTradeOrderId, nullAggressorOrderId,
+futureTradeEvents, tradeLatencyP95UpperMs
+```
+
+The latency calculation uses fixed histogram buckets, not a growing list, so probe memory is constant. It
+does not retain the book, archive raw events, call Supabase, create a signal, or send Telegram. Those remain
+Phase B–D work.
+
+#### Phase A operator runbook — only after independent review
+
+1. Free at least 10 GB on the ATAS data volume before recording anything.
+2. Build REV `1.6.0`, copy the reviewed DLL into the ATAS Indicators folder, and restart ATAS. The owner must
+   do the GUI/install step.
+3. Open `GCZ6@COMEX` 5m with the Rithmic Level 2 connection and Aggregated Quotes disabled.
+4. Add Signal Bridge, verify About/Revision shows the reviewed `1.6.0` commit, then enable `MBO Probe`.
+5. Run at least 15 minutes in an active period and 15 minutes in a quiet period. Do not trade from the probe.
+6. Export ATAS log lines beginning `Signal Bridge MBO probe {` as the deterministic evidence artifact.
+7. Fail Gate 0 if no Snapshot epoch appears, MBO update counts stay zero while trades increase, timestamps
+   regress materially, latency is stale, the callback throws, or `get_order_book error : 13` remains.
 
 ### Phase B — collector and replay
 

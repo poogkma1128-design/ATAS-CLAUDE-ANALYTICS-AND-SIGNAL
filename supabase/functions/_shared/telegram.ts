@@ -87,6 +87,8 @@ export interface SignalMessage {
   direction: "long" | "short";
   symbol: string;
   timeframe: string;
+  /** Exchange value of one true minimum tick; null when not curated. */
+  tickValue: number | null;
   price: number;
   confidence: number;
   firedAt: string;
@@ -176,6 +178,12 @@ export function formatSignal(msg: SignalMessage): string {
     // would read as three times tighter than the trade actually is.
     const risk = Math.abs(p.stop - p.entry);
     const reward = Math.abs(p.target - p.entry);
+    const cashRisk = msg.tickValue !== null && msg.tickValue > 0
+      ? p.riskTicks * msg.tickValue
+      : null;
+    const riskLabel = cashRisk === null
+      ? `เสี่ยง ${fmt(risk)} จุด · ${fmt(p.riskTicks)} ticks`
+      : `เสี่ยง ${fmt(risk)} จุด · ${fmt(p.riskTicks)} ticks · ≈ $${fmt(cashRisk)}/1 สัญญา`;
 
     // The plan stores its trail in the same unit as the risk, so the price step
     // it was built from is recoverable without carrying tick size around.
@@ -190,7 +198,7 @@ export function formatSignal(msg: SignalMessage): string {
     lines.push(
       "",
       `🎯 เข้า <b>${p.entry}</b>`,
-      `🛑 SL <b>${p.stop}</b>  (เสี่ยง ${fmt(risk)})`,
+      `🛑 SL <b>${p.stop}</b>  (${riskLabel})`,
       `✅ TP <b>${p.target}</b>  (ได้ ${fmt(reward)} · RR 1:${rr})`,
       `↕️ เมื่อราคาถึง ${fmt(trailAt)} ให้เลื่อน SL เป็น <b>${fmt(trailStop)}</b>`,
       `⏱ ถือไม่เกิน ${p.holdBars} แท่ง ไม่ถึง TP/SL ให้ปิดที่ราคาตลาด`,

@@ -15,6 +15,7 @@ function signal(overrides: Partial<SignalMessage> = {}): SignalMessage {
     direction: "long",
     symbol: "BTCUSDT",
     timeframe: "5m",
+    tickValue: null,
     price: 77570.1,
     confidence: 0.75,
     firedAt: "2026-08-29T12:15:01.000Z",
@@ -102,6 +103,25 @@ Deno.test("telegram: a short trail says the exact stop above its trigger", () =>
   }));
 
   assertStringIncludes(text, "เมื่อราคาถึง 95 ให้เลื่อน SL เป็น <b>97</b>");
+});
+
+Deno.test("telegram: GC cash risk uses true ticks and the curated tick value", () => {
+  const text = formatSignal(signal({
+    symbol: "GC",
+    tickValue: 10,
+    plan: {
+      entry: 4424,
+      stop: 4420.6,
+      target: 4434.2,
+      riskTicks: 34,
+      rewardTicks: 102,
+      trailTriggerTicks: 17,
+      trailOffsetTicks: 8.5,
+      holdBars: 10,
+    },
+  }));
+
+  assertStringIncludes(text, "เสี่ยง 3.4 จุด · 34 ticks · ≈ $340/1 สัญญา");
 });
 
 Deno.test("telegram: the result carries the same number as its alert", () => {

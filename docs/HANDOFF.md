@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** (trigger ปิด race ของ `cluster_levels`) | **เจ้าของ / Codex** | ยังไม่ apply · เป็น additive ล้วน ไม่ผูกกับ deploy ⇒ apply เมื่อไหร่ก็ได้หลังผ่าน review | §0AJ.7 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง F3 ผ่าน review | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.7 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | สร้าง MBO shadow collector สำหรับ `GCZ6@COMEX` ตามลำดับ Phase A–E; เริ่มจากแก้ GC risk-unit + regression test และห้ามเปลี่ยน live/Telegram | **GPT/Codex implementation session แล้วส่ง Independent Reviewer เซสชันใหม่** | เอกสารนี้เป็นผู้เสนอและผู้ลงมือ จึงอนุมัติผลตัวเองไม่ได้; ต้อง replay raw evidence และผ่าน Gate 0 ก่อน owner gate | `SIGNAL PARAMETER.MD` |
+| 6 | **GC risk-unit + MBO Phase A probe ทำใน branch แล้ว ยังไม่ deploy/install**; ตรวจ patch และรัน Gate 0 ก่อน Phase B–E; ห้ามเปลี่ยน live/Telegram | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของรัน ATAS probe** | ผู้เขียนเป็น proposer + executor จึงอนุมัติ patch/ผลตัวเองไม่ได้; runtime/GUI evidence ต้องมาจากเครื่องเจ้าของ | §0AK · `SIGNAL PARAMETER.MD` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -91,6 +91,65 @@
 4. อย่าเขียนหลักฐานหรือเหตุผลยาว ๆ ตรงนี้ — ใส่แค่ **ชี้ว่าอ่านที่ไหน**
 
 <!-- END-OPEN-WORK -->
+
+---
+
+## 0AK. GC market-tick safety fix + MBO readiness — **LOCAL ONLY / NOT DEPLOYED** (2026-09-09)
+
+### 0AK.1 เป้าหมายและขอบเขต
+
+เจ้าของให้เขียนข้อสรุป GC Level 2/MBO ลง `SIGNAL PARAMETER.MD` และเริ่มทำทันที. รอบนี้ทำเฉพาะ
+ตัวบล็อกความปลอดภัยก่อน Live: แยก ATAS chart row step ออกจาก exchange tick จริง, ทำ plan ให้ตรงกับ
+backtest/outcome contract, แสดง cash risk ใน Telegram และเก็บ provenance ของหน่วย. **ไม่เปลี่ยน rule
+threshold, evidence gate, Telegram enablement, Supabase schema, Edge Function deployment หรือคำสั่งซื้อขาย.**
+
+### 0AK.2 สิ่งที่เปลี่ยนบน `codex/gc-l2-live-readiness`
+
+- `_shared/ingest.ts` อ่าน `instruments.tick_size/tick_value` พร้อม instrument id. `payload.tickSize` ยังใช้
+  กับ footprint adjacency; `buildPlan()` ใช้ curated market tick.
+- signal ใหม่เก็บ `payload.executionUnits` เวอร์ชัน `market-tick-v1` พร้อม `chartTickSize`,
+  `marketTickSize`, `planTickSize` เพื่อไม่ปนผลเก่ากับ contract ใหม่.
+- `_shared/telegram.ts` แสดง risk เป็นราคา + true ticks + USD ต่อหนึ่งสัญญาเมื่อมี `tick_value`.
+- indicator REV `1.6.0` เพิ่ม `Enable MBO probe=false` ซึ่งนับ raw MBO/print callback, order-ID gaps,
+  book epoch, clock regression, callback peak และ latency histogram ลง ATAS log เท่านั้น; ไม่ส่ง Supabase,
+  ไม่สร้าง signal และใช้หน่วยความจำคงที่.
+- เพิ่ม regression สำหรับ GC chart step `0.4` / market tick `0.1`: footprint ยัง trigger แต่ plan ได้
+  Entry `4424.0`, SL `4420.6`, TP `4430.8`, risk `34` ticks ใน fixture reward 2R; unit test ของ plan
+  reward 3R ได้ TP `4434.2` และ Telegram แสดง `3.4 จุด · 34 ticks · ≈ $340/1 สัญญา`.
+
+### 0AK.3 หลักฐานตรวจสอบ
+
+| Check | ผล |
+|---|---|
+| targeted ingest/plan/Telegram | `66 passed · 0 failed` |
+| `deno task test` | `237 passed · 0 failed` |
+| `deno task check` | PASS ทั้ง 4 entrypoints |
+| touched `deno fmt --check` | PASS |
+| `deno task rev:check` | indicator `1.5.0` · web `1.3.2` PASS |
+| touched lint | มี 4 `no-import-prefix` ที่มีอยู่เดิมใน import บรรทัดแรก; patch ไม่ได้เพิ่ม import แบบนั้น |
+| indicator REV `1.6.0` build | PASS · 0 warning · 0 error กับ ATAS SDK `8.0.14.398` |
+
+ใช้ Deno `2.9.6` ผ่าน temporary pnpm cache บนไดรฟ์ E เพราะเครื่องไม่มี `deno` ใน PATH และไดรฟ์ C
+มีพื้นที่ต่ำ. ไม่มี runtime artifact นี้ถูก commit.
+
+### 0AK.4 ผลกระทบและ gate
+
+นี่เป็น **L3** เพราะถ้า deploy จะเปลี่ยน SL/TP/trailing ของ signal ใหม่ทุก rule ที่เคย fallback ไปใช้ chart
+step. สัญญาณเก่าห้ามรวมกับ `market-tick-v1`. ผู้เขียนยังให้ verdict ไม่ได้; ส่ง branch นี้ให้ Independent
+Reviewer re-run tests, ตรวจ unit separation, Telegram cash formula, backward compatibility และยืนยันว่า
+ไม่มี production mutation. หลัง review ผ่าน เจ้าของต้องให้ written GO ต่อ exact commit ก่อน deploy.
+
+Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): deploy `ingest` artifact รุ่นก่อน patch; ถ้าพบข้อความผิดหน่วยให้
+ปิด Telegram ของ rule ที่ได้รับผลด้วย exact-key kill switch และคง raw signal ไว้เป็นหลักฐาน. รอบนี้
+**ยังไม่มีสิ่งใดให้ rollback ใน Production** เพราะไม่ได้ deploy.
+
+### 0AK.5 งานถัดไป
+
+1. Independent review patch นี้ รวม unit separation, Telegram cash risk และ bounded MBO probe.
+2. เจ้าของเคลียร์พื้นที่ ATAS อย่างน้อย 10 GB, ติดตั้ง DLL ที่ review แล้ว, แก้
+   `get_order_book error : 13` และรัน active/quiet probe ตาม runbook ใน `SIGNAL PARAMETER.MD`.
+3. ส่ง raw log artifact ให้ Independent Reviewer ตัดสิน Gate 0; ถ้าผ่านจึงให้ GPT/Codex เริ่ม Phase B
+   raw archive/replay. ยังห้ามเปิด MBO Telegram.
 
 ---
 

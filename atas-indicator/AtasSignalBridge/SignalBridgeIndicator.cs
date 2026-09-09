@@ -5,6 +5,8 @@ using System.ComponentModel.DataAnnotations;
 using System.Drawing;
 using System.Globalization;
 using System.Text.RegularExpressions;
+using System.Threading.Tasks;
+using ATAS.DataFeedsCore;
 using ATAS.Indicators;
 using ATAS.Indicators.Drawing;
 using Utils.Common.Logging;
@@ -33,6 +35,7 @@ namespace AtasSignalBridge
     {
         private readonly HttpSender _sender = new HttpSender();
         private readonly AnnotationClient _annotations = new AnnotationClient();
+        private readonly MboProbe _mboProbe = new MboProbe();
 
         private int _lastBar = -1;
         private bool _seeded;
@@ -40,6 +43,8 @@ namespace AtasSignalBridge
         private bool _warnedAboutConfig;
         private int _renderedAnnotationVersion = -1;
         private int _renderedAtBar = -1;
+        private TimeSpan _mboProbeLogInterval;
+        private bool _mboProbeStarted;
 
         public SignalBridgeIndicator()
             : base(true)
@@ -154,6 +159,14 @@ namespace AtasSignalBridge
         [Display(Name = "Border", GroupName = "Overlay Colors", Order = 280)]
         public Color OverlayBorderColor { get; set; } = Color.FromArgb(16, 16, 16);
 
+        [Display(Name = "Enable MBO probe", GroupName = "MBO Probe", Order = 300,
+            Description = "Diagnostic only: count raw MBO/print events and latency in the ATAS log. It never creates signals or sends data.")]
+        public bool EnableMboProbe { get; set; }
+
+        [Display(Name = "Probe log interval (seconds)", GroupName = "MBO Probe", Order = 310)]
+        [Range(15, 300)]
+        public int MboProbeLogIntervalSeconds { get; set; } = 60;
+
         #endregion
 
         protected override void OnInitialize()
@@ -166,6 +179,25 @@ namespace AtasSignalBridge
             this.LogInfo("Signal Bridge " + BuildInfo.Summary);
 
             _sender.Start();
+
+            if (EnableMboProbe)
+            {
+                _mboProbeStarted = true;
+                _mboProbe.Start();
+                _mboProbeLogInterval = TimeSpan.FromSeconds(MboProbeLogIntervalSeconds);
+                SubscribeToTimer(_mboProbeLogInterval, LogMboProbeSummary);
+                _ = StartMboProbeSubscription();
+            }
+        }
+
+        protected override void OnMarketByOrdersChanged(IEnumerable<MarketByOrder> orders)
+        {
+            if (_mboProbeStarted) _mboProbe.ObserveMboBatch(orders, DateTime.UtcNow);
+        }
+
+        protected override void OnNewTrade(MarketDataArg trade)
+        {
+            if (_mboProbeStarted) _mboProbe.ObserveTrade(trade, DateTime.UtcNow);
         }
 
         protected override void OnRecalculate()
@@ -256,9 +288,39 @@ namespace AtasSignalBridge
 
         protected override void OnDispose()
         {
+            if (_mboProbeStarted)
+            {
+                if (_mboProbeLogInterval > TimeSpan.Zero)
+                    UnsubscribeFromTimer(_mboProbeLogInterval, LogMboProbeSummary);
+                LogMboProbeSummary("dispose");
+            }
             _sender.Dispose();
             _annotations.Dispose();
             ClearTradeOverlay();
+        }
+
+        private async Task StartMboProbeSubscription()
+        {
+            try
+            {
+                await SubscribeMarketByOrderData();
+                this.LogInfo("Signal Bridge MBO probe: subscription requested; no signals are enabled.");
+            }
+            catch (Exception ex)
+            {
+                this.LogError("Signal Bridge MBO probe subscription failed: " + ex.Message, ex);
+            }
+        }
+
+        private void LogMboProbeSummary()
+        {
+            LogMboProbeSummary("interval");
+        }
+
+        private void LogMboProbeSummary(string reason)
+        {
+            var symbol = InstrumentInfo == null ? "unknown" : InstrumentInfo.Instrument;
+            this.LogInfo("Signal Bridge MBO probe " + _mboProbe.SnapshotJson(symbol, reason));
         }
 
         private bool IsConfigured()

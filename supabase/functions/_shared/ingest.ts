@@ -186,7 +186,8 @@ export async function ingest(
   payload: IngestPayload,
   receivedAt = new Date(),
 ): Promise<IngestResult> {
-  const instrumentId = await upsertInstrument(supabase, payload);
+  const instrument = await upsertInstrument(supabase, payload);
+  const instrumentId = instrument.id;
   const rules = await loadRules(supabase);
   const overrides = await loadOverrides(supabase, instrumentId, payload.timeframe);
   const instrumentPolicy = await loadInstrumentSignalPolicy(
@@ -200,7 +201,11 @@ export async function ingest(
     payload.timeframe,
     rules,
   );
-  const tickSize = payload.tickSize;
+  // Keep the chart step for footprint adjacency, but never call it the market
+  // tick when sizing/scoring a plan. ATAS can aggregate four GC ticks into one
+  // chart row (0.4 versus the exchange tick 0.1).
+  const chartTickSize = payload.tickSize;
+  const instrumentTickSize = instrument.tickSize;
 
   // Oldest first, so a request carrying several bars builds history in order.
   const bars = orderBars(payload.bars);
@@ -286,13 +291,19 @@ export async function ingest(
     instrumentPolicy,
     decisionEntries,
     decisionBarIds,
-    tickSize,
+    chartTickSize,
+    instrumentTickSize,
   );
   const signalRows = suppressOpposingSignals(evaluatedRows);
 
   const signalsCreated = await persistSignals(
     supabase,
-    { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
+    {
+      instrumentId,
+      timeframe: payload.timeframe,
+      symbol: payload.symbol,
+      tickValue: instrument.tickValue,
+    },
     rules,
     signalRows,
     liveBarIds,
@@ -426,16 +437,22 @@ function collapseLevels(levels: ClusterLevel[]): ClusterLevel[] {
  * that does not exist yet. Correcting a wrong tick is then a deliberate,
  * recorded change instead of one a chart setting can silently undo.
  */
+interface InstrumentMetadata {
+  id: string;
+  tickSize: number;
+  tickValue: number | null;
+}
+
 async function upsertInstrument(
   supabase: SupabaseClient,
   payload: IngestPayload,
-): Promise<string> {
+): Promise<InstrumentMetadata> {
   const symbol = payload.symbol.trim();
   const exchange = (payload.exchange ?? "").trim();
 
   const existing = await supabase
     .from("instruments")
-    .select("id")
+    .select("id, tick_size, tick_value")
     .eq("symbol", symbol)
     .eq("exchange", exchange)
     .limit(1);
@@ -443,8 +460,22 @@ async function upsertInstrument(
   if (existing.error) {
     throw new Error(`instrument lookup failed: ${existing.error.message}`);
   }
-  const found = (existing.data as { id: string }[] | null)?.[0];
-  if (found) return found.id;
+  const found = (existing.data as {
+    id: string;
+    tick_size: number | string;
+    tick_value: number | string | null;
+  }[] | null)?.[0];
+  if (found) {
+    const tickSize = Number(found.tick_size);
+    if (!(tickSize > 0)) {
+      throw new Error(`instrument ${symbol} has invalid curated tick_size`);
+    }
+    return {
+      id: found.id,
+      tickSize,
+      tickValue: positiveOrNull(found.tick_value),
+    };
+  }
 
   // Still an upsert rather than an insert: two concurrent first sightings of
   // the same symbol must not turn into a duplicate-key error.
@@ -459,11 +490,20 @@ async function upsertInstrument(
       },
       { onConflict: "symbol,exchange" },
     )
-    .select("id")
+    .select("id, tick_size, tick_value")
     .single();
 
   if (error) throw new Error(`instrument upsert failed: ${error.message}`);
-  return data.id as string;
+  return {
+    id: data.id as string,
+    tickSize: Number(data.tick_size ?? payload.tickSize),
+    tickValue: positiveOrNull(data.tick_value ?? payload.tickValue),
+  };
+}
+
+function positiveOrNull(value: unknown): number | null {
+  const parsed = Number(value);
+  return value !== null && value !== undefined && parsed > 0 ? parsed : null;
 }
 
 async function loadRules(supabase: SupabaseClient): Promise<RuleRow[]> {
@@ -596,7 +636,8 @@ async function evaluateBars(
   instrumentPolicy: InstrumentSignalPolicy,
   prepared: PreparedBar[],
   barIds: number[],
-  tickSize: number,
+  chartTickSize: number,
+  instrumentTickSize: number,
 ): Promise<SignalRow[]> {
   // Rules only ever judge finished bars; an in-progress footprint would fire
   // and un-fire as volume lands.
@@ -704,15 +745,18 @@ async function evaluateBars(
       strategyHistory: history.slice(-STRATEGY_HISTORY_BARS),
       symbol: scope.symbol,
       timeframe: scope.timeframe,
-      tickSize,
+      tickSize: chartTickSize,
     }, store);
 
     for (const signal of evaluated) {
       const rule = byKey.get(signal.ruleKey);
+      // Rules need the chart row for footprint adjacency; plans must match the
+      // backtest/outcome contract and therefore use the immutable market tick.
+      const planTickSize = marketTickSize(rule?.params ?? {}, instrumentTickSize);
       const plan = buildPlan(
         signal.direction,
         entry.bar,
-        marketTickSize(rule?.params ?? {}, tickSize),
+        planTickSize,
         rule?.params ?? {},
         rule?.horizon_bars ?? 10,
         recent,
@@ -746,7 +790,15 @@ async function evaluateBars(
         direction: signal.direction,
         price: signal.price,
         confidence: Number(signal.confidence.toFixed(3)),
-        payload: signal.payload,
+        payload: {
+          ...signal.payload,
+          executionUnits: {
+            version: "market-tick-v1",
+            chartTickSize,
+            marketTickSize: instrumentTickSize,
+            planTickSize,
+          },
+        },
         entry_price: plan.entry,
         stop_price: plan.stop,
         target_price: plan.target,
@@ -934,6 +986,7 @@ interface SignalTarget {
   instrumentId: string;
   timeframe: string;
   symbol: string;
+  tickValue: number | null;
 }
 
 async function persistSignals(
@@ -1072,6 +1125,7 @@ async function announce(
       direction: signal.direction as "long" | "short",
       symbol: target.symbol,
       timeframe: target.timeframe,
+      tickValue: target.tickValue,
       price: Number(signal.price),
       confidence: Number(signal.confidence),
       firedAt: signal.fired_at as string,
