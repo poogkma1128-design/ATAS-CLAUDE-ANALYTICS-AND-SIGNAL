@@ -740,7 +740,7 @@ data-status transitions work; feature age is measurable; restart cannot duplicat
 Phase A probe cannot yet prove rebuild/completeness or real feed epoch boundaries. Those remain an explicit
 Gate 0 gap for the collector/replay phase, not a pass inferred from a counter.
 
-**Local implementation status (2026-09-09):** corrected indicator REV `1.6.1`, not installed/run inside ATAS.
+**Local implementation status (2026-09-09):** corrected indicator REV `1.6.2`, not installed/run inside ATAS.
 `Enable MBO probe` defaults to `false`. Both initialization and subsequent settings recalculation synchronize
 the probe lifecycle. Enable emits immediate evidence and subscribes; disable stops collection/timer, interval
 change replaces the timer, and dispose ignores late callbacks/task completion. Re-enable reuses the SDK
@@ -777,10 +777,10 @@ Phase B–D work.
 #### Phase A operator runbook — only after independent review
 
 1. Free at least 10 GB on the ATAS data volume before recording anything.
-2. Build REV `1.6.1`, copy the reviewed DLL into the ATAS Indicators folder, and restart ATAS. The owner must
+2. Build REV `1.6.2`, copy the reviewed DLL into the ATAS Indicators folder, and restart ATAS. The owner must
    do the GUI/install step.
 3. Open `GCZ6@COMEX` 5m with the Rithmic Level 2 connection and Aggregated Quotes disabled.
-4. Add Signal Bridge, verify About/Revision shows the reviewed `1.6.1` commit, then enable `MBO Probe` and Apply.
+4. Add Signal Bridge, verify About/Revision shows the reviewed `1.6.2` commit, then enable `MBO Probe` and Apply.
    Immediately check for `MBO_PROBE_V2` with `reason=enabled`. If absent, stop and inspect revision/settings;
    **do not wait 30 minutes**. Check subscription success/failure and the `subscription_active` summary.
 5. Run at least 15 minutes in an active period and 15 minutes in a quiet period. Do not trade from the probe.

@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **138b30a: fresh engineering re-run ผ่าน; HOLD install/production — Windows build stamp เป็น no-git และยังไม่มี Phase A live log** | **Implementation session แก้ build stamp → independent reviewer; Owner เคลียร์พื้นที่/ติดตั้ง/รัน probe** | Reviewer ไม่แก้ finding ของตัวเอง; ATAS GUI/live evidence ต้องทำที่เครื่องเจ้าของ; C เหลือ ~2.56 GiB ต่ำกว่า 10 GB | §0AK.6.3 · `docs/reviews/2026-09-09-mbo-independent-readiness.md` |
+| 6 | **Build stamp แก้แล้ว REV 1.6.2; พื้นที่ C ผ่านแล้ว (~17.96 GiB); รอ independent review ของ correction และ Phase A live log** | **Independent Reviewer เซสชันใหม่ → Owner ติดตั้ง/เปิด probe** | Owner สั่งให้ reviewer เดิมเป็น executor แก้ build stamp จึงห้าม self-approve; GUI/live evidence ยัง UNVERIFIED | §0AK.6.4 · `docs/reviews/2026-09-09-mbo-build-stamp-correction.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -53,7 +53,7 @@
 |---|---|---|
 | 1 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
 | 2 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
-| 3 | หลัง re-review ผ่าน: ติดตั้ง DLL **REV 1.6.1** และรัน Phase A probe | build ในเครื่องผ่านแล้ว; GUI/live-feed ยัง UNVERIFIED; ห้ามใช้ DLL 1.6.0 ตาม runbook เก่า |
+| 3 | หลัง re-review ผ่าน: ติดตั้ง DLL **REV 1.6.2** และรัน Phase A probe | build ในเครื่องผ่านแล้ว; GUI/live-feed ยัง UNVERIFIED; ห้ามใช้ DLL 1.6.0 ตาม runbook เก่า |
 
 ### 00.3 รอเวลา ไม่ใช่รอคน
 
@@ -337,6 +337,29 @@ Phase B–E. Production migration/deploy/drain and full staging/RLS remain UNVER
 mutation or historical rewrite occurred. Review artifacts remain outside Git at
 `E:/atas/mbo-review-evidence-138b30a/`; DLL is held for review, not ready to install. No runtime rollback needed.
 The review report is the only extra document needed for this readiness check.
+
+#### 0AK.6.4 Owner-directed build-stamp correction (2026-09-09)
+
+Owner requested “ทำที่ยังค้าเลย Drive C เพิ่มแล้ว”. This explicitly reassigns the previous reviewer to
+Executor/Recorder for the build correction; the executor does not self-approve the correction.
+Proposer: original GC/MBO author. Independent Reviewer: a fresh session not involved in this correction.
+Owner: Thanongsak; existing production and live-evidence gates remain applicable.
+
+Minimum change: replace percent-format `git log` inside MSBuild with path-scoped
+`git rev-list -1 --abbrev=7 --abbrev-commit HEAD -- .`; bump indicator REV to 1.6.2. No C# runtime,
+MBO logic, ingest, rules, database or Telegram behavior changes. Default build now emits the actual
+indicator commit instead of `no-git`, without property overrides. Build 0 warnings/errors and existing
+33 probe/lifecycle assertions pass. Final committed DLL identity is recorded in the correction report.
+
+Fresh C free-space measurement: 19,279,126,528 bytes (~17.96 GiB), above the 10 GB runbook threshold.
+OFT.Platform is running. The inspected `Roaming/ATAS/Logs/app_20260909.log` is empty; this is not proof
+of no activity elsewhere, and no live Phase A evidence has been obtained. Native GUI control is unavailable.
+
+Next assignee: fresh Independent Reviewer verifies the correction and exact artifact; owner performs ATAS
+GUI install/About and active+quiet probe. A standalone review prompt is in the correction report.
+No DLL installed, no restart, no production mutation, no Phase B–E start. Rollback for this build-only change
+is to retain the currently installed DLL; do not substitute the earlier no-git build. SIGNAL PARAMETER.MD
+operator version and the correction report are the only additional docs affected.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
