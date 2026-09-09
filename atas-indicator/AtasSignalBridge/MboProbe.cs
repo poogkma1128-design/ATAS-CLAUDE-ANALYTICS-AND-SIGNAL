@@ -17,14 +17,22 @@ namespace AtasSignalBridge
             { 10, 25, 50, 100, 250, 500, 1000, 2000, 5000 };
 
         private readonly object _gate = new object();
+        private readonly Func<DateTime> _utcNow;
         private readonly long[] _mboLatencyBuckets = new long[LatencyUpperBoundsMs.Length + 1];
         private readonly long[] _tradeLatencyBuckets = new long[LatencyUpperBoundsMs.Length + 1];
 
         private DateTime _startedAtUtc;
+        private DateTime _windowStartUtc;
+        private DateTime _lastMboReceivedUtc;
+        private DateTime _lastTradeReceivedUtc;
+        private string _sessionId;
+        private long _windowSequence;
         private DateTime _lastMboEventUtc;
         private long _callbacks;
         private long _maxCallbackBatch;
-        private long _bookEpoch;
+        private long _snapshotCallbacks;
+        private long _initialSnapshotReads;
+        private long _initialSnapshotOrders;
         private long _snapshot;
         private long _created;
         private long _changed;
@@ -37,11 +45,21 @@ namespace AtasSignalBridge
         private long _nullAggressorOrderId;
         private long _futureTradeEvents;
 
+        public MboProbe(Func<DateTime> utcNow = null)
+        {
+            _utcNow = utcNow ?? (() => DateTime.UtcNow);
+        }
+
         public void Start()
         {
             lock (_gate)
             {
-                _startedAtUtc = DateTime.UtcNow;
+                _startedAtUtc = _utcNow();
+                _windowStartUtc = _startedAtUtc;
+                _sessionId = Guid.NewGuid().ToString("N");
+                _windowSequence = 0;
+                _lastMboEventUtc = _lastMboReceivedUtc = _lastTradeReceivedUtc = DateTime.MinValue;
+                ResetWindow();
             }
         }
 
@@ -78,6 +96,11 @@ namespace AtasSignalBridge
 
                     if (update.ExchangeOrderId == 0) _zeroOrderId++;
 
+                    // ATAS defines Snapshot as cached data, not a live event.
+                    // Its old order timestamps must not poison live latency.
+                    if (update.Type == MarketByOrderUpdateTypes.Snapshot) continue;
+                    _lastMboReceivedUtc = receivedAtUtc;
+
                     var eventUtc = AsUtc(update.Time);
                     if (_lastMboEventUtc != DateTime.MinValue && eventUtc < _lastMboEventUtc)
                         _clockRegressions++;
@@ -89,7 +112,20 @@ namespace AtasSignalBridge
 
                 _callbacks++;
                 if (batch > _maxCallbackBatch) _maxCallbackBatch = batch;
-                if (sawSnapshot) _bookEpoch++;
+                if (sawSnapshot) _snapshotCallbacks++;
+            }
+        }
+
+        // SDK exposes the initial/current cache via MarketByOrders after the
+        // subscription Task completes. Do not rely on a Snapshot callback.
+        public void ObserveInitialSnapshot(IEnumerable<MarketByOrder> orders)
+        {
+            if (orders == null) return;
+            lock (_gate)
+            {
+                _initialSnapshotReads++;
+                foreach (var order in orders)
+                    if (order != null) _initialSnapshotOrders++;
             }
         }
 
@@ -100,6 +136,7 @@ namespace AtasSignalBridge
             lock (_gate)
             {
                 _trades++;
+                _lastTradeReceivedUtc = receivedAtUtc;
                 if (!trade.ExchangeOrderId.HasValue) _nullTradeOrderId++;
                 if (!trade.AggressorExchangeOrderId.HasValue) _nullAggressorOrderId++;
                 ObserveLatency(_tradeLatencyBuckets, receivedAtUtc, AsUtc(trade.Time),
@@ -111,17 +148,32 @@ namespace AtasSignalBridge
         {
             lock (_gate)
             {
-                return JsonSerializer.Serialize(new
+                var now = _utcNow();
+                var result = JsonSerializer.Serialize(new
                 {
                     type = "mbo_probe",
-                    version = "MBO_PROBE_V1",
+                    version = "MBO_PROBE_V2",
                     reason,
                     symbol,
                     startedAtUtc = Iso(_startedAtUtc),
-                    observedAtUtc = Iso(DateTime.UtcNow),
+                    sessionId = _sessionId,
+                    windowSequence = ++_windowSequence,
+                    windowStartUtc = Iso(_windowStartUtc),
+                    observedAtUtc = Iso(now),
+                    windowDurationMs = (now - _windowStartUtc).TotalMilliseconds,
+                    counterScope = "window",
                     callbacks = _callbacks,
                     maxCallbackBatch = _maxCallbackBatch,
-                    bookEpoch = _bookEpoch,
+                    snapshotCallbacks = _snapshotCallbacks,
+                    initialSnapshotReads = _initialSnapshotReads,
+                    initialSnapshotOrders = _initialSnapshotOrders,
+                    bookEpoch = (long?)null,
+                    bookEpochStatus = "unavailable:no_snapshot_boundary_in_callback",
+                    lastLiveMboReceivedAtUtc = Iso(_lastMboReceivedUtc),
+                    lastTradeReceivedAtUtc = Iso(_lastTradeReceivedUtc),
+                    liveMboAgeMs = AgeMs(now, _lastMboReceivedUtc),
+                    tradeAgeMs = AgeMs(now, _lastTradeReceivedUtc),
+                    latencyScope = "window_live_events_only;unspecified_time_assumed_utc",
                     updates = new
                     {
                         snapshot = _snapshot,
@@ -139,8 +191,27 @@ namespace AtasSignalBridge
                     futureTradeEvents = _futureTradeEvents,
                     tradeLatencyP95UpperMs = P95Upper(_tradeLatencyBuckets)
                 });
+                ResetWindow();
+                _windowStartUtc = now;
+                return result;
             }
         }
+
+        private void ResetWindow()
+        {
+            Array.Clear(_mboLatencyBuckets);
+            Array.Clear(_tradeLatencyBuckets);
+            _callbacks = _maxCallbackBatch = _snapshotCallbacks = 0;
+            _initialSnapshotReads = _initialSnapshotOrders = 0;
+            _snapshot = _created = _changed = _deleted = _zeroOrderId = 0;
+            _clockRegressions = _futureMboEvents = 0;
+            _trades = _nullTradeOrderId = _nullAggressorOrderId = _futureTradeEvents = 0;
+            // Preserve last receive/event time across windows: a silent feed
+            // must age, and a regression across the boundary must be visible.
+        }
+
+        private static double? AgeMs(DateTime now, DateTime last) =>
+            last == DateTime.MinValue ? null : (now - last).TotalMilliseconds;
 
         private static void ObserveLatency(long[] buckets, DateTime receivedAtUtc,
             DateTime eventUtc, ref long futureEvents)

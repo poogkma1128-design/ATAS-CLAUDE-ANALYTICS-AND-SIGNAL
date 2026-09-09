@@ -303,6 +303,7 @@ export async function ingest(
       timeframe: payload.timeframe,
       symbol: payload.symbol,
       tickValue: instrument.tickValue,
+      tickSize: instrument.tickSize,
     },
     rules,
     signalRows,
@@ -467,7 +468,7 @@ async function upsertInstrument(
   }[] | null)?.[0];
   if (found) {
     const tickSize = Number(found.tick_size);
-    if (!(tickSize > 0)) {
+    if (!(tickSize > 0) || !Number.isFinite(tickSize)) {
       throw new Error(`instrument ${symbol} has invalid curated tick_size`);
     }
     return {
@@ -503,7 +504,9 @@ async function upsertInstrument(
 
 function positiveOrNull(value: unknown): number | null {
   const parsed = Number(value);
-  return value !== null && value !== undefined && parsed > 0 ? parsed : null;
+  return value !== null && value !== undefined && Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : null;
 }
 
 async function loadRules(supabase: SupabaseClient): Promise<RuleRow[]> {
@@ -753,6 +756,14 @@ async function evaluateBars(
       // Rules need the chart row for footprint adjacency; plans must match the
       // backtest/outcome contract and therefore use the immutable market tick.
       const planTickSize = marketTickSize(rule?.params ?? {}, instrumentTickSize);
+      // Scorer/views divide by instruments.tick_size. Never persist a plan
+      // whose tick counts use a different denominator. Do not retune silently.
+      if (planTickSize !== instrumentTickSize) {
+        console.error(
+          `signal skipped: tick_unit_mismatch ${signal.ruleKey} ${scope.symbol}`,
+        );
+        continue;
+      }
       const plan = buildPlan(
         signal.direction,
         entry.bar,
@@ -793,7 +804,7 @@ async function evaluateBars(
         payload: {
           ...signal.payload,
           executionUnits: {
-            version: "market-tick-v1",
+            version: "market-tick-v2",
             chartTickSize,
             marketTickSize: instrumentTickSize,
             planTickSize,
@@ -987,6 +998,7 @@ interface SignalTarget {
   timeframe: string;
   symbol: string;
   tickValue: number | null;
+  tickSize: number;
 }
 
 async function persistSignals(
@@ -1126,6 +1138,7 @@ async function announce(
       symbol: target.symbol,
       timeframe: target.timeframe,
       tickValue: target.tickValue,
+      tickSize: target.tickSize,
       price: Number(signal.price),
       confidence: Number(signal.confidence),
       firedAt: signal.fired_at as string,

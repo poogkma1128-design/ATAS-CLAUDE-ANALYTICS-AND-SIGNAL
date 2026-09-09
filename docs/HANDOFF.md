@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** (trigger ปิด race ของ `cluster_levels`) | **เจ้าของ / Codex** | ยังไม่ apply · เป็น additive ล้วน ไม่ผูกกับ deploy ⇒ apply เมื่อไหร่ก็ได้หลังผ่าน review | §0AJ.7 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง F3 ผ่าน review | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.7 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **GC risk-unit + MBO Phase A probe ทำใน branch แล้ว ยังไม่ deploy/install**; ตรวจ patch และรัน Gate 0 ก่อน Phase B–E; ห้ามเปลี่ยน live/Telegram | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของรัน ATAS probe** | ผู้เขียนเป็น proposer + executor จึงอนุมัติ patch/ผลตัวเองไม่ได้; runtime/GUI evidence ต้องมาจากเครื่องเจ้าของ | §0AK · `SIGNAL PARAMETER.MD` |
+| 6 | **REQUEST CHANGES 5 ข้อ → แก้บน `claude/signal-handoff-docs-x26vdd` แล้ว รอ re-review**; รวม tick-guard migration ใหม่; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Codex เป็น executor จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ต้อง rerun tests + staging SQL/concurrency; เจ้าของอนุมัติและรัน ATAS GUI probe | §0AK.6 · `SIGNAL PARAMETER.MD` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -53,7 +53,7 @@
 |---|---|---|
 | 1 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
 | 2 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
-| 3 | build **`SignalBridgeIndicator.cs` REV 1.5.0** | ต้องใช้ ATAS SDK บน Windows |
+| 3 | หลัง re-review ผ่าน: ติดตั้ง DLL **REV 1.6.1** และรัน Phase A probe | build ในเครื่องผ่านแล้ว; GUI/live-feed ยัง UNVERIFIED; ห้ามใช้ DLL 1.6.0 ตาม runbook เก่า |
 
 ### 00.3 รอเวลา ไม่ใช่รอคน
 
@@ -142,9 +142,10 @@ step. สัญญาณเก่าห้ามรวมกับ `market-tick-
 Reviewer re-run tests, ตรวจ unit separation, Telegram cash formula, backward compatibility และยืนยันว่า
 ไม่มี production mutation. หลัง review ผ่าน เจ้าของต้องให้ written GO ต่อ exact commit ก่อน deploy.
 
-Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): deploy `ingest` artifact รุ่นก่อน patch; ถ้าพบข้อความผิดหน่วยให้
-ปิด Telegram ของ rule ที่ได้รับผลด้วย exact-key kill switch และคง raw signal ไว้เป็นหลักฐาน. รอบนี้
-**ยังไม่มีสิ่งใดให้ rollback ใน Production** เพราะไม่ได้ deploy.
+Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): ปิด Telegram ของ rule ที่ได้รับผลด้วย exact-key kill switch
+และคง raw signal ไว้เป็นหลักฐาน; ใช้เฉพาะ artifact ที่ผ่านการตรวจ unit contract แล้ว. ห้ามคืน tick เป็น
+chart step หรือถอด tick guard เป็น routine rollback. `ingest` รุ่นก่อนแก้หน่วยไม่ใช่ safe trading rollback;
+ถ้าใช้เพื่อ recovery ต้อง quarantine สัญญาณและไม่ส่งเทรด. รอบนี้ **ไม่ได้ deploy**.
 
 ### 0AK.5 งานถัดไป
 
@@ -153,6 +154,65 @@ Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): deploy `
    `get_order_book error : 13` และรัน active/quiet probe ตาม runbook ใน `SIGNAL PARAMETER.MD`.
 3. ส่ง raw log artifact ให้ Independent Reviewer ตัดสิน Gate 0; ถ้าผ่านจึงให้ GPT/Codex เริ่ม Phase B
    raw archive/replay. ยังห้ามเปิด MBO Telegram.
+
+### 0AK.6 Independent review: REQUEST CHANGES → corrections awaiting re-review (2026-09-09)
+
+§0AK.2–3 เป็นผลของ patch แรกที่ถูกทักท้วง; สถานะล่าสุดให้ใช้ข้อนี้และ §00.1 ข้อ 6.
+
+**Review provenance:** เจ้าของส่งผล Independent Review ในแชท: REQUEST CHANGES 5 ข้อด้านล่าง.
+ผู้ตรวจเดิมระบุชัดว่าไม่ได้รัน Deno/C#; นี่เป็น code-review findings ไม่ใช่ runtime verification.
+Codex ตรวจ implementation ซ้ำและแก้ในฐานะ **Executor/Recorder**; ไม่ได้เปลี่ยน verdict เป็น APPROVE.
+**Proposer:** Codex ของงาน GC เดิม. **Independent Reviewer:** เซสชันใหม่ที่ไม่ได้เขียน patch นี้.
+**Owner:** Thanongsak เป็นผู้ให้ written production GO เท่านั้น.
+
+Branch ที่เจ้าของระบุไม่อยู่ใน `git ls-remote --heads` ณ เริ่มแก้ จึงสร้าง
+`claude/signal-handoff-docs-x26vdd` จาก `e947e10` (งาน GC ล่าสุด, working tree สะอาด).
+รายละเอียด/คำสั่งทดสอบอยู่ใน `SIGNAL PARAMETER.MD` Phase A และ source tests บน branch นี้.
+
+| Finding | Correction | Evidence / limitation |
+|---|---|---|
+| Enable probe ถูกอ่านเฉพาะ initialize | `MboProbeLifecycle` sync ทั้ง initialize/recalculate; idempotent enable/disable/interval; immediate enabled JSON; late callback/task หลัง dispose ไม่เปิดใหม่ | actual SDK-type lifecycle tests; ATAS GUI ยังไม่รัน |
+| Telegram cash ใช้ rule ticks × instrument tick value | ใช้ `abs(stop-entry)/instrumentTickSize*tickValue`; invalid/null/non-finite ไม่แสดงเงิน/หน่วยที่เดา | long+short fixture 136 stored ticks แต่ระยะจริง 34 ticks แสดง $340 ไม่ใช่ $1360 |
+| DB R ใช้ denominator คนละตัว + rollback .40 | skip signal เมื่อ rule plan tick ไม่เท่า instrument; v2 payload; migration ใหม่ใช้ durable `signal_tick_locked` หลัง signal แรก + backfill marker สำหรับ instrument ที่มี signal เดิม + ตรวจ v2 units ก่อนเขียน; เอา rollback .40 ออก | isolated PostgreSQL/WASM replay ใช้ scorer เดิม + setup_stats ได้ 2R; SQL UPDATE .40 ถูกปฏิเสธแม้เปิด override flag |
+| counters/p95 สะสมตลอดอายุ | drain window counters/histograms พร้อมเวลาขอบเขต/sequence; keep last receive age ข้ามช่วงเงียบ | active→quiet counters=0, p95=unavailable, age เพิ่มตามจริง |
+| callback Snapshot ถูกนับเป็น epoch | `snapshotCallbacks` แยกจาก `sessionId`; `bookEpoch=null` ระบุ unavailable; อ่าน initial cache หลัง subscription active | 20 callback ไม่ถูกอ้างเป็น 20 epoch; **real feed epoch/rebuild ยัง UNVERIFIED** |
+
+ATAS docs ระบุ Snapshot เป็น cached data จึงไม่เอา timestamp ของ resting order เก่ามาปน live latency.
+Probe อ่าน `MarketByOrders` หลัง Task subscribe สำเร็จด้วย ไม่รอว่าต้องมี initial Snapshot callback.
+`initialSnapshotReads/Orders` เป็นหลักฐาน cache-read เท่านั้น ไม่ใช่ completeness. Re-enable ใช้ subscription
+เดิมและเริ่ม collector UUID ใหม่; SDK ที่ติดตั้งไม่มี unsubscribe API ที่ยืนยันได้.
+
+**Verification executed on Windows (not independent sign-off):**
+
+- Deno 2.9.6: **251 passed, 0 failed**; typecheck ผ่านทั้ง 4 entrypoints.
+- Indicator **REV 1.6.1**: build ผ่าน ATAS SDK 8.0.14.398, **0 warning / 0 error**.
+- `AtasSignalBridge.ProbeTests`: **33 assertions passed** ใช้ actual SDK types + production
+  probe/lifecycle classes (ไม่ใช่ live feed test).
+- SQL: `scripts/test-signal-tick-guard.ts` ผ่านบน **PostgreSQL 18.3 / PGlite 0.5.8** แบบ in-memory.
+  ใช้ core schema ที่ตัดเฉพาะ pgcrypto/publication สำหรับ test host, plan columns, outcome-create trigger,
+  scorer 0031 และ setup_stats 0008 จริง; ไม่ใช่การ replay ทุก migration ของ Supabase.
+- touched formatting + REV check ผ่าน. Lint ปกติยังมี **4 no-import-prefix เดิม**;
+  touched lint ผ่านเมื่อยกเว้น baseline rule นี้ (test runner ใหม่ใช้ pinned test-only import exemption).
+- Production **read-only** ตรวจซ้ำ: GC `tick_size=0.1`, `tick_value=10`; enabled explicit
+  `gc_sweep_v1.marketTickSize=0.1`. `instruments` ยังไม่มี user trigger; `signals` มีเพียง
+  `signals_create_outcome`. ดังนั้น tick guard ใหม่ **ยังไม่อยู่ Production**.
+
+**Deployment gate / exact next assignee:** ส่ง **Independent Reviewer เซสชันใหม่** ตรวจ branch นี้:
+
+1. Rerun Deno, C# build/probe assertions และ focused SQL replay จาก source ไม่ใช่เชื่อแต่ตารางนี้.
+2. รัน SQL test บน disposable PostgreSQL staging clone และทดสอบ concurrent signal insert vs metadata
+   UPDATE ทั้งสอง lock order. งานนี้ยัง **UNVERIFIED** ใน PGlite ซึ่งมี session เดียว; ห้ามใช้ Production URL.
+3. ตรวจสัญญา skip-on-mismatch, historical-unit quarantine และการล็อก tick ที่อาจบล็อก legitimate metadata
+   correction; การแก้ historical tick ต้องเป็น rescore migration ที่ review ใหม่ ห้ามใช้ flag bypass.
+4. คืน APPROVE หรือ REQUEST CHANGES ต่อ exact commit; ผู้เขียน patch ห้ามให้ verdict เอง.
+5. หลัง APPROVE เท่านั้น: เจ้าของ written GO → apply migration `20260909120000` → deploy reviewed ingest →
+   ตรวจ signal ใหม่ v2/Telegram/DB unit parity. ไม่เกี่ยวกับ migration เก่าที่ §00.2 ยังมี gate ค้าง.
+6. Owner ติดตั้ง reviewed DLL แยกต่างหาก; ตรวจ enabled JSON ทันทีตาม runbook ก่อนรอ active/quiet sample.
+   Actual feed epochs/rebuild ต้องมี evidence collector/replay ต่อไป ห้ามเรียก Phase A logs ว่า Gate 0 ผ่านครบ.
+
+**ไม่ได้ทำ:** ไม่ apply migration, ไม่ deploy ingest, ไม่ติดตั้ง DLL ใน ATAS, ไม่เปลี่ยน rules/Telegram,
+ไม่ลบหรือ rescore historical signals และไม่สร้างคำสั่งซื้อขาย. Test ผ่านไม่ใช่หลักฐานว่ามีกำไรหรือสัญญาณ
+เพียงพอต่อวัน. รายละเอียด runbook/AI contract แก้ใน `SIGNAL PARAMETER.MD` แล้ว; ไม่มีเอกสารชนิดอื่นที่จำเป็น.
 
 ---
 

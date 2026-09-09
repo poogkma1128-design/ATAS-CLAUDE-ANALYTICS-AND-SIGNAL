@@ -2,6 +2,10 @@
 
 **Status:** implementation-ready research specification, `PROVISIONAL / SHADOW ONLY`
 
+**Review update:** the first implementation (`f34d0d9`) received **REQUEST CHANGES** for five
+engineering findings. Fixes are on `claude/signal-handoff-docs-x26vdd`; independent re-review is pending.
+**Do not deploy ingest, apply the new tick guard migration, or install the DLL before that review.**
+
 **Written:** 2026-09-09 (Asia/Bangkok)
 
 **Repository reference:** `origin/main` observed at `ffa282a`
@@ -95,7 +99,8 @@ outcomes from this path are not a valid estimate of the corrected contract.
 
 #### Local implementation completed — not deployed
 
-Branch `codex/gc-l2-live-readiness`, implementation commit `f34d0d9`, now separates the units:
+The first patch (`f34d0d9`) separated chart/market units but missed rule-override and metadata-drift cases.
+The review correction on `claude/signal-handoff-docs-x26vdd` uses this contract:
 
 ```text
 chartTickSize      = payload.tickSize       # footprint adjacency only
@@ -106,9 +111,21 @@ tickValue          = instruments.tick_value
 - existing instruments are loaded with curated `tick_size` and `tick_value`;
 - rules continue to evaluate aggregated footprint rows with the chart step;
 - Entry/SL/TP and all plan tick distances use the curated market tick, matching backtest semantics;
-- every new signal payload records `executionUnits.version = market-tick-v1` plus all three unit values;
+- reject a signal with `tick_unit_mismatch` if its effective rule plan tick differs from the instrument
+  tick; retain its bars/footprints but do not persist/announce an inconsistent plan;
+- every new signal payload records `executionUnits.version = market-tick-v2` plus all three unit values;
 - Telegram now displays price risk, true ticks, and approximate USD risk per one contract when `tick_value`
-  is known.
+  and instrument `tick_size` are finite and positive. Formula:
+  `abs(stop-entry) / instrumentTickSize * instrumentTickValue`, never `ruleRiskTicks * tickValue`.
+- proposed migration `20260909120000_guard_signal_tick_units.sql` freezes `instruments.tick_size` after
+  the first signal, using a durable `signal_tick_locked` latch (backfilled for already-referenced instruments),
+  and checks v2 plan/market tick equality on writes. This also blocks the old
+  metadata override flag from changing the scorer denominator. No historical signals/outcomes are rewritten.
+  The latch cannot be cleared through an ordinary UPDATE, even if signals are later deleted. Metadata
+  corrections before the first signal remain allowed. A row change on first use avoids relying on an
+  `EXISTS(signals)` check against a potentially old transaction snapshot.
+- the unsafe GC `tick_size=0.40` rollback comment is removed; `.40` is not a valid GC exchange tick.
+  Correcting historical metadata now requires a separately reviewed rescore/migration, not a flag bypass.
 
 For the same observed bar, the corrected `speed_of_tape` plan would be:
 
@@ -120,7 +137,7 @@ risk = 3.4 points = 34 true GC ticks = about USD 340 per GC contract
 ```
 
 This changes future plan geometry from the defective live contract. Historical results produced by the old
-unit path must not be pooled with `market-tick-v1`; collect and evaluate the corrected version separately.
+unit path must not be pooled with `market-tick-v2`; collect and evaluate the corrected version separately.
 Until independent review and deployment verification are complete, Telegram may remain live **only as an
 observation channel**.
 
@@ -705,21 +722,40 @@ detector_version, book_epoch, evidence_status
 4. Run during at least one active GC period and one quiet period.
 5. Output a deterministic probe artifact; do not create signals.
 
-**Acceptance:** confirmed current book rebuild; no callback exceptions; bounded memory; data-status transitions
-work; feature age is measurable; restarting ATAS creates a new epoch rather than duplicating orders.
+**Ultimate acceptance:** confirmed current book rebuild; no callback exceptions; bounded memory;
+data-status transitions work; feature age is measurable; restart cannot duplicate orders. The log-only
+Phase A probe cannot yet prove rebuild/completeness or real feed epoch boundaries. Those remain an explicit
+Gate 0 gap for the collector/replay phase, not a pass inferred from a counter.
 
-**Local implementation status (2026-09-09):** implemented at commit `f34d0d9` and compiled as indicator
-REV `1.6.0`, but not
-installed or run inside ATAS. `Enable MBO probe` defaults to `false`; when enabled it subscribes to the raw
-MBO callback and prints one bounded JSON summary every 60 seconds plus a final dispose summary. It records:
+**Local implementation status (2026-09-09):** corrected indicator REV `1.6.1`, not installed/run inside ATAS.
+`Enable MBO probe` defaults to `false`. Both initialization and subsequent settings recalculation synchronize
+the probe lifecycle. Enable emits immediate evidence and subscribes; disable stops collection/timer, interval
+change replaces the timer, and dispose ignores late callbacks/task completion. Re-enable reuses the SDK
+subscription (no unsubscribe API was found), starts a fresh collector session and reads the current cache.
+Subscription completion explicitly reads `MarketByOrders`; initial cached data need not arrive as callbacks.
+JSON schema is `MBO_PROBE_V2`:
 
 ```text
-callbacks, maxCallbackBatch, bookEpoch,
+sessionId, windowSequence, windowStartUtc, observedAtUtc, windowDurationMs, counterScope=window,
+callbacks, maxCallbackBatch, snapshotCallbacks, initialSnapshotReads, initialSnapshotOrders,
+bookEpoch=null, bookEpochStatus=unavailable:no_snapshot_boundary_in_callback,
 Snapshot/New/Change/Delete counts, zeroOrderId,
 clockRegressions, futureMboEvents, mboLatencyP95UpperMs,
 trades, nullTradeOrderId, nullAggressorOrderId,
-futureTradeEvents, tradeLatencyP95UpperMs
+futureTradeEvents, tradeLatencyP95UpperMs,
+lastLiveMboReceivedAtUtc, lastTradeReceivedAtUtc, liveMboAgeMs, tradeAgeMs
 ```
+
+Each summary atomically drains window counters/histograms. Empty windows report latency `unavailable`, not
+the previous active-period p95. Last receive times persist across windows so silence ages visibly; only a new
+collector session resets them. Window durations let analysts compute callback/event rates, including partial
+windows at settings changes. `sessionId` is a collector UUID, **not an exchange/reconnect epoch**.
+
+Per [ATAS data API documentation](https://docs.atas.net/en/md_DataFeedsCore_2Docs_2en_20025__ReceivingProcessingData.html),
+`Snapshot` means cached data. It is excluded from live-event latency and clock-regression histograms. Twenty
+snapshot-bearing callbacks count as twenty `snapshotCallbacks`, never twenty epochs. No epoch delimiter was
+verified in this SDK callback contract. Unspecified event times are assumed UTC and explicitly labeled;
+clock synchronization/time basis must still be verified on the actual connector.
 
 The latency calculation uses fixed histogram buckets, not a growing list, so probe memory is constant. It
 does not retain the book, archive raw events, call Supabase, create a signal, or send Telegram. Those remain
@@ -728,14 +764,46 @@ Phase B–D work.
 #### Phase A operator runbook — only after independent review
 
 1. Free at least 10 GB on the ATAS data volume before recording anything.
-2. Build REV `1.6.0`, copy the reviewed DLL into the ATAS Indicators folder, and restart ATAS. The owner must
+2. Build REV `1.6.1`, copy the reviewed DLL into the ATAS Indicators folder, and restart ATAS. The owner must
    do the GUI/install step.
 3. Open `GCZ6@COMEX` 5m with the Rithmic Level 2 connection and Aggregated Quotes disabled.
-4. Add Signal Bridge, verify About/Revision shows the reviewed `1.6.0` commit, then enable `MBO Probe`.
+4. Add Signal Bridge, verify About/Revision shows the reviewed `1.6.1` commit, then enable `MBO Probe` and Apply.
+   Immediately check for `MBO_PROBE_V2` with `reason=enabled`. If absent, stop and inspect revision/settings;
+   **do not wait 30 minutes**. Check subscription success/failure and the `subscription_active` summary.
 5. Run at least 15 minutes in an active period and 15 minutes in a quiet period. Do not trade from the probe.
 6. Export ATAS log lines beginning `Signal Bridge MBO probe {` as the deterministic evidence artifact.
-7. Fail Gate 0 if no Snapshot epoch appears, MBO update counts stay zero while trades increase, timestamps
-   regress materially, latency is stale, the callback throws, or `get_order_book error : 13` remains.
+7. Compare only positive-duration `window` summaries; compare rates and per-window p95, not lifetime totals.
+   The initial cache read must be recorded (`initialSnapshotReads>0`); an empty cache during an active market
+   or live MBO counts staying zero while trades increase needs investigation. Fail capability checks if
+   timestamps regress materially, latency/receive age is stale, callbacks throw, or error 13 persists.
+8. Disable/re-enable and verify a new `sessionId`, then separately restart ATAS and check fresh subscription
+   plus initial-cache evidence. This proves collector lifecycle only. Record real feed epoch/rebuild as
+   `UNVERIFIED`; it must not be approved for MBO signal use until a separately validated reset/snapshot
+   boundary and deterministic replay exist. Record subscription/snapshot errors as well as JSON lines.
+
+#### Review regression commands and rollout order
+
+```text
+deno task test
+deno task check
+deno task rev:check
+deno run --allow-read --allow-env scripts/test-signal-tick-guard.ts
+dotnet run --project atas-indicator/AtasSignalBridge.ProbeTests/AtasSignalBridge.ProbeTests.csproj
+dotnet build atas-indicator/AtasSignalBridge/AtasSignalBridge.csproj
+```
+
+The SQL script uses isolated in-memory PGlite/PostgreSQL with checked-in core schema, the existing scorer and
+`setup_stats`. It is a focused regression, **not** full Supabase migration-chain, RLS or multi-session
+concurrency validation. Run `supabase/tests/20260909_signal_tick_units_test.sql` on a disposable PostgreSQL
+staging clone too, and test concurrent signal insert versus tick update in both lock orders. Never use the
+production URL for the test. The probe tests use actual SDK types but do not simulate ATAS GUI or live feed.
+
+Before production: independent re-review → owner written GO to exact commit → apply reviewed tick guard
+migration → deploy reviewed ingest → verify fresh v2 plans/cash/outcome parity. DLL installation and Phase A
+collection are a separate owner step. Do not promise daily income or promote these engineering tests as edge.
+On a problem, mute affected Telegram rules and preserve evidence. Do not roll metadata back to chart rows or
+drop tick guards; use only a reviewed unit-compatible application artifact. A pre-fix ingest rollback is
+not a safe trading path and any signals it creates require separate quarantine/review.
 
 ### Phase B — collector and replay
 

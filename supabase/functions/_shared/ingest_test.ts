@@ -736,7 +736,7 @@ Deno.test("ingest: GC plan distances use the curated tick, not the chart row", a
   const executionUnits = (signal.payload as Record<string, unknown>)
     .executionUnits;
   assertEquals(executionUnits, {
-    version: "market-tick-v1",
+    version: "market-tick-v2",
     chartTickSize: 0.4,
     marketTickSize: 0.1,
     planTickSize: 0.1,
@@ -762,6 +762,25 @@ Deno.test("ingest: an unknown instrument is still seeded from the payload", asyn
   const row = rows[0].ops[0].args[0] as Record<string, unknown>;
   assertEquals(row.symbol, "ES");
   assertEquals(row.tick_size, 0.25);
+});
+
+Deno.test("ingest: mismatched rule tick fails closed without discarding bars", async () => {
+  const client = readyClient([{
+    ...STACKED_RULE,
+    params: { ...STACKED_RULE.params, marketTickSize: 0.1 },
+  }]);
+  await ingest(client.asClient(), payload()); // instrument/chart = 0.25
+  assertEquals(client.callsFor("bars", "upsert").length, 1);
+  assertEquals(client.callsFor("signals", "upsert").length, 0);
+});
+
+Deno.test("ingest: matching explicit rule tick still persists the plan", async () => {
+  const client = readyClient([{
+    ...STACKED_RULE,
+    params: { ...STACKED_RULE.params, marketTickSize: 0.25 },
+  }]).queue("signals.upsert", { data: [], error: null });
+  await ingest(client.asClient(), payload());
+  assertEquals(client.rowsFor("signals", "upsert").length, 1);
 });
 
 Deno.test("ingest: a failed instrument lookup is surfaced, not treated as absent", async () => {

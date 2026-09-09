@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <UseWPF>true</UseWPF>
+    <AtasPath Condition="'$(AtasPath)' == ''">C:\Program Files (x86)\ATAS Platform\</AtasPath>
+  </PropertyGroup>
+  <ItemGroup>
+    <!-- Test the production classes, not a duplicate implementation. -->
+    <Compile Include="../AtasSignalBridge/MboProbe.cs" Link="MboProbe.cs" />
+    <Compile Include="../AtasSignalBridge/MboProbeLifecycle.cs" Link="MboProbeLifecycle.cs" />
+    <Reference Include="ATAS.Indicators"><HintPath>$(AtasPath)ATAS.Indicators.dll</HintPath></Reference>
+    <Reference Include="ATAS.DataFeedsCore"><HintPath>$(AtasPath)ATAS.DataFeedsCore.dll</HintPath></Reference>
+    <Reference Include="Utils.Common"><HintPath>$(AtasPath)Utils.Common.dll</HintPath></Reference>
+  </ItemGroup>
+</Project>
