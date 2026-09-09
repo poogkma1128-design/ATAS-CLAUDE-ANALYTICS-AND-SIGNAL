@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **Build stamp แก้แล้ว REV 1.6.2; พื้นที่ C ผ่านแล้ว (~17.96 GiB); รอ independent review ของ correction และ Phase A live log** | **Independent Reviewer เซสชันใหม่ → Owner ติดตั้ง/เปิด probe** | Owner สั่งให้ reviewer เดิมเป็น executor แก้ build stamp จึงห้าม self-approve; GUI/live evidence ยัง UNVERIFIED | §0AK.6.4 · `docs/reviews/2026-09-09-mbo-build-stamp-correction.md` |
+| 6 | **REV 1.6.2: Independent Reviewer APPROVE แล้ว; owner อนุญาต local install/probe และ login แล้ว; กำลังติดตั้ง** | **Codex ติดตั้ง/ตรวจ About → เก็บ Phase A log** | Review แยกจาก executor ผ่านแล้ว; Phase A live evidence ยังไม่ครบ | §0AK.6.5 · `docs/reviews/2026-09-09-mbo-installation-record.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -360,6 +360,18 @@ GUI install/About and active+quiet probe. A standalone review prompt is in the c
 No DLL installed, no restart, no production mutation, no Phase B–E start. Rollback for this build-only change
 is to retain the currently installed DLL; do not substitute the earlier no-git build. SIGNAL PARAMETER.MD
 operator version and the correction report are the only additional docs affected.
+
+#### 0AK.6.5 Owner-authorized local installation, pending login (2026-09-09)
+
+Owner “ทำเลยอนุญาต” authorizes the proposed fresh review, local DLL import and diagnostic Phase A collection
+for REV 1.6.2 / indicator 5e23e16. Parent is Executor/Recorder; fresh mbo_stamp_review subagent is independent
+of the correction and reruns build/artifact/probe evidence. No self-approval. Exact source/hash/scope and
+rollback are in `docs/reviews/2026-09-09-mbo-installation-record.md`.
+
+Local backup of installed SignalBridge 1.3.0 and 1.5.0 completed with SHA256; original installation untouched.
+C has ~17.94 GiB free. Computer Use was found through node_repl + @oai/sky (earlier GUI-unavailable claim
+superseded). ATAS currently exposes Authorization; owner asked to log in manually. No import or live probe
+started yet; server deployment, migration, Telegram and trading are outside this local approval.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
