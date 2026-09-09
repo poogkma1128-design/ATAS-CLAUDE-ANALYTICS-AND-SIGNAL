@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **MBO 1.6.5 is independently approved and locally installed; GUI off/on lifecycle passes. ATAS restart is at Authorization; clock precision remains ~0.77s off.** | **Owner login → Codex restart verification/capture → Independent Reviewer** | Authentication is owner-only; raw runtime packet and Phase A evidence are still incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-independent-signoff.md` |
+| 6 | **Owner accepts MBO latency as non-authoritative for signal observation only; 1.6.5 lifecycle is installed and restart-proven. ATAS is at Authorization for the remaining interval check.** | **Owner login → Codex interval capture → Independent Reviewer** | Authentication is owner-only; independent raw reparse and Phase A evidence remain incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-independent-signoff.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -442,6 +442,17 @@ to Authorization. Owner authentication is the remaining required action before e
 fresh process lifecycle and freezes a new packet. Do not automate that login. Interval-change verification
 was not completed because the process ended. Clock stripchart still measures approximately +0.77 to
 +0.80 seconds against time.windows.com, so p95 remains unaccepted.
+
+**Owner scope decision (after restart evidence):** the owner accepts MBO timing as *non-authoritative*
+for diagnostic/signal observation only because this workflow does not place orders. This relaxes no
+measurement claim: records with `future_events`, `Unspecified` event time, or unavailable p95 must stay
+labelled invalid or unavailable. It does not authorize MBO as a rule gate, a latency-quality filter, a
+Telegram behavior change, a signal-engine change, or any order action. Full Phase A remains HOLD. The
+post-restart session `2da8e87aa32343229288ebf9c998dddf` did persist revision 1.6.5 and produced
+`enabled`, `subscription_active` (one initial snapshot, 177 orders), then live 60-second intervals with
+callbacks. Its intervals likewise retain `invalid:future_events`; they are usable only as diagnostic
+collection evidence. A final GUI interval-change check is pending a manual login because ATAS is again
+at Authorization.
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
