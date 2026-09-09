@@ -41,9 +41,9 @@
 | # | งานค้าง | **ส่งให้** | ทำไมคนอื่นทำแทนไม่ได้ | อ่านที่ |
 |---|---|---|---|---|
 | 1 | ~~P1-1, P1-2, ตรวจ PR #105, Telegram status, multi-bar announcement, `marketTickSize`~~ · ~~merge PR #109~~ · ~~apply migration + deploy~~ **ปิดครบแล้ว 2026-09-08 13:20 UTC — `ingest v24` live และยืนยันด้วยข้อมูลจริงแล้ว** | — | ปิดแล้ว | §0AJ.6 |
-| 2 | ~~F3/F4/F5/F6~~ **เขียนครบแล้ว** — เจ้าของสั่งให้เซสชันผู้ตรวจทำเอง ⇒ **ยังไม่มีใครตรวจ** | **Claude/Codex เซสชันใหม่** | ผู้เขียนตรวจงานตัวเองไม่ได้ (§0T) · เป็นข้อยกเว้นที่เจ้าของสั่ง จึงต้องมีผู้ตรวจอิสระชดเชย | §0AJ.7 |
-| 3 | **apply `20260908150000_keep_richer_cluster_level`** (trigger ปิด race ของ `cluster_levels`) | **เจ้าของ / Codex** | ยังไม่ apply · เป็น additive ล้วน ไม่ผูกกับ deploy ⇒ apply เมื่อไหร่ก็ได้หลังผ่าน review | §0AJ.7 |
-| 4 | **deploy `ingest` รอบใหม่** หลัง F3 ผ่าน review | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.7 |
+| 2 | **draft PR #112: F3/F5 แก้ scope/เอกสารแล้ว · F6 ผ่าน DB re-run · F4 รอ owner เลือก contract** | **Owner เลือก F4 แล้วส่ง PR #112 ให้ Claude เซสชันใหม่ตรวจ** | Codex เขียน correction จึงตรวจของตัวเองไม่ได้ (§0T); F4 มี trade-off ที่ owner ต้องเลือก | §0AJ.8 |
+| 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
+| 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
 | 6 | **REQUEST CHANGES 5 ข้อ → แก้บน `claude/signal-handoff-docs-x26vdd` แล้ว รอ re-review**; รวม tick-guard migration ใหม่; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Codex เป็น executor จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ต้อง rerun tests + staging SQL/concurrency; เจ้าของอนุมัติและรัน ATAS GUI probe | §0AK.6 · `SIGNAL PARAMETER.MD` |
 
@@ -446,6 +446,31 @@ control ทั้งสามคือเหตุผลที่ไฟล์น
 - **ยังไม่ apply** `20260908150000` · เป็น trigger additive ล้วน ไม่ผูกกับเวอร์ชันโค้ด
   ⇒ apply ก่อนหรือหลัง deploy ก็ได้ ไม่มีลำดับบังคับแบบ F1
 - rollback: revert commit · migration มี `-- ROLLBACK` ในไฟล์
+
+---
+
+### 0AJ.8 Corrective review ของ F3–F6 — **F4 รอ owner ตัดสิน · ห้าม apply/deploy** (2026-09-08)
+
+เอกสารเต็ม: `docs/reviews/2026-09-08-f3-f6-codex-corrective-review.md`
+
+draft PR **#112** · branch `codex/review-f3-f6-main` · base `main@ffa282a` · correction `9124b31`
+
+- **F3:** historical ยังคง batch ด้วย `.in("id", ids)` ครั้งเดียว แต่คืน live-path skip/sent/failed
+  เป็นลำดับราย signal เดิม เพราะ finding ไม่ได้ขอเปลี่ยน sequencing ส่วนนั้น.
+- **F5:** แก้ SETUP ให้ตรง control flow — `strategy_setups` write เกิดหลัง evaluate และถ้าล้ม signal
+  rows ยังเดินต่อ; failure window ที่ resend กู้ไม่ได้คือหลังเก็บ closed bar แต่ก่อน evaluate/persist signal.
+- **F6:** PostgreSQL 16.13 regression ผ่าน และ negative control ที่ drop
+  `strategy_setups_one_row_per_touch` ล้มตรง duplicate assertion ตามต้องการ.
+- **F4:** migration บน `main` ยังไม่ถูกแก้ใน branch นี้. Codex พิสูจน์ได้ว่า trigger ปัจจุบัน
+  (A) คุม open-bar level ด้วย และ (B) ยอมรับ volume ที่ลดลงเมื่อ ticks เท่าเดิม. มีสามทางเลือกใน review:
+  คง trigger ปัจจุบัน (แนะนำเพราะแคบสุด), guard เฉพาะ parent bar ที่ปิดแล้ว, หรือ transactional RPC
+  ทั้ง bar+ladder ซึ่งกว้างเกิน P3 นี้. **Owner ต้องเลือกก่อนแก้/รับรอง F4.**
+
+หลักฐานล่าสุด: `npx --yes deno task check` PASS · `npx --yes deno task test` **234 passed, 0 failed** ·
+DB regression PASS. ไม่มี production mutation, ไม่ apply migration, ไม่ deploy function.
+
+งานส่งต่อ: เมื่อ owner เลือก F4 แล้ว ให้ **Claude เซสชันใหม่** ตรวจ draft PR และรัน check/test/SQL
+ซ้ำก่อน merge เพราะ Codex เป็นผู้เขียน correction `9124b31` และอนุมัติงานตัวเองไม่ได้ตาม §0T.
 
 ---
 
