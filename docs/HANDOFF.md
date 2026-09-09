@@ -169,6 +169,12 @@ Branch ที่เจ้าของระบุไม่อยู่ใน `gi
 `claude/signal-handoff-docs-x26vdd` จาก `e947e10` (งาน GC ล่าสุด, working tree สะอาด).
 รายละเอียด/คำสั่งทดสอบอยู่ใน `SIGNAL PARAMETER.MD` Phase A และ source tests บน branch นี้.
 
+**Shared artifacts:** correction commit `b8e607e`; **draft PR [#114](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/114)**.
+ตรวจ remote อีกครั้งพบ `main@5ca9665` รวม PR #112 และ #113 แล้ว จึง sync เข้า branch ด้วย merge
+`b67d7d4` โดยไม่แก้ correction ของงาน F3–F6 และ rerun 251 tests/typecheck/REV check ผ่านอีกครั้ง.
+การ merge ก่อนหน้านี้ไม่ได้ยกเลิก owner/review gates ของ §0AJ.8; ข้อ F4 ยังต้องใช้กระบวนการเดิม.
+DLL ที่ rebuild จาก committed source แสดง **1.6.1+b8e607e**; ยังไม่ได้ copy เข้า ATAS.
+
 | Finding | Correction | Evidence / limitation |
 |---|---|---|
 | Enable probe ถูกอ่านเฉพาะ initialize | `MboProbeLifecycle` sync ทั้ง initialize/recalculate; idempotent enable/disable/interval; immediate enabled JSON; late callback/task หลัง dispose ไม่เปิดใหม่ | actual SDK-type lifecycle tests; ATAS GUI ยังไม่รัน |
