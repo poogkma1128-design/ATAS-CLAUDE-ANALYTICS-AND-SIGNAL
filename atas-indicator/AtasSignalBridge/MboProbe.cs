@@ -40,10 +40,12 @@ namespace AtasSignalBridge
         private long _zeroOrderId;
         private long _clockRegressions;
         private long _futureMboEvents;
+        private long _unresolvedMboTimeEvents;
         private long _trades;
         private long _nullTradeOrderId;
         private long _nullAggressorOrderId;
         private long _futureTradeEvents;
+        private long _unresolvedTradeTimeEvents;
         private DateTime? _windowLastMboRawTime;
         private DateTime? _windowLastTradeRawTime;
 
@@ -104,7 +106,12 @@ namespace AtasSignalBridge
                     _lastMboReceivedUtc = receivedAtUtc;
                     _windowLastMboRawTime = update.Time;
 
-                    var eventUtc = AsUtc(update.Time);
+                    if (!TryEventUtc(update.Time, out var eventUtc))
+                    {
+                        _unresolvedMboTimeEvents++;
+                        continue;
+                    }
+
                     if (_lastMboEventUtc != DateTime.MinValue && eventUtc < _lastMboEventUtc)
                         _clockRegressions++;
                     if (eventUtc > _lastMboEventUtc) _lastMboEventUtc = eventUtc;
@@ -143,8 +150,11 @@ namespace AtasSignalBridge
                 _windowLastTradeRawTime = trade.Time;
                 if (!trade.ExchangeOrderId.HasValue) _nullTradeOrderId++;
                 if (!trade.AggressorExchangeOrderId.HasValue) _nullAggressorOrderId++;
-                ObserveLatency(_tradeLatencyBuckets, receivedAtUtc, AsUtc(trade.Time),
-                    ref _futureTradeEvents);
+                if (TryEventUtc(trade.Time, out var eventUtc))
+                    ObserveLatency(_tradeLatencyBuckets, receivedAtUtc, eventUtc,
+                        ref _futureTradeEvents);
+                else
+                    _unresolvedTradeTimeEvents++;
             }
         }
 
@@ -156,7 +166,9 @@ namespace AtasSignalBridge
                 var result = JsonSerializer.Serialize(new
                 {
                     type = "mbo_probe",
-                    version = "MBO_PROBE_V2",
+                    // V3: an Unspecified DateTime is now retained as raw
+                    // evidence rather than silently re-labelled as UTC.
+                    version = "MBO_PROBE_V3",
                     reason,
                     symbol,
                     startedAtUtc = Iso(_startedAtUtc),
@@ -177,7 +189,7 @@ namespace AtasSignalBridge
                     lastTradeReceivedAtUtc = Iso(_lastTradeReceivedUtc),
                     liveMboAgeMs = AgeMs(now, _lastMboReceivedUtc),
                     tradeAgeMs = AgeMs(now, _lastTradeReceivedUtc),
-                    latencyScope = "window_live_events_only;unspecified_time_assumed_utc",
+                    latencyScope = "window_live_events_only;unspecified_time_requires_explicit_basis",
                     mboTimeSample = TimeSample(_windowLastMboRawTime, _lastMboReceivedUtc),
                     tradeTimeSample = TimeSample(_windowLastTradeRawTime, _lastTradeReceivedUtc),
                     updates = new
@@ -190,14 +202,20 @@ namespace AtasSignalBridge
                     zeroOrderId = _zeroOrderId,
                     clockRegressions = _clockRegressions,
                     futureMboEvents = _futureMboEvents,
-                    mboLatencyStatus = LatencyStatus(_mboLatencyBuckets, _futureMboEvents),
-                    mboLatencyP95UpperMs = P95Upper(_mboLatencyBuckets, _futureMboEvents),
+                    unresolvedMboTimeEvents = _unresolvedMboTimeEvents,
+                    mboLatencyStatus = LatencyStatus(
+                        _mboLatencyBuckets, _futureMboEvents, _unresolvedMboTimeEvents),
+                    mboLatencyP95UpperMs = P95Upper(
+                        _mboLatencyBuckets, _futureMboEvents, _unresolvedMboTimeEvents),
                     trades = _trades,
                     nullTradeOrderId = _nullTradeOrderId,
                     nullAggressorOrderId = _nullAggressorOrderId,
                     futureTradeEvents = _futureTradeEvents,
-                    tradeLatencyStatus = LatencyStatus(_tradeLatencyBuckets, _futureTradeEvents),
-                    tradeLatencyP95UpperMs = P95Upper(_tradeLatencyBuckets, _futureTradeEvents)
+                    unresolvedTradeTimeEvents = _unresolvedTradeTimeEvents,
+                    tradeLatencyStatus = LatencyStatus(
+                        _tradeLatencyBuckets, _futureTradeEvents, _unresolvedTradeTimeEvents),
+                    tradeLatencyP95UpperMs = P95Upper(
+                        _tradeLatencyBuckets, _futureTradeEvents, _unresolvedTradeTimeEvents)
                 });
                 ResetWindow();
                 _windowStartUtc = now;
@@ -212,8 +230,9 @@ namespace AtasSignalBridge
             _callbacks = _maxCallbackBatch = _snapshotCallbacks = 0;
             _initialSnapshotReads = _initialSnapshotOrders = 0;
             _snapshot = _created = _changed = _deleted = _zeroOrderId = 0;
-            _clockRegressions = _futureMboEvents = 0;
-            _trades = _nullTradeOrderId = _nullAggressorOrderId = _futureTradeEvents = 0;
+            _clockRegressions = _futureMboEvents = _unresolvedMboTimeEvents = 0;
+            _trades = _nullTradeOrderId = _nullAggressorOrderId = _futureTradeEvents =
+                _unresolvedTradeTimeEvents = 0;
             _windowLastMboRawTime = _windowLastTradeRawTime = null;
             // Preserve last receive/event time across windows: a silent feed
             // must age, and a regression across the boundary must be visible.
@@ -244,8 +263,11 @@ namespace AtasSignalBridge
             buckets[bucket]++;
         }
 
-        private static string LatencyStatus(long[] buckets, long futureEvents)
+        private static string LatencyStatus(long[] buckets, long futureEvents, long unresolvedTimeEvents)
         {
+            if (unresolvedTimeEvents > 0 && futureEvents > 0)
+                return "invalid:unresolved_event_time_basis_and_future_events";
+            if (unresolvedTimeEvents > 0) return "invalid:unresolved_event_time_basis";
             if (futureEvents > 0) return "invalid:future_events";
             foreach (var count in buckets)
                 if (count > 0) return "provisional:timestamp_basis_unverified";
@@ -254,20 +276,29 @@ namespace AtasSignalBridge
 
         // Last observed event in this window only; bounded diagnostic evidence,
         // not a declaration that the connector's timestamp basis is correct.
-        private static object TimeSample(DateTime? raw, DateTime receivedUtc) =>
-            raw.HasValue ? new
+        private static object TimeSample(DateTime? raw, DateTime receivedUtc)
+        {
+            if (!raw.HasValue) return null;
+
+            var resolved = TryEventUtc(raw.Value, out var eventUtc);
+            return new
             {
                 rawTime = raw.Value.ToString("O"),
                 kind = raw.Value.Kind.ToString(),
-                interpretedUtc = Iso(AsUtc(raw.Value)),
+                timeBasis = resolved ? TimeBasis(raw.Value) : "unresolved",
+                interpretedUtc = resolved ? Iso(eventUtc) : null,
                 receivedAtUtc = Iso(receivedUtc),
-                signedLatencyMs = (receivedUtc - AsUtc(raw.Value)).TotalMilliseconds
-            } : null;
+                signedLatencyMs = resolved
+                    ? (double?)(receivedUtc - eventUtc).TotalMilliseconds
+                    : null
+            };
+        }
 
-        private static string P95Upper(long[] buckets, long futureEvents)
+        private static string P95Upper(long[] buckets, long futureEvents, long unresolvedTimeEvents)
         {
             // Suppress the entire affected window, including mixed samples.
-            if (futureEvents > 0) return "unavailable";
+            // Never turn an unlabelled DateTime into a timezone assertion.
+            if (futureEvents > 0 || unresolvedTimeEvents > 0) return "unavailable";
             long total = 0;
             foreach (var count in buckets) total += count;
             if (total == 0) return "unavailable";
@@ -285,11 +316,28 @@ namespace AtasSignalBridge
             return "unavailable";
         }
 
-        private static DateTime AsUtc(DateTime value)
+        private static bool TryEventUtc(DateTime value, out DateTime utc)
         {
-            if (value.Kind == DateTimeKind.Utc) return value;
-            if (value.Kind == DateTimeKind.Local) return value.ToUniversalTime();
-            return DateTime.SpecifyKind(value, DateTimeKind.Utc);
+            if (value.Kind == DateTimeKind.Utc)
+            {
+                utc = value;
+                return true;
+            }
+            if (value.Kind == DateTimeKind.Local)
+            {
+                utc = value.ToUniversalTime();
+                return true;
+            }
+
+            utc = DateTime.MinValue;
+            return false;
+        }
+
+        private static string TimeBasis(DateTime value)
+        {
+            return value.Kind == DateTimeKind.Utc
+                ? "declared_utc"
+                : "declared_local_converted_to_utc";
         }
 
         private static string Iso(DateTime value)

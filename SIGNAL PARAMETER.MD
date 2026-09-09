@@ -742,25 +742,25 @@ data-status transitions work; feature age is measurable; restart cannot duplicat
 Phase A probe cannot yet prove rebuild/completeness or real feed epoch boundaries. Those remain an explicit
 Gate 0 gap for the collector/replay phase, not a pass inferred from a counter.
 
-**Local implementation status (2026-09-09):** REV `1.6.4` independently reviewed and installed; GC MBO JSON is valid in live logs. Windows clock trails the NTP reference by ~0.76s and event-time basis remains unverified; latency and full Phase A acceptance remain UNVERIFIED. See `docs/reviews/2026-09-09-mbo-installation-record.md`.
-REV `1.6.4` corrects false low p95: any future event makes the window percentile unavailable.
-`mboLatencyStatus` / `tradeLatencyStatus` and last raw timestamp/kind samples explain invalid timing.
+**Local implementation status (2026-09-09):** REV `1.6.5` is independently reviewed and installed; it proves the diagnostic lifecycle only. Its live GC logs expose `MarketByOrder.Time` and trade `Time` as `DateTimeKind.Unspecified`; neither event-time basis nor latency is accepted. Source candidate REV `1.6.6` / `MBO_PROBE_V3` is pending independent review and has **not** been imported into ATAS. It retains those raw values but fails closed instead of silently treating them as UTC. See `docs/HANDOFF.md` §0AK.6.9.
+REV `1.6.4` first corrected false low p95: any declared future event makes the window percentile unavailable. REV `1.6.6` adds separate `unresolvedMboTimeEvents` and `unresolvedTradeTimeEvents` counters so unlabelled timestamps are not misclassified as a proven UTC future event.
+`mboLatencyStatus` / `tradeLatencyStatus`, time-basis labels, and last raw timestamp/kind samples explain invalid timing.
 Positive timing remains provisional until the connector timestamp basis and machine clock are verified.
 `Enable MBO probe` defaults to `false`. Both initialization and subsequent settings recalculation synchronize
 the probe lifecycle. Enable emits immediate evidence and subscribes; disable stops collection/timer, interval
 change replaces the timer, and dispose ignores late callbacks/task completion. Re-enable reuses the SDK
 subscription (no unsubscribe API was found), starts a fresh collector session and reads the current cache.
 Subscription completion explicitly reads `MarketByOrders`; initial cached data need not arrive as callbacks.
-JSON schema is `MBO_PROBE_V2`:
+The installed REV `1.6.5` emits `MBO_PROBE_V2`. The pending timestamp-basis candidate emits `MBO_PROBE_V3`:
 
 ```text
 sessionId, windowSequence, windowStartUtc, observedAtUtc, windowDurationMs, counterScope=window,
 callbacks, maxCallbackBatch, snapshotCallbacks, initialSnapshotReads, initialSnapshotOrders,
 bookEpoch=null, bookEpochStatus=unavailable:no_snapshot_boundary_in_callback,
 Snapshot/New/Change/Delete counts, zeroOrderId,
-clockRegressions, futureMboEvents, mboLatencyP95UpperMs,
+clockRegressions, futureMboEvents, unresolvedMboTimeEvents, mboLatencyP95UpperMs,
 trades, nullTradeOrderId, nullAggressorOrderId,
-futureTradeEvents, tradeLatencyP95UpperMs,
+futureTradeEvents, unresolvedTradeTimeEvents, tradeLatencyP95UpperMs,
 lastLiveMboReceivedAtUtc, lastTradeReceivedAtUtc, liveMboAgeMs, tradeAgeMs
 ```
 
@@ -772,8 +772,10 @@ windows at settings changes. `sessionId` is a collector UUID, **not an exchange/
 Per [ATAS data API documentation](https://docs.atas.net/en/md_DataFeedsCore_2Docs_2en_20025__ReceivingProcessingData.html),
 `Snapshot` means cached data. It is excluded from live-event latency and clock-regression histograms. Twenty
 snapshot-bearing callbacks count as twenty `snapshotCallbacks`, never twenty epochs. No epoch delimiter was
-verified in this SDK callback contract. Unspecified event times are assumed UTC and explicitly labeled;
-clock synchronization/time basis must still be verified on the actual connector.
+verified in this SDK callback contract. `Utc` and `Local` values retain their declared basis; an
+`Unspecified` event time remains raw evidence with `timeBasis=unresolved`, null interpreted UTC and null
+signed latency. It suppresses that window's percentile until an external connector-time provenance test
+can establish a basis; no Bangkok/Chicago or connector-timezone conversion is permitted.
 
 The latency calculation uses fixed histogram buckets, not a growing list, so probe memory is constant. It
 does not retain the book, archive raw events, call Supabase, create a signal, or send Telegram. Those remain
@@ -782,12 +784,13 @@ Phase B–D work.
 #### Phase A operator runbook — only after independent review
 
 1. Free at least 10 GB on the ATAS data volume before recording anything.
-2. Build the independently reviewed REV (current installed version `1.6.4`), import the exact reviewed DLL and
+2. Build the independently reviewed REV (current installed version `1.6.5`), import the exact reviewed DLL and
    verify installed hash/Revision. GUI installation requires owner authorization; the 2026-09-09 local import
    was explicitly delegated to Codex. Authentication remains manual.
 3. Open `GCZ6@COMEX` 5m with the Rithmic Level 2 connection and Aggregated Quotes disabled.
 4. Use the existing Signal Bridge instance (add only if absent), verify About/Revision shows the reviewed version and commit, then enable `MBO Probe` and Apply.
-   Immediately check for `MBO_PROBE_V2` with `reason=enabled`. If absent, stop and inspect revision/settings;
+   Immediately check for the probe schema stated in the reviewed artifact (`MBO_PROBE_V2` for the currently
+   installed 1.6.5; `MBO_PROBE_V3` only after a reviewed 1.6.6 import) with `reason=enabled`. If absent, stop and inspect revision/settings;
    **do not wait 30 minutes**. Check subscription success/failure and the `subscription_active` summary.
 5. Run at least 15 minutes in an active period and 15 minutes in a quiet period. Do not trade from the probe.
 6. Export ATAS log lines beginning `Signal Bridge MBO probe {` as the deterministic evidence artifact.

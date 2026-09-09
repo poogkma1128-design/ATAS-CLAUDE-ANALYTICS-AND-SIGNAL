@@ -35,6 +35,7 @@ internal static class Program
         now = now.AddSeconds(60);
         var active = Snapshot(probe);
         var session = active.GetProperty("sessionId").GetString();
+        Check(active.GetProperty("version").GetString() == "MBO_PROBE_V3", "timestamp contract version");
         Check(active.GetProperty("callbacks").GetInt64() == 21, "active callbacks");
         Check(active.GetProperty("initialSnapshotReads").GetInt64() == 1 &&
             active.GetProperty("initialSnapshotOrders").GetInt64() == 1, "initial cache separate from callbacks");
@@ -62,40 +63,71 @@ internal static class Program
         Check(restarted.GetProperty("sessionId").GetString() != session, "restart changes collector session");
         Check(restarted.GetProperty("liveMboAgeMs").ValueKind == JsonValueKind.Null, "restart clears old age");
 
-        var futureRaw = DateTime.SpecifyKind(now.AddMilliseconds(750), DateTimeKind.Unspecified);
+        var unresolvedRaw = DateTime.SpecifyKind(now.AddMilliseconds(750), DateTimeKind.Unspecified);
         probe.ObserveMboBatch(new[] { new MarketByOrder {
-            Type = MarketByOrderUpdateTypes.New, Time = futureRaw, ExchangeOrderId = 101
+            Type = MarketByOrderUpdateTypes.New, Time = unresolvedRaw, ExchangeOrderId = 101
         } }, now);
-        probe.ObserveTrade(new MarketDataArg { Time = futureRaw }, now);
-        var future = Snapshot(probe);
-        Check(future.GetProperty("futureMboEvents").GetInt64() == 1 &&
-            future.GetProperty("futureTradeEvents").GetInt64() == 1, "future counters preserved");
-        Check(future.GetProperty("mboLatencyP95UpperMs").GetString() == "unavailable" &&
-            future.GetProperty("tradeLatencyP95UpperMs").GetString() == "unavailable", "all-future p95 suppressed");
-        Check(future.GetProperty("mboLatencyStatus").GetString() == "invalid:future_events" &&
-            future.GetProperty("tradeLatencyStatus").GetString() == "invalid:future_events", "future validity explicit");
-        var timeSample = future.GetProperty("mboTimeSample");
-        Check(timeSample.GetProperty("rawTime").GetString() == futureRaw.ToString("O") &&
+        probe.ObserveTrade(new MarketDataArg { Time = unresolvedRaw }, now);
+        var unresolved = Snapshot(probe);
+        Check(unresolved.GetProperty("futureMboEvents").GetInt64() == 0 &&
+            unresolved.GetProperty("futureTradeEvents").GetInt64() == 0, "unresolved timestamps are not invented as future");
+        Check(unresolved.GetProperty("unresolvedMboTimeEvents").GetInt64() == 1 &&
+            unresolved.GetProperty("unresolvedTradeTimeEvents").GetInt64() == 1, "unresolved counters preserved");
+        Check(unresolved.GetProperty("mboLatencyP95UpperMs").GetString() == "unavailable" &&
+            unresolved.GetProperty("tradeLatencyP95UpperMs").GetString() == "unavailable", "unresolved p95 suppressed");
+        Check(unresolved.GetProperty("mboLatencyStatus").GetString() == "invalid:unresolved_event_time_basis" &&
+            unresolved.GetProperty("tradeLatencyStatus").GetString() == "invalid:unresolved_event_time_basis", "unresolved validity explicit");
+        var timeSample = unresolved.GetProperty("mboTimeSample");
+        Check(timeSample.GetProperty("rawTime").GetString() == unresolvedRaw.ToString("O") &&
             timeSample.GetProperty("kind").GetString() == "Unspecified", "raw timestamp kind preserved");
-        Check(timeSample.GetProperty("signedLatencyMs").GetDouble() == -750 &&
-            future.GetProperty("tradeTimeSample").GetProperty("signedLatencyMs").GetDouble() == -750,
-            "signed latency exposes clock offset without clamping");
-        Check(timeSample.GetProperty("interpretedUtc").GetString() == now.AddMilliseconds(750).ToString("O"),
-            "existing unspecified UTC assumption remains explicit");
-        var emptyAfterFuture = Snapshot(probe);
-        Check(emptyAfterFuture.GetProperty("mboTimeSample").ValueKind == JsonValueKind.Null &&
-            emptyAfterFuture.GetProperty("tradeTimeSample").ValueKind == JsonValueKind.Null, "window samples reset");
-        Check(emptyAfterFuture.GetProperty("mboLatencyStatus").GetString() == "unavailable:no_live_events",
+        Check(timeSample.GetProperty("timeBasis").GetString() == "unresolved" &&
+            timeSample.GetProperty("interpretedUtc").ValueKind == JsonValueKind.Null &&
+            timeSample.GetProperty("signedLatencyMs").ValueKind == JsonValueKind.Null &&
+            unresolved.GetProperty("tradeTimeSample").GetProperty("signedLatencyMs").ValueKind == JsonValueKind.Null,
+            "unresolved timestamps never gain an implied UTC or latency");
+        var emptyAfterUnresolved = Snapshot(probe);
+        Check(emptyAfterUnresolved.GetProperty("mboTimeSample").ValueKind == JsonValueKind.Null &&
+            emptyAfterUnresolved.GetProperty("tradeTimeSample").ValueKind == JsonValueKind.Null, "window samples reset");
+        Check(emptyAfterUnresolved.GetProperty("mboLatencyStatus").GetString() == "unavailable:no_live_events",
             "invalid window does not poison empty successor");
         probe.ObserveMboBatch(new[] {
             new MarketByOrder { Type = MarketByOrderUpdateTypes.Change, Time = now.AddMilliseconds(-40) },
-            new MarketByOrder { Type = MarketByOrderUpdateTypes.New, Time = futureRaw }
+            new MarketByOrder { Type = MarketByOrderUpdateTypes.New, Time = unresolvedRaw }
         }, now);
         probe.ObserveTrade(new MarketDataArg { Time = now.AddMilliseconds(-40) }, now);
-        probe.ObserveTrade(new MarketDataArg { Time = futureRaw }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = unresolvedRaw }, now);
         var mixed = Snapshot(probe);
         Check(mixed.GetProperty("mboLatencyP95UpperMs").GetString() == "unavailable" &&
-            mixed.GetProperty("tradeLatencyP95UpperMs").GetString() == "unavailable", "mixed window p95 suppressed");
+            mixed.GetProperty("tradeLatencyP95UpperMs").GetString() == "unavailable" &&
+            mixed.GetProperty("mboLatencyStatus").GetString() == "invalid:unresolved_event_time_basis" &&
+            mixed.GetProperty("tradeLatencyStatus").GetString() == "invalid:unresolved_event_time_basis",
+            "mixed window remains unresolved");
+        var explicitFutureUtc = now.AddMilliseconds(750);
+        probe.ObserveMboBatch(new[] { new MarketByOrder {
+            Type = MarketByOrderUpdateTypes.New, Time = explicitFutureUtc, ExchangeOrderId = 102
+        } }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = explicitFutureUtc }, now);
+        var future = Snapshot(probe);
+        Check(future.GetProperty("futureMboEvents").GetInt64() == 1 &&
+            future.GetProperty("futureTradeEvents").GetInt64() == 1, "declared UTC future counters preserved");
+        Check(future.GetProperty("unresolvedMboTimeEvents").GetInt64() == 0 &&
+            future.GetProperty("unresolvedTradeTimeEvents").GetInt64() == 0, "declared UTC is not unresolved");
+        Check(future.GetProperty("mboLatencyStatus").GetString() == "invalid:future_events" &&
+            future.GetProperty("tradeLatencyStatus").GetString() == "invalid:future_events", "future validity explicit");
+        Check(future.GetProperty("mboTimeSample").GetProperty("timeBasis").GetString() == "declared_utc" &&
+            future.GetProperty("mboTimeSample").GetProperty("signedLatencyMs").GetDouble() == -750,
+            "declared UTC retains signed latency evidence");
+        probe.ObserveMboBatch(new[] {
+            new MarketByOrder { Type = MarketByOrderUpdateTypes.Change, Time = explicitFutureUtc },
+            new MarketByOrder { Type = MarketByOrderUpdateTypes.New, Time = unresolvedRaw }
+        }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = explicitFutureUtc }, now);
+        probe.ObserveTrade(new MarketDataArg { Time = unresolvedRaw }, now);
+        var combined = Snapshot(probe);
+        Check(combined.GetProperty("mboLatencyStatus").GetString() ==
+            "invalid:unresolved_event_time_basis_and_future_events" &&
+            combined.GetProperty("tradeLatencyStatus").GetString() ==
+            "invalid:unresolved_event_time_basis_and_future_events", "both invalid causes remain visible");
         probe.ObserveMboBatch(new[] { new MarketByOrder {
             Type = MarketByOrderUpdateTypes.New, Time = now.AddMilliseconds(-20)
         } }, now);
@@ -111,11 +143,13 @@ internal static class Program
             localSample.GetProperty("interpretedUtc").GetString() == now.AddMilliseconds(-30).ToString("O"),
             "local source kind and existing conversion observable");
         probe.ObserveMboBatch(new[] { new MarketByOrder {
-            Type = MarketByOrderUpdateTypes.Snapshot, Time = futureRaw
+            Type = MarketByOrderUpdateTypes.Snapshot, Time = unresolvedRaw
         } }, now);
         var cacheOnly = Snapshot(probe);
         Check(cacheOnly.GetProperty("mboTimeSample").ValueKind == JsonValueKind.Null &&
-            cacheOnly.GetProperty("futureMboEvents").GetInt64() == 0, "cached timestamp excluded from live diagnostics");
+            cacheOnly.GetProperty("futureMboEvents").GetInt64() == 0 &&
+            cacheOnly.GetProperty("unresolvedMboTimeEvents").GetInt64() == 0,
+            "cached timestamp excluded from live diagnostics");
         probe.Start();
 
         var logs = new List<string>();
