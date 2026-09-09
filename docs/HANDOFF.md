@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **REQUEST CHANGES 5 ข้อ → แก้บน `claude/signal-handoff-docs-x26vdd` แล้ว รอ re-review**; รวม tick-guard migration ใหม่; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Codex เป็น executor จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ต้อง rerun tests + staging SQL/concurrency; เจ้าของอนุมัติและรัน ATAS GUI probe | §0AK.6 · `SIGNAL PARAMETER.MD` |
+| 6 | **re-review `1625628` = REQUEST CHANGES 3 ข้อ → แก้ fail-closed cutover, unknown-instrument curation และ v2 provenance แล้ว รอ independent re-review ที่ commit ใหม่**; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Codex เป็น executor ของ correction รอบนี้จึงอนุมัติตัวเองไม่ได้; reviewer ต้อง rerun negative SQL + PostgreSQL concurrency; เจ้าของอนุมัติและรัน ATAS GUI probe | §0AK.6 · `SIGNAL PARAMETER.MD` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -179,7 +179,7 @@ DLL ที่ rebuild จาก committed source แสดง **1.6.1+b8e607e**;
 |---|---|---|
 | Enable probe ถูกอ่านเฉพาะ initialize | `MboProbeLifecycle` sync ทั้ง initialize/recalculate; idempotent enable/disable/interval; immediate enabled JSON; late callback/task หลัง dispose ไม่เปิดใหม่ | actual SDK-type lifecycle tests; ATAS GUI ยังไม่รัน |
 | Telegram cash ใช้ rule ticks × instrument tick value | ใช้ `abs(stop-entry)/instrumentTickSize*tickValue`; invalid/null/non-finite ไม่แสดงเงิน/หน่วยที่เดา | long+short fixture 136 stored ticks แต่ระยะจริง 34 ticks แสดง $340 ไม่ใช่ $1360 |
-| DB R ใช้ denominator คนละตัว + rollback .40 | skip signal เมื่อ rule plan tick ไม่เท่า instrument; v2 payload; migration ใหม่ใช้ durable `signal_tick_locked` หลัง signal แรก + backfill marker สำหรับ instrument ที่มี signal เดิม + ตรวจ v2 units ก่อนเขียน; เอา rollback .40 ออก | isolated PostgreSQL/WASM replay ใช้ scorer เดิม + setup_stats ได้ 2R; SQL UPDATE .40 ถูกปฏิเสธแม้เปิด override flag |
+| DB R ใช้ denominator คนละตัว + rollback .40 | skip signal เมื่อ rule plan tick ไม่เท่า instrument; v2 payload; migration backfill durable lock ให้ historical referenced instruments; instrument ใหม่เก็บ raw data แต่ห้าม signal จน curate+lock; ทุก signal write ต้องเป็น numeric v2 และห้าม downgrade; เอา rollback .40 ออก | isolated PostgreSQL/WASM replay ใช้ scorerเดิม + setup_stats ได้ 2R; legacy/missing/downgraded units และ SQL UPDATE .40 ถูกปฏิเสธ |
 | counters/p95 สะสมตลอดอายุ | drain window counters/histograms พร้อมเวลาขอบเขต/sequence; keep last receive age ข้ามช่วงเงียบ | active→quiet counters=0, p95=unavailable, age เพิ่มตามจริง |
 | callback Snapshot ถูกนับเป็น epoch | `snapshotCallbacks` แยกจาก `sessionId`; `bookEpoch=null` ระบุ unavailable; อ่าน initial cache หลัง subscription active | 20 callback ไม่ถูกอ้างเป็น 20 epoch; **real feed epoch/rebuild ยัง UNVERIFIED** |
 
@@ -205,14 +205,31 @@ Probe อ่าน `MarketByOrders` หลัง Task subscribe สำเร็�
 
 **Deployment gate / exact next assignee:** ส่ง **Independent Reviewer เซสชันใหม่** ตรวจ branch นี้:
 
+Correction รอบหลัง re-review ที่ `1625628` ปิด 3 finding เพิ่มเติม: migration ไม่ยอมรับ legacy/missing
+units หลัง cutover อีกต่อไป, v2 payload ห้าม downgrade/removal, และ instrument ที่เพิ่ง seed จาก chart
+จะเก็บเฉพาะ raw bars/footprints โดยไม่ evaluate/persist signal จนเจ้าของ curate market tick และตั้ง
+`signal_tick_locked=true` ใน reviewed update เดียว. Existing historical rows ถูก backfill lock โดยไม่ rewrite
+signals/outcomes. Codex รอบนี้เป็น Executor/Recorder จึงยังคง verdict **REQUEST CHANGES** จน reviewer ใหม่
+rerun raw evidence ที่ exact commit ใหม่.
+
+Executor re-verification หลัง correction รอบนี้: Deno **251 passed / 0 failed**, typecheck 4 entrypoints,
+REV check, focused PGlite scorer/setup_stats replay และ C# ProbeTests **33 assertions** ผ่าน; indicator build
+ผ่าน ATAS SDK ด้วย 0 warning / 0 error. Disposable PostgreSQL 18.4 focused regression ผ่าน รวม negative
+legacy/missing/downgrade/unverified-instrument cases. Multi-session concurrency ผ่านทั้ง signal-first และ
+metadata-first ที่ READ COMMITTED / REPEATABLE READ / SERIALIZABLE: signal-first ได้ `23514` ทุก isolation;
+metadata-first ได้ `23514` ที่ READ COMMITTED และ `40001` ที่อีกสอง isolation; ไม่พบ deadlock. นี่เป็น
+executor evidence ไม่ใช่ independent sign-off และยังไม่ใช่ full Supabase migration-chain/RLS หรือ ATAS live.
+
 1. Rerun Deno, C# build/probe assertions และ focused SQL replay จาก source ไม่ใช่เชื่อแต่ตารางนี้.
 2. รัน SQL test บน disposable PostgreSQL staging clone และทดสอบ concurrent signal insert vs metadata
    UPDATE ทั้งสอง lock order. งานนี้ยัง **UNVERIFIED** ใน PGlite ซึ่งมี session เดียว; ห้ามใช้ Production URL.
 3. ตรวจสัญญา skip-on-mismatch, historical-unit quarantine และการล็อก tick ที่อาจบล็อก legitimate metadata
    correction; การแก้ historical tick ต้องเป็น rescore migration ที่ review ใหม่ ห้ามใช้ flag bypass.
 4. คืน APPROVE หรือ REQUEST CHANGES ต่อ exact commit; ผู้เขียน patch ห้ามให้ verdict เอง.
-5. หลัง APPROVE เท่านั้น: เจ้าของ written GO → apply migration `20260909120000` → deploy reviewed ingest →
-   ตรวจ signal ใหม่ v2/Telegram/DB unit parity. ไม่เกี่ยวกับ migration เก่าที่ §00.2 ยังมี gate ค้าง.
+5. หลัง APPROVE เท่านั้น: เจ้าของ written GO → mute Telegram keys ที่เกี่ยวข้อง → apply migration
+   `20260909120000` ซึ่งจะ reject legacy signal writes ระหว่าง cutover → deploy reviewed ingest ทันที →
+   ตรวจ signal ใหม่ v2/Telegram/DB unit parity → owner จึงตัดสิน re-enable. ไม่เกี่ยวกับ migrationเก่าที่
+   §00.2 ยังมี gate ค้าง.
 6. Owner ติดตั้ง reviewed DLL แยกต่างหาก; ตรวจ enabled JSON ทันทีตาม runbook ก่อนรอ active/quiet sample.
    Actual feed epochs/rebuild ต้องมี evidence collector/replay ต่อไป ห้ามเรียก Phase A logs ว่า Gate 0 ผ่านครบ.
 

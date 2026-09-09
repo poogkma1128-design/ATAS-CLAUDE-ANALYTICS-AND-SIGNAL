@@ -110,7 +110,9 @@ instrumentTickSize = instruments.tick_size # plan, score and true ticks
 tickValue          = instruments.tick_value
 ```
 
-- existing instruments are loaded with curated `tick_size` and `tick_value`;
+- existing referenced instruments are backfilled as tick-locked; a newly discovered instrument is seeded
+  only to retain raw bars/footprints and cannot create a signal until an owner-reviewed metadata update sets
+  the curated tick and `signal_tick_locked=true` together;
 - rules continue to evaluate aggregated footprint rows with the chart step;
 - Entry/SL/TP and all plan tick distances use the curated market tick, matching backtest semantics;
 - reject a signal with `tick_unit_mismatch` if its effective rule plan tick differs from the instrument
@@ -119,13 +121,16 @@ tickValue          = instruments.tick_value
 - Telegram now displays price risk, true ticks, and approximate USD risk per one contract when `tick_value`
   and instrument `tick_size` are finite and positive. Formula:
   `abs(stop-entry) / instrumentTickSize * instrumentTickValue`, never `ruleRiskTicks * tickValue`.
-- proposed migration `20260909120000_guard_signal_tick_units.sql` freezes `instruments.tick_size` after
-  the first signal, using a durable `signal_tick_locked` latch (backfilled for already-referenced instruments),
-  and checks v2 plan/market tick equality on writes. This also blocks the old
-  metadata override flag from changing the scorer denominator. No historical signals/outcomes are rewritten.
-  The latch cannot be cleared through an ordinary UPDATE, even if signals are later deleted. Metadata
-  corrections before the first signal remain allowed. A row change on first use avoids relying on an
-  `EXISTS(signals)` check against a potentially old transaction snapshot.
+- proposed migration `20260909120000_guard_signal_tick_units.sql` backfills a durable
+  `signal_tick_locked` latch for instruments already referenced by historical signals. New instruments stay
+  unlocked until their market tick is explicitly curated; ingest retains their raw data but skips rule
+  evaluation. Every post-migration signal insert and every payload/instrument update must carry numeric
+  `market-tick-v2` units equal to the locked instrument tick, so legacy writes and v2 downgrades fail closed.
+  This also blocks the old metadata override flag from changing the scorer denominator. No historical
+  signals/outcomes are rewritten. The latch cannot be cleared through an ordinary UPDATE, even if signals
+  are later deleted. A legitimate pre-signal correction uses the reviewed metadata-override transaction to
+  set the verified tick and latch together; lock activation without that explicit transaction is rejected,
+  and a chart-derived first signal cannot certify its own tick.
 - the unsafe GC `tick_size=0.40` rollback comment is removed; `.40` is not a valid GC exchange tick.
   Correcting historical metadata now requires a separately reviewed rescore/migration, not a flag bypass.
 
@@ -800,9 +805,13 @@ concurrency validation. Run `supabase/tests/20260909_signal_tick_units_test.sql`
 staging clone too, and test concurrent signal insert versus tick update in both lock orders. Never use the
 production URL for the test. The probe tests use actual SDK types but do not simulate ATAS GUI or live feed.
 
-Before production: independent re-review → owner written GO to exact commit → apply reviewed tick guard
-migration → deploy reviewed ingest → verify fresh v2 plans/cash/outcome parity. DLL installation and Phase A
-collection are a separate owner step. Do not promise daily income or promote these engineering tests as edge.
+Before production: independent re-review → owner written GO to exact commit → mute affected Telegram keys
+for the cutover → apply the reviewed tick guard. The guard intentionally rejects every legacy/missing-unit
+signal while the old ingest is still running; raw bar/footprint writes remain idempotent and are not deleted.
+Deploy the reviewed ingest immediately, verify fresh v2 plans/cash/outcome parity, then let the owner decide
+whether to re-enable Telegram. Any new instrument remains observation-only until its market tick is reviewed
+and explicitly locked. DLL installation and Phase A collection are a separate owner step. Do not promise
+daily income or promote these engineering tests as edge.
 On a problem, mute affected Telegram rules and preserve evidence. Do not roll metadata back to chart rows or
 drop tick guards; use only a reviewed unit-compatible application artifact. A pre-fix ingest rollback is
 not a safe trading path and any signals it creates require separate quarantine/review.

@@ -180,7 +180,15 @@ function payload(overrides: Partial<IngestPayload> = {}): IngestPayload {
 
 function readyClient(rules: RuleRow[] = [STACKED_RULE]): StubClient {
   return new StubClient()
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("instruments.select", {
+      data: [{
+        id: "inst-1",
+        tick_size: 0.25,
+        tick_value: null,
+        signal_tick_locked: true,
+      }],
+      error: null,
+    })
     .queue("rules.select", { data: rules, error: null })
     .queue("bars.upsert", {
       data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
@@ -422,7 +430,10 @@ Deno.test("ingest: deduplication is delegated to the unique constraint", async (
 
 Deno.test("ingest: bars in one request go up as one ordered batch", async () => {
   const client = new StubClient()
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("instruments.upsert", {
+      data: { id: "inst-1", tick_size: 0.25, signal_tick_locked: true },
+      error: null,
+    })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
     .queue("bars.upsert", {
       data: [
@@ -515,7 +526,15 @@ Deno.test("ingest: a footprint batch is chunked rather than sent whole", async (
 /** A client whose first `bars` select answers the stored-bar lookup. */
 function clientHolding(stored: Record<string, unknown>[]): StubClient {
   return new StubClient()
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("instruments.select", {
+      data: [{
+        id: "inst-1",
+        tick_size: 0.25,
+        tick_value: null,
+        signal_tick_locked: true,
+      }],
+      error: null,
+    })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
     .queue("bars.select", { data: stored, error: null })
     .queue("bars.upsert", {
@@ -631,7 +650,10 @@ Deno.test("ingest: history is scoped to the same instrument, timeframe and past"
 
 Deno.test("ingest: a disabled rule produces nothing", async () => {
   const client = new StubClient()
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("instruments.upsert", {
+      data: { id: "inst-1", tick_size: 0.25, signal_tick_locked: false },
+      error: null,
+    })
     .queue("rules.select", { data: [], error: null })
     .queue("bars.upsert", {
       data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
@@ -671,7 +693,12 @@ Deno.test("ingest: a known instrument keeps its curated tick, whatever the chart
   // next time the terminal is opened.
   const client = new StubClient()
     .queue("instruments.select", {
-      data: [{ id: "inst-1", tick_size: 0.1, tick_value: 10 }],
+      data: [{
+        id: "inst-1",
+        tick_size: 0.1,
+        tick_value: 10,
+        signal_tick_locked: true,
+      }],
       error: null,
     })
     .queue("rules.select", { data: [], error: null })
@@ -696,7 +723,12 @@ Deno.test("ingest: GC plan distances use the curated tick, not the chart row", a
   ];
   const client = new StubClient()
     .queue("instruments.select", {
-      data: [{ id: "inst-1", tick_size: 0.1, tick_value: 10 }],
+      data: [{
+        id: "inst-1",
+        tick_size: 0.1,
+        tick_value: 10,
+        signal_tick_locked: true,
+      }],
       error: null,
     })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
@@ -743,13 +775,21 @@ Deno.test("ingest: GC plan distances use the curated tick, not the chart row", a
   });
 });
 
-Deno.test("ingest: an unknown instrument is still seeded from the payload", async () => {
+Deno.test("ingest: an unknown instrument keeps raw data but cannot signal", async () => {
   // The lookup returning nothing is the one case where the payload's tick is
   // the only value available, so a brand-new symbol still gets a row.
   const client = new StubClient()
     .queue("instruments.select", { data: [], error: null })
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
-    .queue("rules.select", { data: [], error: null })
+    .queue("instruments.upsert", {
+      data: {
+        id: "inst-1",
+        tick_size: 0.25,
+        tick_value: null,
+        signal_tick_locked: false,
+      },
+      error: null,
+    })
+    .queue("rules.select", { data: [STACKED_RULE], error: null })
     .queue("bars.upsert", {
       data: [{ id: 101, opened_at: "2026-08-27T10:00:00.000Z" }],
       error: null,
@@ -762,6 +802,9 @@ Deno.test("ingest: an unknown instrument is still seeded from the payload", asyn
   const row = rows[0].ops[0].args[0] as Record<string, unknown>;
   assertEquals(row.symbol, "ES");
   assertEquals(row.tick_size, 0.25);
+  assertEquals(client.callsFor("bars", "upsert").length, 1);
+  assertEquals(client.callsFor("cluster_levels", "upsert").length, 1);
+  assertEquals(client.callsFor("signals", "upsert").length, 0);
 });
 
 Deno.test("ingest: mismatched rule tick fails closed without discarding bars", async () => {
@@ -806,7 +849,10 @@ Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
   // Those bars closed long ago, so their signals belong in the database and the
   // statistics but must not reach anyone's phone.
   const client = new StubClient()
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("instruments.upsert", {
+      data: { id: "inst-1", tick_size: 0.25, signal_tick_locked: true },
+      error: null,
+    })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
     .queue("bars.upsert", {
       data: [
@@ -871,7 +917,10 @@ Deno.test("ingest: a multi-bar batch is stored but not announced", async () => {
 
 Deno.test("ingest: a multi-bar request still announces its freshly closed bar", async () => {
   const client = new StubClient()
-    .queue("instruments.upsert", { data: { id: "inst-1" }, error: null })
+    .queue("instruments.upsert", {
+      data: { id: "inst-1", tick_size: 0.25, signal_tick_locked: true },
+      error: null,
+    })
     .queue("rules.select", { data: [STACKED_RULE], error: null })
     .queue("bars.select", { data: [], error: null })
     .queue("bars.upsert", {

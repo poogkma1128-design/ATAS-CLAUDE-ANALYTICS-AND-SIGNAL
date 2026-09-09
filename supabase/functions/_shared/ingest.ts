@@ -282,18 +282,29 @@ export async function ingest(
     decisionBarIds.push(barIds[index]);
   }
 
-  const evaluatedRows = await evaluateBars(
-    supabase,
-    { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
-    rules,
-    overrides,
-    announcementEligibility,
-    instrumentPolicy,
-    decisionEntries,
-    decisionBarIds,
-    chartTickSize,
-    instrumentTickSize,
-  );
+  // A newly discovered instrument is seeded from the chart only so its raw
+  // bars/footprints are not lost. That chart step is not an exchange-verified
+  // market tick, so it must not size or score a signal. An owner-reviewed
+  // metadata update explicitly locks the curated tick before evaluation starts.
+  const evaluatedRows = instrument.signalTickLocked
+    ? await evaluateBars(
+      supabase,
+      { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
+      rules,
+      overrides,
+      announcementEligibility,
+      instrumentPolicy,
+      decisionEntries,
+      decisionBarIds,
+      chartTickSize,
+      instrumentTickSize,
+    )
+    : [];
+  if (!instrument.signalTickLocked && decisionEntries.length > 0) {
+    console.error(
+      `signals skipped: unverified_market_tick ${payload.symbol}; raw bars retained`,
+    );
+  }
   const signalRows = suppressOpposingSignals(evaluatedRows);
 
   const signalsCreated = await persistSignals(
@@ -442,6 +453,7 @@ interface InstrumentMetadata {
   id: string;
   tickSize: number;
   tickValue: number | null;
+  signalTickLocked: boolean;
 }
 
 async function upsertInstrument(
@@ -453,7 +465,7 @@ async function upsertInstrument(
 
   const existing = await supabase
     .from("instruments")
-    .select("id, tick_size, tick_value")
+    .select("id, tick_size, tick_value, signal_tick_locked")
     .eq("symbol", symbol)
     .eq("exchange", exchange)
     .limit(1);
@@ -465,6 +477,7 @@ async function upsertInstrument(
     id: string;
     tick_size: number | string;
     tick_value: number | string | null;
+    signal_tick_locked: boolean;
   }[] | null)?.[0];
   if (found) {
     const tickSize = Number(found.tick_size);
@@ -475,6 +488,7 @@ async function upsertInstrument(
       id: found.id,
       tickSize,
       tickValue: positiveOrNull(found.tick_value),
+      signalTickLocked: found.signal_tick_locked === true,
     };
   }
 
@@ -491,7 +505,7 @@ async function upsertInstrument(
       },
       { onConflict: "symbol,exchange" },
     )
-    .select("id, tick_size, tick_value")
+    .select("id, tick_size, tick_value, signal_tick_locked")
     .single();
 
   if (error) throw new Error(`instrument upsert failed: ${error.message}`);
@@ -499,6 +513,7 @@ async function upsertInstrument(
     id: data.id as string,
     tickSize: Number(data.tick_size ?? payload.tickSize),
     tickValue: positiveOrNull(data.tick_value ?? payload.tickValue),
+    signalTickLocked: data.signal_tick_locked === true,
   };
 }
 

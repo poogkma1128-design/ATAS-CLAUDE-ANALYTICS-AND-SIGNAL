@@ -24,9 +24,39 @@ update public.instruments set tick_size=0.2
 where id='a0260909-0000-0000-0000-000000000001';
 update public.instruments set tick_size=0.1
 where id='a0260909-0000-0000-0000-000000000001';
+-- Curation is explicit. Setting the verified tick and durable latch together is
+-- the only path that enables signals for a newly discovered instrument.
+select pg_temp.expect_tick_error($s$
+  update public.instruments set signal_tick_locked=true
+  where id='a0260909-0000-0000-0000-000000000001'
+$s$, 'tick_lock_requires_reviewed_curation');
+set local app.allow_instrument_metadata_change='on';
+update public.instruments set tick_size=0.1, signal_tick_locked=true
+where id='a0260909-0000-0000-0000-000000000001';
 
 insert into public.bars (id, instrument_id, timeframe, opened_at, open, high, low, close)
 values (909120000, 'a0260909-0000-0000-0000-000000000001', '5m', '2026-09-09T10:00:00Z', 4424, 4425, 4420, 4424);
+
+insert into public.instruments (id, symbol, exchange, tick_size, tick_value)
+values ('a0260909-0000-0000-0000-000000000003', 'UNVERIFIED_TICK_TEST', 'TEST', 0.4, 10);
+insert into public.bars (id, instrument_id, timeframe, opened_at, open, high, low, close)
+values (909120003, 'a0260909-0000-0000-0000-000000000003', '5m', '2026-09-09T10:00:00Z', 4424, 4425, 4420, 4424);
+select pg_temp.expect_tick_error($s$
+  insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
+  values (909120003,'a0260909-0000-0000-0000-000000000003','5m','tick_unit_test','long',4424,
+    '{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.4,"planTickSize":0.4}}')
+$s$, 'signal_tick_unverified');
+
+select pg_temp.expect_tick_error($s$
+  insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
+  values (909120000,'a0260909-0000-0000-0000-000000000001','5m','tick_unit_test','short',4424,'{}')
+$s$, 'signal_tick_units_required');
+
+select pg_temp.expect_tick_error($s$
+  insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
+  values (909120000,'a0260909-0000-0000-0000-000000000001','5m','tick_unit_test','short',4424,
+    '{"executionUnits":{"version":"market-tick-v1","marketTickSize":0.1,"planTickSize":0.1}}')
+$s$, 'signal_tick_units_required');
 
 insert into public.signals (id, bar_id, instrument_id, timeframe, rule_key, direction, price, payload,
   entry_price, stop_price, target_price, risk_ticks, reward_ticks)
@@ -66,7 +96,22 @@ $s$, 'signal_tick_unit_mismatch');
 select pg_temp.expect_tick_error($s$
   update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1}}'
   where id='a0260909-0000-0000-0000-000000000002'
-$s$, 'signal_tick_unit_mismatch');
+$s$, 'signal_tick_units_required');
+
+select pg_temp.expect_tick_error($s$
+  update public.signals set payload='{}'
+  where id='a0260909-0000-0000-0000-000000000002'
+$s$, 'signal_tick_units_required');
+
+select pg_temp.expect_tick_error($s$
+  update public.signals set payload='{"executionUnits":{"version":"legacy","marketTickSize":0.1,"planTickSize":0.1}}'
+  where id='a0260909-0000-0000-0000-000000000002'
+$s$, 'signal_tick_units_required');
+
+select pg_temp.expect_tick_error($s$
+  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":"0.1","planTickSize":0.1}}'
+  where id='a0260909-0000-0000-0000-000000000002'
+$s$, 'signal_tick_units_required');
 
 -- No-op tick assignment and cash-value correction remain possible.
 update public.instruments set tick_size=0.1, tick_value=10
