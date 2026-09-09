@@ -44,7 +44,7 @@ values (909120003, 'a0260909-0000-0000-0000-000000000003', '5m', '2026-09-09T10:
 select pg_temp.expect_tick_error($s$
   insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
   values (909120003,'a0260909-0000-0000-0000-000000000003','5m','tick_unit_test','long',4424,
-    '{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.4,"planTickSize":0.4}}')
+    '{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.4,"planTickSize":0.4}}')
 $s$, 'signal_tick_unverified');
 
 select pg_temp.expect_tick_error($s$
@@ -58,17 +58,35 @@ select pg_temp.expect_tick_error($s$
     '{"executionUnits":{"version":"market-tick-v1","marketTickSize":0.1,"planTickSize":0.1}}')
 $s$, 'signal_tick_units_required');
 
+select pg_temp.expect_tick_error($s$
+  insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
+  values (909120000,'a0260909-0000-0000-0000-000000000001','5m','tick_unit_test','short',4424,
+    '{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.1}}')
+$s$, 'signal_tick_units_required');
+
+select pg_temp.expect_tick_error($s$
+  insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
+  values (909120000,'a0260909-0000-0000-0000-000000000001','5m','tick_unit_test','short',4424,
+    '{"executionUnits":{"version":"market-tick-v2","chartTickSize":"0.4","marketTickSize":0.1,"planTickSize":0.1}}')
+$s$, 'signal_tick_units_required');
+
+select pg_temp.expect_tick_error($s$
+  insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
+  values (909120000,'a0260909-0000-0000-0000-000000000001','5m','tick_unit_test','short',4424,
+    '{"executionUnits":{"version":"market-tick-v2","chartTickSize":0,"marketTickSize":0.1,"planTickSize":0.1}}')
+$s$, 'signal_tick_units_required');
+
 insert into public.signals (id, bar_id, instrument_id, timeframe, rule_key, direction, price, payload,
   entry_price, stop_price, target_price, risk_ticks, reward_ticks)
 values ('a0260909-0000-0000-0000-000000000002', 909120000,
   'a0260909-0000-0000-0000-000000000001', '5m', 'tick_unit_test', 'long', 4424,
-  '{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.1}}',
+  '{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.1,"planTickSize":0.1}}',
   4424, 4420.6, 4430.8, 34, 68);
 
 select pg_temp.expect_tick_error($s$
   insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price,payload)
   values (909120000,'a0260909-0000-0000-0000-000000000001','5m','tick_unit_test','short',4424,
-    '{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.4,"planTickSize":0.4}}')
+    '{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.4,"planTickSize":0.4}}')
 $s$, 'signal_tick_unit_mismatch');
 
 select pg_temp.expect_tick_error($s$
@@ -89,29 +107,29 @@ select pg_temp.expect_tick_error($s$
 $s$, 'tick_size_locked_by_signals');
 
 select pg_temp.expect_tick_error($s$
-  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.4}}'
+  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.1,"planTickSize":0.4}}'
   where id='a0260909-0000-0000-0000-000000000002'
-$s$, 'signal_tick_unit_mismatch');
+$s$, 'signal_execution_units_immutable');
 
 select pg_temp.expect_tick_error($s$
-  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1}}'
+  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.1}}'
   where id='a0260909-0000-0000-0000-000000000002'
-$s$, 'signal_tick_units_required');
+$s$, 'signal_execution_units_immutable');
 
 select pg_temp.expect_tick_error($s$
   update public.signals set payload='{}'
   where id='a0260909-0000-0000-0000-000000000002'
-$s$, 'signal_tick_units_required');
+$s$, 'signal_execution_units_immutable');
 
 select pg_temp.expect_tick_error($s$
   update public.signals set payload='{"executionUnits":{"version":"legacy","marketTickSize":0.1,"planTickSize":0.1}}'
   where id='a0260909-0000-0000-0000-000000000002'
-$s$, 'signal_tick_units_required');
+$s$, 'signal_execution_units_immutable');
 
 select pg_temp.expect_tick_error($s$
-  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":"0.1","planTickSize":0.1}}'
+  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":"0.1","planTickSize":0.1}}'
   where id='a0260909-0000-0000-0000-000000000002'
-$s$, 'signal_tick_units_required');
+$s$, 'signal_execution_units_immutable');
 
 -- Another locked instrument is not permission to relabel existing evidence,
 -- whether its denominator is the same or is changed together with the payload.
@@ -129,12 +147,12 @@ $s$, 'signal_instrument_immutable');
 
 select pg_temp.expect_tick_error($s$
   update public.signals set instrument_id='a0260909-0000-0000-0000-000000000005',
-    payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.2,"planTickSize":0.2}}'
+    payload='{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.2,"planTickSize":0.2}}'
   where id='a0260909-0000-0000-0000-000000000002'
 $s$, 'signal_instrument_immutable');
 
 select pg_temp.expect_tick_error($s$
-  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.1,"chartTickSize":0.4}}'
+  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.5,"marketTickSize":0.1,"planTickSize":0.1}}'
   where id='a0260909-0000-0000-0000-000000000002'
 $s$, 'signal_execution_units_immutable');
 
@@ -153,7 +171,7 @@ do $$ begin
       and s.instrument_id=b.instrument_id
       and s.instrument_id='a0260909-0000-0000-0000-000000000001'
       and s.payload -> 'executionUnits' =
-        '{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.1}'::jsonb
+        '{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.1,"planTickSize":0.1}'::jsonb
       and s.payload ->> 'reviewNote' = 'non-unit annotation'
       and s.telegram_message_id=909
   ) then raise exception 'historical provenance or permitted update regressed'; end if;

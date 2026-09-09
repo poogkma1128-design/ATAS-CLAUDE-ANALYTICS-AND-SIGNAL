@@ -117,23 +117,26 @@ tickValue          = instruments.tick_value
 - Entry/SL/TP and all plan tick distances use the curated market tick, matching backtest semantics;
 - reject a signal with `tick_unit_mismatch` if its effective rule plan tick differs from the instrument
   tick; retain its bars/footprints but do not persist/announce an inconsistent plan;
-- every new signal payload records `executionUnits.version = market-tick-v2` plus all three unit values;
+- every new signal payload records `executionUnits.version = market-tick-v2` plus positive numeric
+  `chartTickSize`, `marketTickSize` and `planTickSize` values;
 - Telegram now displays price risk, true ticks, and approximate USD risk per one contract when `tick_value`
   and instrument `tick_size` are finite and positive. Formula:
   `abs(stop-entry) / instrumentTickSize * instrumentTickValue`, never `ruleRiskTicks * tickValue`.
 - proposed migration `20260909120000_guard_signal_tick_units.sql` backfills a durable
   `signal_tick_locked` latch for instruments already referenced by historical signals. New instruments stay
   unlocked until their market tick is explicitly curated; ingest retains their raw data but skips rule
-  evaluation. Every post-migration signal insert and every payload/instrument update must carry numeric
-  `market-tick-v2` units equal to the locked instrument tick, so legacy writes and v2 downgrades fail closed.
+  evaluation. Every post-migration signal insert must carry numeric `market-tick-v2` units equal to the
+  locked instrument tick, so new legacy/missing writes fail closed. For every historical row, UPDATE freezes
+  both `instrument_id` and the exact `executionUnits` subtree as originally recorded—including missing or v1
+  units—so old evidence cannot be relabelled as v2 or downgraded later.
   This also blocks the old metadata override flag from changing the scorer denominator. No historical
   signals/outcomes are rewritten. The latch cannot be cleared through an ordinary UPDATE, even if signals
   are later deleted. A legitimate pre-signal correction uses the reviewed metadata-override transaction to
   set the verified tick and latch together; lock activation without that explicit transaction is rejected,
   and a chart-derived first signal cannot certify its own tick.
   Historical signal `instrument_id` is immutable even when the other instrument has the same tick or the
-  UPDATE replaces both unit values together. Existing v2 `executionUnits` are immutable; non-unit payload
-  annotations and Telegram delivery bookkeeping remain writable.
+  UPDATE replaces both unit values together. Non-unit payload annotations and Telegram delivery bookkeeping
+  remain writable without upgrading, deleting or changing the row's original unit provenance.
 - the unsafe GC `tick_size=0.40` rollback comment is removed; `.40` is not a valid GC exchange tick.
   Correcting historical metadata now requires a separately reviewed rescore/migration, not a flag bypass.
 

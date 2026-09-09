@@ -24,14 +24,22 @@ try {
   await db.exec(await read("supabase/migrations/0031_cross_asset_chart_annotations.sql"));
   await db.exec(plan.slice(plan.indexOf("drop view if exists public.setup_stats;")));
   // Pre-existing legacy evidence must lock its denominator at migration time.
+  // Keep both a missing-unit row and a v1 row: neither may be rewritten to v2,
+  // but ordinary annotations outside executionUnits must remain writable.
   await db.exec(`
     insert into public.instruments (id,symbol,tick_size) values
       ('a0260909-1000-0000-0000-000000000001','LEGACY_TEST',0.1);
     insert into public.rules (key,name) values ('legacy_test','Legacy fixture');
-    insert into public.bars (id,instrument_id,timeframe,opened_at,open,high,low,close)
-      values (909110000,'a0260909-1000-0000-0000-000000000001','5m',now(),10,11,9,10);
-    insert into public.signals (bar_id,instrument_id,timeframe,rule_key,direction,price)
-      values (909110000,'a0260909-1000-0000-0000-000000000001','5m','legacy_test','long',10);
+    insert into public.bars (id,instrument_id,timeframe,opened_at,open,high,low,close) values
+      (909110000,'a0260909-1000-0000-0000-000000000001','5m',now(),10,11,9,10),
+      (909110001,'a0260909-1000-0000-0000-000000000001','5m',now() + interval '5 minutes',10,11,9,10);
+    insert into public.signals (id,bar_id,instrument_id,timeframe,rule_key,direction,price,payload) values
+      ('a0260909-1100-0000-0000-000000000001',909110000,
+       'a0260909-1000-0000-0000-000000000001','5m','legacy_test','long',10,
+       '{"legacyNote":"missing-units"}'),
+      ('a0260909-1100-0000-0000-000000000002',909110001,
+       'a0260909-1000-0000-0000-000000000001','5m','legacy_test','short',10,
+       '{"executionUnits":{"version":"market-tick-v1","marketTickSize":0.1,"planTickSize":0.1}}');
   `);
   await db.exec(
     await read("supabase/migrations/20260909120000_guard_signal_tick_units.sql"),
@@ -46,6 +54,36 @@ try {
       raise exception 'legacy tick update was accepted';
     exception when check_violation then
       if position('tick_size_locked_by_signals' in sqlerrm)=0 then raise; end if;
+    end;
+
+    update public.signals
+       set payload = payload || '{"reviewNote":"annotation remains writable"}'::jsonb
+     where id in ('a0260909-1100-0000-0000-000000000001',
+                  'a0260909-1100-0000-0000-000000000002');
+    if (select count(*) from public.signals
+        where id in ('a0260909-1100-0000-0000-000000000001',
+                     'a0260909-1100-0000-0000-000000000002')
+          and payload ->> 'reviewNote' = 'annotation remains writable') <> 2 then
+      raise exception 'legacy annotation update was not preserved';
+    end if;
+
+    begin
+      update public.signals
+         set payload = payload ||
+           '{"executionUnits":{"version":"market-tick-v2","chartTickSize":0.4,"marketTickSize":0.1,"planTickSize":0.1}}'::jsonb
+       where id='a0260909-1100-0000-0000-000000000001';
+      raise exception 'missing-unit historical evidence was rewritten to v2';
+    exception when check_violation then
+      if position('signal_execution_units_immutable' in sqlerrm)=0 then raise; end if;
+    end;
+
+    begin
+      update public.signals
+         set payload = payload - 'executionUnits'
+       where id='a0260909-1100-0000-0000-000000000002';
+      raise exception 'v1 historical units were removed';
+    exception when check_violation then
+      if position('signal_execution_units_immutable' in sqlerrm)=0 then raise; end if;
     end;
   end; $$;`);
   const version = await db.query("select version()");

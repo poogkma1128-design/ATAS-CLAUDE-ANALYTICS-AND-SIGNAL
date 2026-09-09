@@ -91,7 +91,9 @@ or grant owner approval. Tests prove the admission handler and decision logic, n
 3. Owner authorizes controlled raw-data recovery/observation and checks fresh v2 Entry/SL/TP, tick/cash/R
    parity plus the missing raw-data window. Older evidence is not rewritten or silently reclassified.
    Existing closed bars remain replay-idempotent; maintenance time is recorded, not hidden as signal-free
-   market evidence. Newly discovered instruments remain unable to signal until explicitly curated/locked.
+   market evidence. Verify that legacy/missing/v1 `executionUnits` remain exactly unchanged while a non-unit
+   annotation and Telegram delivery bookkeeping can still be written. Newly discovered instruments remain
+   unable to signal until explicitly curated/locked.
 4. Keep `outcome-notify` in maintenance until its old pending notification backlog has been reviewed and its
    restore is owner-approved; normal ingest also flushes outcomes, so inspect that backlog **before step 3**.
    This patch does not authorize deletion, rescore, or bulk re-announcement of old outcomes. Unknown backlog

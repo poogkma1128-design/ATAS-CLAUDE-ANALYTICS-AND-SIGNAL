@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **re-review `26fffd2` = REQUEST CHANGES 2 ข้อ → เตรียม maintenance admission/drain gate และปิด combined instrument/units UPDATE แล้ว รอ independent re-review ที่ pushed commit ใหม่ของ PR #114**; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | เจ้าของให้ reviewer Codex เซสชันนี้เปลี่ยนเป็น executor เพื่อแก้แล้ว จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ใหม่ต้อง rerun SQL/concurrency และตรวจ runbook drain; เจ้าของอนุมัติ production/ATAS GUI | §0AK.6 · `docs/runbooks/tick-unit-cutover.md` |
+| 6 | **re-review `436c5c0` = REQUEST CHANGES 1 ข้อเรื่อง legacy unit provenance → Executor แก้ให้ freeze missing/v1/v2 units พร้อมคง annotation path แล้ว รอ independent re-review ที่ pushed head ใหม่ของ PR #114**; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Reviewer รอบนี้พบ defect แล้วเจ้าของสั่งให้เปลี่ยนเป็น executor จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ใหม่ต้อง rerun focused/native SQL, concurrency และตรวจ runbook drain; เจ้าของอนุมัติ production/ATAS GUI | §0AK.6.2 · `docs/runbooks/tick-unit-cutover.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -274,6 +274,48 @@ rerun tests/SQL รวมสอง reproduction ข้างต้น. Full stag
 actual drain, ATAS GUI/live feed และ owner production GO ยัง **UNVERIFIED/pending**. ห้ามใช้ผล executor
 หรือ offline evidence JSON เป็น independent sign-off/production proof. `SIGNAL PARAMETER.MD` และ runbook
 ถูกปรับแล้ว; ไม่มีการ merge/deploy/apply migration/install DLL หรือเปลี่ยน production settings รอบนี้.
+
+#### 0AK.6.2 Re-review of `436c5c0` and legacy-provenance correction (2026-09-09)
+
+Independent Reviewer เซสชันใหม่ fetch และยืนยัน PR #114 head
+`436c5c0ff925e32c7721cd9fcc8f1efe3a8d9e41`, base/merge-base `main@5ca9665`, working tree สะอาด แล้ว
+rerun source tests กับ disposable native PostgreSQL เอง. P1 maintenance admission/drain ผ่านระดับ
+source/runbook แต่พบ P2 เพิ่มเติม: trigger เดิมบังคับ v2 ก่อนทุก payload UPDATE ทำให้ legacy annotation
+ได้ `23514`; ขณะเดียวกัน immutability ตรวจเฉพาะ old v2 จึงยอมให้ missing-unit historical row ถูกเพิ่ม
+`executionUnits.market-tick-v2` ภายหลัง ซึ่งเป็นการ rewrite/reclassify provenance.
+
+เจ้าของตอบ “ใช่ ทำเลย” ให้ reviewer รอบนี้เปลี่ยนบทบาทเป็น **Executor/Recorder** เพื่อแก้ให้จบใน branch;
+จึงไม่มี self-APPROVE และต้องส่ง pushed head ใหม่ให้ Independent Reviewer อีกเซสชันตาม protocol.
+
+Correction:
+
+- UPDATE ของ historical signal ทุกแบบ freeze `instrument_id` และ exact JSON `executionUnits` subtree
+  ตามค่าที่บันทึกเดิม รวม missing, v1 และ v2; INSERT ใหม่เท่านั้นที่ต้องผ่าน strict numeric v2 + locked tick
+  และต้องมี positive numeric `chartTickSize` พร้อม `marketTickSize`/`planTickSize` ครบทั้งสามค่า.
+- Payload key อื่นยังเพิ่ม annotation ได้ และ Telegram delivery columns ยังเขียนได้ โดยไม่เปลี่ยน unit
+  provenance. ไม่มีการ rewrite/delete/rescore historical signal/outcome ใน production.
+- Focused migration replay เพิ่ม pre-migration missing-unit และ v1 fixtures แล้วพิสูจน์ว่า annotations ผ่าน,
+  missing→v2 และ v1 removal ถูกปฏิเสธด้วย `23514 signal_execution_units_immutable`.
+- `SIGNAL PARAMETER.MD` และ cutover runbook ปรับ contract/operator verification ให้ตรงกับ trigger แล้ว;
+  ไม่มีเอกสารชนิดอื่นที่จำเป็น เพราะ scope เป็น unit guard และขั้น cutoverเดิมเท่านั้น.
+
+Executor re-verification after correction:
+
+- Deno 2.9.6: `deno task test` **255 passed / 0 failed**; `task check`, `task rev:check` และ explicit
+  maintenance/checker/script `deno check` ผ่าน. Focused PGlite scorer/setup_stats ยัง **2R** และ cutover
+  reproduction ยังพิสูจน์ว่า mute ไม่หยุด cached old sender.
+- Disposable native PostgreSQL **18.4**: focused SQL ผ่าน; missing/v1 annotations และ v2 annotation/
+  delivery bookkeeping ผ่าน; missing→v2, v1 unit removal, same-tick instrument switch และ combined
+  instrument+units switch ถูกปฏิเสธ `23514` ทั้งหมด. v2 ที่ขาด chart unit, ใช้ string หรือ chart unit
+  ไม่เป็นบวกถูกปฏิเสธ `23514` เช่นกัน.
+- Concurrency 6/6 observed blocking: signal-first ทุก isolation = `23514`; metadata-first READ COMMITTED
+  = `23514`, REPEATABLE READ/SERIALIZABLE = `40001`; deadlocks (`40P01`) = **0**. ไม่ใช้ Production URL.
+- C# probe/lifecycle **33 assertions passed**; indicator build `--no-incremental` ผ่าน 0 warning/error.
+  ไม่ได้ copy/install DLL เข้า ATAS.
+
+ยังห้าม merge/deploy/apply/install จน Independent Reviewer ใหม่ตรวจ pushed head และเจ้าของให้ written
+Production GO. Full migration-chain/RLS, remote maintenance routes/admission/drain/pending-send evidence,
+raw-gap recovery และ ATAS GUI/live feed/epoch ยังคง **UNVERIFIED**; offline tests/JSON ไม่แทน remote proof.
 
 ---
 
