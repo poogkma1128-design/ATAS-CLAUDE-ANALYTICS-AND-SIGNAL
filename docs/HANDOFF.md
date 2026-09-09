@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **MBO timestamp-basis correction REV 1.6.6 / `MBO_PROBE_V3` is source-tested but not reviewed or imported; REV 1.6.5 remains installed.** | **Independent Reviewer** | Executor cannot approve its source/artifact or time-basis evidence; Phase A remains incomplete | §0AK.6.8–9 · `docs/reviews/2026-09-09-mbo-property-independent-signoff.md` |
+| 6 | **MBO timestamp-basis correction REV 1.6.6 / `MBO_PROBE_V3` is independently approved; executor must import and verify live log, then an Independent Reviewer must reparse the raw packet.** | **Codex → Independent Reviewer** | Executor cannot approve runtime source-time evidence; Phase A remains incomplete | §0AK.6.8–9 · `docs/reviews/2026-09-09-mbo-timestamp-basis-independent-signoff.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -470,7 +470,7 @@ raw reparse is still required before calling the evidence packet independently a
 Phase A assertion. Attempts to start the fresh independent reviewer were unavailable because the reviewer
 service/model hit an account usage limit; that is a review-availability limitation, not a passing verdict.
 
-#### 0AK.6.9 Timestamp-basis correction candidate — **LOCAL SOURCE ONLY / NOT REVIEWED OR IMPORTED** (2026-09-09)
+#### 0AK.6.9 Timestamp-basis correction — **INDEPENDENTLY REVIEWED / NOT YET IMPORTED** (2026-09-09)
 
 The post-restart GC MBO log exposes the concrete defect: both `MarketByOrder.Time` and trade `Time` are
 `DateTimeKind.Unspecified`, while REV 1.6.5 code silently labelled such numeric values UTC. On the latest
@@ -486,13 +486,18 @@ both causes as `invalid:unresolved_event_time_basis_and_future_events`. This is 
 fix only: no subscription/lifecycle behavior, sender, Supabase payload, rule, Telegram, database, or order
 path changed.
 
-Executor local checks before independent review: indicator build **0 warning / 0 error**; actual-SDK
-`ProbeTests` **52 assertions passed**; actual compiled-indicator `PropertyTests` **12 assertions passed**;
-`git diff --check` passed. These checks do not establish event-time provenance, valid latency, or Phase A.
-The exact candidate must be independently rebuilt/reviewed before the owner-authorized local DLL import.
-After import, manual ATAS login is required and the expected live result is `MBO_PROBE_V3` with unresolved
-time counters—not a claimed valid p95. A separate controlled/primary-source connector provenance test still
-owns the decision to interpret the source event timestamp.
+Independent Reviewer `/root/timestamp_commit_review` rebuilt exact `f7128ab` in detached worktree
+`E:/atas/mbo-time-independent-f7128ab`: build **0 warning / 0 error**; actual-SDK `ProbeTests` **52
+assertions passed**; compiled-indicator `PropertyTests` **12 assertions passed**; diff checks passed and
+the worktree was clean. Approved candidate:
+`E:/atas/mbo-time-independent-f7128ab/atas-indicator/AtasSignalBridge/bin/Release/AtasSignalBridge.dll`,
+SHA256 `77E1B909CAAD102EB1C3D2FFC8AC0040BE25F89897431482D5FF993B1D38C36C`, stamped `REV 1.6.6 | commit
+f7128ab`. See `docs/reviews/2026-09-09-mbo-timestamp-basis-independent-signoff.md`.
+
+After the owner-authorized import, manual ATAS login is required and the expected live result is
+`MBO_PROBE_V3` with unresolved time counters—not a claimed valid p95. A fresh Independent Reviewer must
+reparse the raw packet before any source-time claim. A separate controlled/primary-source connector
+provenance test still owns the decision to interpret the source event timestamp.
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
 เอกสารเต็ม: **`docs/reviews/2026-09-08-open-work-1-6-claude-independent-review.md`**
