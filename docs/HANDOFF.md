@@ -105,6 +105,9 @@ threshold, evidence gate, Telegram enablement, Supabase schema, Edge Function de
 
 ### 0AK.2 สิ่งที่เปลี่ยนบน `codex/gc-l2-live-readiness`
 
+Implementation commit **`f34d0d9`** ถูก push ไป `origin/codex/gc-l2-live-readiness` แล้ว; commit นี้ยัง
+ไม่ merge และไม่ deploy.
+
 - `_shared/ingest.ts` อ่าน `instruments.tick_size/tick_value` พร้อม instrument id. `payload.tickSize` ยังใช้
   กับ footprint adjacency; `buildPlan()` ใช้ curated market tick.
 - signal ใหม่เก็บ `payload.executionUnits` เวอร์ชัน `market-tick-v1` พร้อม `chartTickSize`,
@@ -127,7 +130,7 @@ threshold, evidence gate, Telegram enablement, Supabase schema, Edge Function de
 | touched `deno fmt --check` | PASS |
 | `deno task rev:check` | indicator `1.5.0` · web `1.3.2` PASS |
 | touched lint | มี 4 `no-import-prefix` ที่มีอยู่เดิมใน import บรรทัดแรก; patch ไม่ได้เพิ่ม import แบบนั้น |
-| indicator REV `1.6.0` build | PASS · 0 warning · 0 error กับ ATAS SDK `8.0.14.398` |
+| indicator REV `1.6.0` build | PASS · 0 warning · 0 error กับ ATAS SDK `8.0.14.398`; DLL stamp `f34d0d9` |
 
 ใช้ Deno `2.9.6` ผ่าน temporary pnpm cache บนไดรฟ์ E เพราะเครื่องไม่มี `deno` ใน PATH และไดรฟ์ C
 มีพื้นที่ต่ำ. ไม่มี runtime artifact นี้ถูก commit.

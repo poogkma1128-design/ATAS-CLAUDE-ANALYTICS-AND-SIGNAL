@@ -95,7 +95,7 @@ outcomes from this path are not a valid estimate of the corrected contract.
 
 #### Local implementation completed — not deployed
 
-Branch `codex/gc-l2-live-readiness` now separates the units:
+Branch `codex/gc-l2-live-readiness`, implementation commit `f34d0d9`, now separates the units:
 
 ```text
 chartTickSize      = payload.tickSize       # footprint adjacency only
@@ -708,7 +708,8 @@ detector_version, book_epoch, evidence_status
 **Acceptance:** confirmed current book rebuild; no callback exceptions; bounded memory; data-status transitions
 work; feature age is measurable; restarting ATAS creates a new epoch rather than duplicating orders.
 
-**Local implementation status (2026-09-09):** implemented and compiled as indicator REV `1.6.0`, but not
+**Local implementation status (2026-09-09):** implemented at commit `f34d0d9` and compiled as indicator
+REV `1.6.0`, but not
 installed or run inside ATAS. `Enable MBO probe` defaults to `false`; when enabled it subscribes to the raw
 MBO callback and prints one bounded JSON summary every 60 seconds plus a final dispose summary. It records:
 
