@@ -42,6 +42,14 @@ declare
   tick_locked boolean;
   units jsonb;
 begin
+  -- Instrument identity belongs to the original evidence. Comparing only NEW
+  -- units with NEW metadata lets an UPDATE move a 0.1-tick signal to another
+  -- instrument and change both units to 0.2, silently turning its 2R into 1R.
+  -- Even another instrument with the same tick is not the original market/bar.
+  if tg_op = 'UPDATE' and new.instrument_id is distinct from old.instrument_id then
+    raise exception 'signal_instrument_immutable: signal %; preserve historical provenance', old.id
+      using errcode = '23514';
+  end if;
   -- Serialize every signal with metadata changes. SELECT FOR SHARE avoids a
   -- lock upgrade and makes both lock orders deterministic at every isolation
   -- level. The durable latch must already have been set by curation/backfill;
@@ -66,6 +74,12 @@ begin
   if (units ->> 'marketTickSize')::numeric is distinct from instrument_tick
      or (units ->> 'planTickSize')::numeric is distinct from instrument_tick then
     raise exception 'signal_tick_unit_mismatch: instrument %', new.instrument_id
+      using errcode = '23514';
+  end if;
+  if tg_op = 'UPDATE'
+     and old.payload #>> '{executionUnits,version}' = 'market-tick-v2'
+     and units is distinct from old.payload -> 'executionUnits' then
+    raise exception 'signal_execution_units_immutable: signal %; preserve historical provenance', old.id
       using errcode = '23514';
   end if;
   return new;

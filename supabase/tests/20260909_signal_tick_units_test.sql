@@ -113,6 +113,52 @@ select pg_temp.expect_tick_error($s$
   where id='a0260909-0000-0000-0000-000000000002'
 $s$, 'signal_tick_units_required');
 
+-- Another locked instrument is not permission to relabel existing evidence,
+-- whether its denominator is the same or is changed together with the payload.
+insert into public.instruments (id, symbol, exchange, tick_size)
+values
+  ('a0260909-0000-0000-0000-000000000004', 'SAME_TICK_OTHER_MARKET', 'TEST', 0.1),
+  ('a0260909-0000-0000-0000-000000000005', 'OTHER_TICK_OTHER_MARKET', 'TEST', 0.2);
+update public.instruments set signal_tick_locked=true
+where id in ('a0260909-0000-0000-0000-000000000004', 'a0260909-0000-0000-0000-000000000005');
+
+select pg_temp.expect_tick_error($s$
+  update public.signals set instrument_id='a0260909-0000-0000-0000-000000000004'
+  where id='a0260909-0000-0000-0000-000000000002'
+$s$, 'signal_instrument_immutable');
+
+select pg_temp.expect_tick_error($s$
+  update public.signals set instrument_id='a0260909-0000-0000-0000-000000000005',
+    payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.2,"planTickSize":0.2}}'
+  where id='a0260909-0000-0000-0000-000000000002'
+$s$, 'signal_instrument_immutable');
+
+select pg_temp.expect_tick_error($s$
+  update public.signals set payload='{"executionUnits":{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.1,"chartTickSize":0.4}}'
+  where id='a0260909-0000-0000-0000-000000000002'
+$s$, 'signal_execution_units_immutable');
+
+-- Ordinary annotations/delivery bookkeeping and no-op assignments must work.
+update public.signals set payload=payload || '{"reviewNote":"non-unit annotation"}'::jsonb,
+  instrument_id=instrument_id
+where id='a0260909-0000-0000-0000-000000000002';
+update public.signals set telegram_message_id=909
+where id='a0260909-0000-0000-0000-000000000002';
+
+-- The rejected changes leave the original instrument and 2R contract intact.
+do $$ begin
+  if not exists (
+    select 1 from public.signals s join public.bars b on b.id=s.bar_id
+    where s.id='a0260909-0000-0000-0000-000000000002'
+      and s.instrument_id=b.instrument_id
+      and s.instrument_id='a0260909-0000-0000-0000-000000000001'
+      and s.payload -> 'executionUnits' =
+        '{"version":"market-tick-v2","marketTickSize":0.1,"planTickSize":0.1}'::jsonb
+      and s.payload ->> 'reviewNote' = 'non-unit annotation'
+      and s.telegram_message_id=909
+  ) then raise exception 'historical provenance or permitted update regressed'; end if;
+end; $$;
+
 -- No-op tick assignment and cash-value correction remain possible.
 update public.instruments set tick_size=0.1, tick_value=10
 where id='a0260909-0000-0000-0000-000000000001';

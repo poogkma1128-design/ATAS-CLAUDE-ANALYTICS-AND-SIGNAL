@@ -131,6 +131,9 @@ tickValue          = instruments.tick_value
   are later deleted. A legitimate pre-signal correction uses the reviewed metadata-override transaction to
   set the verified tick and latch together; lock activation without that explicit transaction is rejected,
   and a chart-derived first signal cannot certify its own tick.
+  Historical signal `instrument_id` is immutable even when the other instrument has the same tick or the
+  UPDATE replaces both unit values together. Existing v2 `executionUnits` are immutable; non-unit payload
+  annotations and Telegram delivery bookkeeping remain writable.
 - the unsafe GC `tick_size=0.40` rollback comment is removed; `.40` is not a valid GC exchange tick.
   Correcting historical metadata now requires a separately reviewed rescore/migration, not a flag bypass.
 
@@ -795,6 +798,7 @@ deno task test
 deno task check
 deno task rev:check
 deno run --allow-read --allow-env scripts/test-signal-tick-guard.ts
+deno run --allow-read --allow-env --allow-run=git scripts/test-tick-cutover.ts
 dotnet run --project atas-indicator/AtasSignalBridge.ProbeTests/AtasSignalBridge.ProbeTests.csproj
 dotnet build atas-indicator/AtasSignalBridge/AtasSignalBridge.csproj
 ```
@@ -805,16 +809,18 @@ concurrency validation. Run `supabase/tests/20260909_signal_tick_units_test.sql`
 staging clone too, and test concurrent signal insert versus tick update in both lock orders. Never use the
 production URL for the test. The probe tests use actual SDK types but do not simulate ATAS GUI or live feed.
 
-Before production: independent re-review → owner written GO to exact commit → mute affected Telegram keys
-for the cutover → apply the reviewed tick guard. The guard intentionally rejects every legacy/missing-unit
-signal while the old ingest is still running; raw bar/footprint writes remain idempotent and are not deleted.
-Deploy the reviewed ingest immediately, verify fresh v2 plans/cash/outcome parity, then let the owner decide
-whether to re-enable Telegram. Any new instrument remains observation-only until its market tick is reviewed
-and explicitly locked. DLL installation and Phase A collection are a separate owner step. Do not promise
-daily income or promote these engineering tests as edge.
-On a problem, mute affected Telegram rules and preserve evidence. Do not roll metadata back to chart rows or
-drop tick guards; use only a reviewed unit-compatible application artifact. A pre-fix ingest rollback is
-not a safe trading path and any signals it creates require separate quarantine/review.
+Before production: independent re-review → owner written GO to exact commit → execute
+[`docs/runbooks/tick-unit-cutover.md`](docs/runbooks/tick-unit-cutover.md). It requires paused callers and
+raw-data recovery preparation, a maintenance 503 bundle on the existing ingest/notifier routes, verification
+of closed admission, and proven termination/drain of old workers and pending sends **before** migration.
+Mute alone cannot stop a request that already cached enabled=true. Only after drain: apply the tick guard,
+deploy reviewed ingest, verify fresh v2 plans/cash/outcome parity, then owner decides resume/re-enable.
+The bridge has finite retries: explicitly recover/verify the maintenance raw-data gap; never silently
+acknowledge discarded bars. Unknown instruments still require reviewed curation/locking. DLL installation
+and Phase A collection are separate owner steps; engineering checks do not establish edge or daily income.
+Rollback also closes admission and drains senders; retain tick guards, metadata and historical evidence.
+Only a reviewed unit-compatible artifact may resume. The runbook's live deployment/drain is UNVERIFIED until
+executed with owner approval; local tests exercise its handler and decision logic, not remote termination.
 
 ### Phase B — collector and replay
 

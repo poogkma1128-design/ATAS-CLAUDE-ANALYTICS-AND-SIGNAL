@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **re-review `1625628` = REQUEST CHANGES 3 ข้อ → แก้ fail-closed cutover, unknown-instrument curation และ v2 provenance แล้ว รอ independent re-review ที่ commit ใหม่**; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | Codex เป็น executor ของ correction รอบนี้จึงอนุมัติตัวเองไม่ได้; reviewer ต้อง rerun negative SQL + PostgreSQL concurrency; เจ้าของอนุมัติและรัน ATAS GUI probe | §0AK.6 · `SIGNAL PARAMETER.MD` |
+| 6 | **re-review `26fffd2` = REQUEST CHANGES 2 ข้อ → เตรียม maintenance admission/drain gate และปิด combined instrument/units UPDATE แล้ว รอ independent re-review ที่ pushed commit ใหม่ของ PR #114**; **ห้าม deploy/apply/install** จนผ่าน review + owner GO | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของ** | เจ้าของให้ reviewer Codex เซสชันนี้เปลี่ยนเป็น executor เพื่อแก้แล้ว จึงอนุมัติ patch ตัวเองไม่ได้; reviewer ใหม่ต้อง rerun SQL/concurrency และตรวจ runbook drain; เจ้าของอนุมัติ production/ATAS GUI | §0AK.6 · `docs/runbooks/tick-unit-cutover.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -226,16 +226,54 @@ executor evidence ไม่ใช่ independent sign-off และยังไ�
 3. ตรวจสัญญา skip-on-mismatch, historical-unit quarantine และการล็อก tick ที่อาจบล็อก legitimate metadata
    correction; การแก้ historical tick ต้องเป็น rescore migration ที่ review ใหม่ ห้ามใช้ flag bypass.
 4. คืน APPROVE หรือ REQUEST CHANGES ต่อ exact commit; ผู้เขียน patch ห้ามให้ verdict เอง.
-5. หลัง APPROVE เท่านั้น: เจ้าของ written GO → mute Telegram keys ที่เกี่ยวข้อง → apply migration
-   `20260909120000` ซึ่งจะ reject legacy signal writes ระหว่าง cutover → deploy reviewed ingest ทันที →
-   ตรวจ signal ใหม่ v2/Telegram/DB unit parity → owner จึงตัดสิน re-enable. ไม่เกี่ยวกับ migrationเก่าที่
-   §00.2 ยังมี gate ค้าง.
+5. หลัง APPROVE เท่านั้น: เจ้าของ written GO → ทำ `docs/runbooks/tick-unit-cutover.md`: pause callers/
+   เตรียมกู้ raw data, ปิด admission ของ ingest/notifier ด้วย maintenance 503 และยืนยัน drain/termination
+   ของ old workers/pending sends → จึง apply `20260909120000` → deploy reviewed ingest → ตรวจ fresh v2/
+   Telegram/DB parity และ raw-data gap → owner จึงตัดสิน resume. Mute อย่างเดียวไม่ใช่ drain และไม่เกี่ยวกับ
+   migrationเก่าที่ §00.2 ยังมี gate ค้าง.
 6. Owner ติดตั้ง reviewed DLL แยกต่างหาก; ตรวจ enabled JSON ทันทีตาม runbook ก่อนรอ active/quiet sample.
    Actual feed epochs/rebuild ต้องมี evidence collector/replay ต่อไป ห้ามเรียก Phase A logs ว่า Gate 0 ผ่านครบ.
 
 **ไม่ได้ทำ:** ไม่ apply migration, ไม่ deploy ingest, ไม่ติดตั้ง DLL ใน ATAS, ไม่เปลี่ยน rules/Telegram,
 ไม่ลบหรือ rescore historical signals และไม่สร้างคำสั่งซื้อขาย. Test ผ่านไม่ใช่หลักฐานว่ามีกำไรหรือสัญญาณ
 เพียงพอต่อวัน. รายละเอียด runbook/AI contract แก้ใน `SIGNAL PARAMETER.MD` แล้ว; ไม่มีเอกสารชนิดอื่นที่จำเป็น.
+
+#### 0AK.6.1 Correction after independent re-review of `26fffd2` (2026-09-09)
+
+Independent re-review ของ `26fffd2cdceb3adee84eaa1dbaf67d96cd60036a` พบ 2 blocker:
+(P1) request เก่า cache Telegram enabled แล้วส่งหลัง mute/migration ได้ และ (P2) UPDATE instrument พร้อม
+units ทำให้ scorerจริงเปลี่ยน 2R เป็น 1R. เจ้าของสั่ง “ให้ Codex แก้เลย” จึงเปลี่ยนเซสชัน reviewer นี้เป็น
+**Executor/Recorder** อย่างเปิดเผย; ผลเดิมยังเป็น REQUEST CHANGES ไม่ใช่ self-APPROVE.
+
+Correction source:
+
+- SQL ปฏิเสธการเปลี่ยน instrument ของ historical signal แม้ tick เท่ากันหรือเปลี่ยน units พร้อมกัน;
+  v2 executionUnits immutable. Non-unit payload note, no-op identity และ Telegram message bookkeeping
+  ยังเขียนได้. ไม่ rewrite/delete/rescore historical evidence.
+- `ops/tick-unit-cutover` เป็น maintenance artifact สำหรับ **แทน existing ingest/outcome-notify routes**
+  ด้วย 503 ไม่มี DB/Telegram I/O; ยังไม่ได้ deploy. Runbook ใหม่ต้อง verify admission closure และ drain
+  workers/pending sends ก่อน migration. Runtime bound ต้องตรวจจริง; local checker ไม่รับรอง remote state.
+- `scripts/test-tick-cutover.ts` รัน pre-fix ingest source จริงกับ mock delayed DB response: mute ไม่หยุด
+  send แต่ admission/drain decision ไม่อนุญาตให้ข้าม cutover จนงานเก่าจบ. ไม่ส่ง Telegram จริง.
+- Runbook ระบุ outage/raw recovery ชัดเจน เพราะ bridge retry จำกัด 4 ครั้ง; rollback ต้อง gate+drain เช่นกัน.
+
+Executor verification (working-tree correction, before push): Deno **255 passed / 0 failed**, 4 entrypoints
+typecheck + new maintenance/checker/regression source check ผ่าน; REV 1.6.1 / web 1.3.2 ผ่าน. PGlite focused
+SQL + existing scorer/setup_stats ยัง **2R**. Fresh disposable native PostgreSQL **18.4**:
+**22/22 negative cases rejected**, ทั้ง same-tick instrument switch และ combined instrument+units ได้
+`23514`; permitted annotation/bookkeeping และ explicit pre-signal curation ผ่าน. Concurrency 6/6 observed
+blocking: signal-first ทุก isolation = `23514`; metadata-first READ COMMITTED = `23514`, REPEATABLE READ/
+SERIALIZABLE = `40001`; deadlocks=0. No production DB URL used; disposable server stopped after tests.
+New Deno files ผ่าน format และ lint ปกติ; existing no-import-prefix findings ไม่ได้แก้นอก scope.
+Rerun C# probe ได้ **33 assertions** และ indicator build `--no-incremental` ผ่าน **0 warning / 0 error**;
+source indicator ไม่ได้เปลี่ยนและไม่มีการ copy DLL เข้า ATAS.
+
+ส่งต่อ **Independent Reviewer เซสชันใหม่ที่ไม่ได้เขียน correction นี้**: fetch branch
+`claude/signal-handoff-docs-x26vdd`, ใช้ full remote SHA เป็น exact commit, ตรวจ full base-to-head diff และ
+rerun tests/SQL รวมสอง reproduction ข้างต้น. Full staging migration-chain/RLS, maintenance deployment/
+actual drain, ATAS GUI/live feed และ owner production GO ยัง **UNVERIFIED/pending**. ห้ามใช้ผล executor
+หรือ offline evidence JSON เป็น independent sign-off/production proof. `SIGNAL PARAMETER.MD` และ runbook
+ถูกปรับแล้ว; ไม่มีการ merge/deploy/apply migration/install DLL หรือเปลี่ยน production settings รอบนี้.
 
 ---
 
