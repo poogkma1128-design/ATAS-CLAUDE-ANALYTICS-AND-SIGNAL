@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **MBO timestamp-basis correction REV 1.6.6 / `MBO_PROBE_V3`: fresh candidate is independently approved and imported on the current host; ATAS is waiting at Authorization. Owner login, live capture, and a fresh independent raw-log reparse remain.** | **Owner login → Codex capture → fresh Independent Reviewer** | Login must remain manual; Executor cannot approve runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-timestamp-basis-installation-record.md` |
+| 6 | **MBO timestamp-basis REV 1.6.6 / `MBO_PROBE_V3`: pre-restart live GC capture proves fail-closed `Unspecified` handling; after 10:29 restart, five persisted 1.4.0 indicator instances were skipped, so the current process is not capturing V3.** | **Owner chooses recovery path → Codex performs only the authorized path → fresh Independent Reviewer reparses raw log** | Changing assembly compatibility or re-adding/reconfiguring an indicator changes ATAS workspace/runtime state; Executor cannot choose it or approve runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-v3-runtime-restart-blocker.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -470,7 +470,7 @@ raw reparse is still required before calling the evidence packet independently a
 Phase A assertion. Attempts to start the fresh independent reviewer were unavailable because the reviewer
 service/model hit an account usage limit; that is a review-availability limitation, not a passing verdict.
 
-#### 0AK.6.9 Timestamp-basis correction — **INDEPENDENTLY REVIEWED / IMPORTED / RUNTIME RELOAD PENDING** (2026-09-10)
+#### 0AK.6.9 Timestamp-basis correction — **INDEPENDENTLY REVIEWED / V3 LIVE PRE-RESTART / POST-RESTART WORKSPACE BLOCKED** (2026-09-10)
 
 The post-restart GC MBO log exposes the concrete defect: both `MarketByOrder.Time` and trade `Time` are
 `DateTimeKind.Unspecified`, while REV 1.6.5 code silently labelled such numeric values UTC. On the latest
@@ -541,6 +541,37 @@ only that hung process after the save response and relaunched ATAS Platform. The
 at the Authorization window. Per the standing rule, Codex did not inspect or automate credentials. Owner
 manual login is now the exact blocker before any V3 packet can exist. No server/database/Telegram/rule/order
 or production state was changed.
+
+**Live-capture and restart reconciliation (2026-09-10 09:56–10:30 +07:00):** the owner completed the
+manual login and the initially restarted process loaded REV `1.6.6` successfully. Its raw
+`C:/Users/Thanongsak/AppData/Roaming/ATAS/Logs/app_20260910.log` contains 34 `MBO_PROBE_V3` packets
+(lines 3117–3159), including `enabled` and `subscription_active` for GC. The 30 live interval packets
+record 25,502 MBO creates, 25,526 changes, 25,501 deletes, and 1,275 trades. This establishes live callback
+and event receipt for that *pre-restart* process only; it does not establish a complete book, a feed-time
+timezone basis, valid latency, or Phase A acceptance.
+
+All 30 live intervals sample `DateTimeKind.Unspecified` MBO and trade times with
+`timeBasis:"unresolved"`, null `interpretedUtc` and `signedLatencyMs`, and nonzero unresolved counters.
+Their MBO and trade statuses are all `invalid:unresolved_event_time_basis`, with both p95 fields
+`unavailable`. This is the expected fail-closed result: no numerical latency claim is permitted. A fresh
+Independent Reviewer must reparse this raw log rather than accept this executor summary.
+
+ATAS was restarted at 10:29. At 10:29:46 its serialization binder logged five failures to resolve persisted
+`SignalBridgeIndicator` instances because the workspace requests `AtasSignalBridge, Version=1.4.0.0` while
+the installed approved DLL is 1.6.6.0; ATAS skipped those instances. The current process (`OFT.Platform`,
+started 10:29:21) did reconnect Rithmic paper repository, market-data, trading, and PnL, but this is not
+evidence that V3 is loaded or capturing after the restart. Rechecking the installed destination gives
+SHA256 `D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064` and ProductVersion
+`1.6.6+f7128ab5b7a1ad2e79fd6e2b619e879918c711fa`, matching the independently approved current-host
+artifact. The former 1.4.0 DLL backup remains at `E:/ATAS/mbo-install-1.6.6-20260910-0825/`.
+
+**L2 runtime/workspace decision required from Owner:** choose exactly one recovery path before Codex changes
+anything: (A) commission a reviewed assembly-identity compatibility change for the persisted 1.4.0.0
+workspace reference, or (B) authorize Codex to re-add and configure the reviewed 1.6.6 indicator in the
+ATAS GUI with screenshots/log evidence and a preserved rollback path. Path A changes a binary compatibility
+contract; Path B changes saved workspace configuration. Neither is implied by the diagnostic DLL import, so
+no runtime change was made in this round. After the authorized recovery proves a fresh V3 packet in the
+current process, freeze the raw log and send it to a fresh Independent Reviewer for reparse.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
