@@ -69,3 +69,32 @@ candidate has SHA256 `D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6
 Because the build timestamp is embedded, this hash differs from the previously approved candidate. The
 new artifact therefore requires fresh independent artifact review before import. No destination DLL was
 replaced and no runtime, server, database, Telegram, rule, credential, or order state was changed.
+
+## Fresh independent artifact approval and current-host import
+
+A fresh Independent Reviewer that did not build the candidate returned **APPROVE** for exact SHA256
+`D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064`. The reviewer verified the
+exact source commit, version and embedded stamp, loaded a frozen copy in PropertyTests, reran 52 ProbeTests
+and 12 PropertyTests, built the exact commit in isolation with 0 warnings/errors, and matched 303/303
+method-body IL hashes between the candidate and isolated rebuild. The candidate remained byte-identical
+after review. Approval is limited to this exact binary and does not establish live-feed behavior, connector
+timestamp basis, valid latency, or Phase A acceptance.
+
+Executor preserved the old DLL and an approved-candidate copy at:
+
+```text
+E:/ATAS/mbo-install-1.6.6-20260910-0825/AtasSignalBridge-1.4.0-backup.dll
+SHA256: A27E49E3578F5A61F4578E4EF9B8B3D9BA94890F272AAB34738F9E865AAA6DD2
+
+E:/ATAS/mbo-install-1.6.6-20260910-0825/AtasSignalBridge-1.6.6-approved.dll
+SHA256: D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064
+```
+
+The approved candidate was copied to
+`C:/Users/Thanongsak/AppData/Roaming/ATAS/Indicators/AtasSignalBridge.dll`; destination SHA256 and
+ProductVersion `1.6.6+f7128ab5b7a1ad2e79fd6e2b619e879918c711fa` match. The running old instance
+detected the library change but did not reload it. ATAS accepted `Save current workspace?` with response
+`True` yet did not exit after repeated waits; Executor force-stopped only that hung process and relaunched
+ATAS Platform. The new process is responsive at `Authorization`. Owner login must remain manual, so no V3
+runtime packet exists yet and no credential was inspected or automated. No server, database, Telegram,
+rule, order, or production state was changed.

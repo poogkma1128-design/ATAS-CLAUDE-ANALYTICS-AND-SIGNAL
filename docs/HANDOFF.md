@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **MBO timestamp-basis correction REV 1.6.6 / `MBO_PROBE_V3`: source is independently approved, but the current host has REV 1.4.0 installed. A fresh exact-source candidate is built and awaits independent artifact review before import, live capture, and an independent raw-log reparse.** | **Independent Reviewer → Codex import/capture → fresh Independent Reviewer** | The previously approved binary is absent on this host; Executor cannot approve its own rebuild or runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-timestamp-basis-installation-record.md` |
+| 6 | **MBO timestamp-basis correction REV 1.6.6 / `MBO_PROBE_V3`: fresh candidate is independently approved and imported on the current host; ATAS is waiting at Authorization. Owner login, live capture, and a fresh independent raw-log reparse remain.** | **Owner login → Codex capture → fresh Independent Reviewer** | Login must remain manual; Executor cannot approve runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-timestamp-basis-installation-record.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -524,6 +524,23 @@ Executor rebuilt exact source commit `f7128ab` in detached worktree
 Per the independent signoff contract, this rebuild must receive fresh independent artifact review before
 Codex backs up/replaces the current DLL or starts the runtime capture. No import, reload, login automation,
 server/database/Telegram/rule/order change, or production mutation occurred in this reconciliation.
+
+**Artifact review/import update (2026-09-10 08:23–08:34 +07:00):** a fresh Independent Reviewer that did
+not build the candidate returned APPROVE for exact SHA256
+`D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064`. The reviewer independently
+froze and loaded the exact binary, reran 52 ProbeTests and 12 PropertyTests, obtained a clean isolated build,
+and matched 303/303 method-body IL hashes to an exact-commit rebuild. The approval remains artifact/source
+only and makes no live-feed, connector-time-basis, latency, or Phase A claim.
+
+Executor backed up the current REV 1.4.0 DLL under `E:/ATAS/mbo-install-1.6.6-20260910-0825`, copied only
+the approved candidate to `C:/Users/Thanongsak/AppData/Roaming/ATAS/Indicators/AtasSignalBridge.dll`, and
+verified the destination hash and ProductVersion. The already-running ATAS instance detected the changed
+library but remained on the old loaded assembly. A graceful close was requested; ATAS recorded
+`Save current workspace?` response `True` but did not exit after repeated waits, so Executor force-stopped
+only that hung process after the save response and relaunched ATAS Platform. The new process is responsive
+at the Authorization window. Per the standing rule, Codex did not inspect or automate credentials. Owner
+manual login is now the exact blocker before any V3 packet can exist. No server/database/Telegram/rule/order
+or production state was changed.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
