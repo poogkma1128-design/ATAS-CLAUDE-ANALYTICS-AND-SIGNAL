@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **MBO timestamp-basis REV 1.6.6 / `MBO_PROBE_V3`: path B re-add was attempted; five REV 1.6.6 instances logged, but five persisted 1.4.0 instances still skip, no post-restart V3 packet exists, and one instance reports a 15m chart mislabeled 5m.** | **Owner/Codex must identify the GC 5m chart and enable MBO probe there → fresh Independent Reviewer reparses raw log** | UI automation cannot currently read/control the ATAS window; do not guess an instance or edit `.ws` directly. Executor cannot approve runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-v3-runtime-restart-blocker.md` |
+| 6 | **MBO timestamp-basis REV 1.6.6 / `MBO_PROBE_V3`: current post-restart GC capture is independently accepted for subscription/live aggregated events and fail-closed unresolved timestamps.** | **Owner decides separately whether to clean up the five stale 1.4.0 workspace references; do not edit `.ws` directly or add binary compatibility from this evidence alone.** | Clears only the “no current-process V3 packet” blocker. It does **not** independently prove GC 5m spacing, contract expiry, book completeness, a usable event-time basis/latency, delivery, persistence after another restart, or production readiness | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-v3-runtime-restart-blocker.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -470,7 +470,7 @@ raw reparse is still required before calling the evidence packet independently a
 Phase A assertion. Attempts to start the fresh independent reviewer were unavailable because the reviewer
 service/model hit an account usage limit; that is a review-availability limitation, not a passing verdict.
 
-#### 0AK.6.9 Timestamp-basis correction — **INDEPENDENTLY REVIEWED / V3 LIVE PRE-RESTART / POST-RESTART WORKSPACE BLOCKED** (2026-09-10)
+#### 0AK.6.9 Timestamp-basis correction — **INDEPENDENTLY REVIEWED / V3 LIVE POST-RESTART (NARROW RUNTIME SCOPE)** (2026-09-10)
 
 The post-restart GC MBO log exposes the concrete defect: both `MarketByOrder.Time` and trade `Time` are
 `DateTimeKind.Unspecified`, while REV 1.6.5 code silently labelled such numeric values UTC. On the latest
@@ -588,6 +588,35 @@ to expose/control the ATAS GUI, or to provide an explicit, independently verifie
 do not edit `APEX.ws` by hand because it contains persisted indicator configuration and sensitive endpoint
 configuration. Once the correct GC 5m instance is enabled and emits a fresh V3 packet, freeze the raw log
 and send it to a fresh Independent Reviewer.
+
+**Current-process recovery capture + Independent reparse (2026-09-10 15:21–15:28 +07:00):** the owner
+manually configured the visible Signal Bridge instance with MBO probe enabled and a 60-second interval. The
+new session `0db2fa130831498b934f7aa587c10992` then wrote `MBO_PROBE_V3` for `GC` after the current ATAS
+process had started: `enabled` at 15:21:53.200, `subscription_active` at 15:21:53.203, and seven live
+interval packets from 15:22:00.027 through 15:28:00.093. The first window is a 6.821-second partial window;
+the following six are approximately 60 seconds. Across the seven intervals, the raw counters record 14,086
+callbacks; 4,850 creates, 4,576 changes, and 4,852 deletes (14,278 MBO updates); and 393 trades. This
+supersedes only the earlier assertion that no post-restart V3 packet existed.
+
+**Frozen review slice:** at 15:28:03 +07:00, the source log was
+`C:/Users/Thanongsak/AppData/Roaming/ATAS/Logs/app_20260910.log` (1,192,672 bytes; last-write
+15:28:00.093 +07:00). The slice is the exact text of raw MBO packet lines 7715, 7717, and 7719–7725 only,
+joined with LF and UTF-8 encoded without a trailing LF. It is 14,529 bytes and has SHA-256
+`6F76CB01DC1BC7B9189FB2FEB22BAF4C06A70230718B19F2D083CE4C320B253D`. The full live log was deliberately
+not copied into Git because it keeps appending and may contain unrelated sensitive configuration. Therefore
+this is a reproducible selected-line freeze, **not** a claim that a separate immutable full-log export exists.
+
+A fresh Independent Reviewer directly re-read that raw source, reproduced the slice SHA-256 exactly, and
+returned **APPROVE — scope limited**. Every interval reports MBO/trade raw time kind `Unspecified`,
+`timeBasis:"unresolved"`, null interpreted UTC and signed latency, status
+`invalid:unresolved_event_time_basis`, and unavailable MBO/trade p95. It additionally found zero
+`zeroOrderId`, clock-regression, and future-event counters in this slice. The approval proves only active
+post-restart V3 subscription plus aggregated GC MBO/trade event receipt and correct fail-closed latency
+handling. It does **not** prove actual 5-minute chart spacing (the packet has no timeframe/contract-expiry
+field), book completeness or snapshot-boundary correctness, valid source-time latency, artifact provenance,
+endpoint delivery/receiver acceptance, persistence across another restart, strategy correctness, or
+production readiness. The five stale persisted 1.4.0 workspace skips remain a separate owner decision;
+this evidence alone does not authorize compatibility work or workspace-file edits.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 

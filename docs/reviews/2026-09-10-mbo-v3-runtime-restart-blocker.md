@@ -79,3 +79,58 @@ The Windows UI helper failed with `SetIsBorderRequired` and the alternate CUA in
 ATAS app. Codex therefore performed no click, setting change, login, workspace-file edit, or runtime mutation
 in this attempt. The next operator must identify the correct GC 5m chart in the ATAS GUI, enable MBO probe,
 observe a fresh V3 packet, freeze the raw log, and send it to a fresh Independent Reviewer.
+
+## Current-process recovery capture and independent reparse (15:21–15:28 +07:00)
+
+The owner manually selected/configured the visible Signal Bridge instance with **Enable MBO probe** enabled
+and a 60-second probe interval. The raw log then shows a new current-process GC session
+`0db2fa130831498b934f7aa587c10992`:
+
+| Raw log line | Bangkok time | `MBO_PROBE_V3` reason |
+|---:|---|---|
+| 7715 | 15:21:53.200 | `enabled` |
+| 7717 | 15:21:53.203 | `subscription_active` |
+| 7719 | 15:22:00.027 | `interval` (initial 6.821-second partial) |
+| 7720–7725 | 15:23:00.053–15:28:00.093 | six approximately 60-second `interval` windows |
+
+The seven interval packets contain 14,086 callbacks; 4,850 MBO creates, 4,576 changes, and 4,852 deletes
+(14,278 MBO updates); and 393 trades. All use the same `GC` symbol and session ID. This establishes a
+current post-restart V3 subscription and receipt of live aggregated MBO/trade events. It does not make a
+book-completeness claim.
+
+### Selected-line raw-evidence freeze
+
+At `2026-09-10 15:28:03 +07:00`, the source
+`C:/Users/Thanongsak/AppData/Roaming/ATAS/Logs/app_20260910.log` was 1,192,672 bytes and last written at
+15:28:00.093 +07:00. The frozen review input is the exact raw text of lines 7715, 7717, and 7719–7725
+only—not a derived summary—joined with LF, UTF-8 encoded without a trailing LF:
+
+| Property | Value |
+|---|---|
+| Packet count | 9 |
+| Text byte count | 14,529 |
+| SHA-256 | `6F76CB01DC1BC7B9189FB2FEB22BAF4C06A70230718B19F2D083CE4C320B253D` |
+
+The source log continued to append, so this is a reproducible selected-line freeze rather than a standalone
+immutable exported log artifact. The complete log was intentionally not copied into Git, where it could
+capture unrelated configuration or personal data.
+
+### Fresh Independent Reviewer reparse — **APPROVE, scope limited**
+
+A reviewer that did not perform the runtime configuration directly reread the raw source lines above and
+reproduced the frozen-slice SHA-256 exactly. It found the continuous sequence `enabled` →
+`subscription_active` → seven live intervals. The six non-partial windows are approximately 60 seconds,
+consistent with the configured interval.
+
+For every live interval, both MBO and trade timestamp samples are `DateTimeKind.Unspecified` with
+`timeBasis:"unresolved"`; interpreted UTC and signed latency are null; both latency statuses are
+`invalid:unresolved_event_time_basis`; and both p95 fields are `unavailable`. In the selected slice,
+`zeroOrderId`, clock-regression, and future-event counters are all zero. The reviewer therefore approves
+only the requested runtime conditions: active subscription, live MBO/trade interval receipt, and refusal to
+report an untrustworthy numerical latency.
+
+This approval does **not** prove the chart is actually 5 minutes (raw packets contain no timeframe or
+contract-expiry field), book completeness/snapshot-boundary correctness, source-time provenance or latency,
+the installed artifact identity, endpoint delivery/receiver acceptance, persistence across another restart,
+strategy behavior, or production readiness. The five stale persisted 1.4.0 workspace references remain
+separate from this accepted capture; nothing here authorizes a compatibility change or manual `.ws` edit.
