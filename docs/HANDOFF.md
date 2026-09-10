@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **MBO timestamp-basis REV 1.6.6 / `MBO_PROBE_V3`: pre-restart live GC capture proves fail-closed `Unspecified` handling; after 10:29 restart, five persisted 1.4.0 indicator instances were skipped, so the current process is not capturing V3.** | **Owner chooses recovery path → Codex performs only the authorized path → fresh Independent Reviewer reparses raw log** | Changing assembly compatibility or re-adding/reconfiguring an indicator changes ATAS workspace/runtime state; Executor cannot choose it or approve runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-v3-runtime-restart-blocker.md` |
+| 6 | **MBO timestamp-basis REV 1.6.6 / `MBO_PROBE_V3`: path B re-add was attempted; five REV 1.6.6 instances logged, but five persisted 1.4.0 instances still skip, no post-restart V3 packet exists, and one instance reports a 15m chart mislabeled 5m.** | **Owner/Codex must identify the GC 5m chart and enable MBO probe there → fresh Independent Reviewer reparses raw log** | UI automation cannot currently read/control the ATAS window; do not guess an instance or edit `.ws` directly. Executor cannot approve runtime source-time evidence | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-v3-runtime-restart-blocker.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -572,6 +572,22 @@ ATAS GUI with screenshots/log evidence and a preserved rollback path. Path A cha
 contract; Path B changes saved workspace configuration. Neither is implied by the diagnostic DLL import, so
 no runtime change was made in this round. After the authorized recovery proves a fresh V3 packet in the
 current process, freeze the raw log and send it to a fresh Independent Reviewer for reparse.
+
+**Re-add attempt reconciliation (2026-09-10 11:54–13:05 +07:00):** the current `OFT.Platform` process started
+at 11:54:54 and Rithmic paper reconnected at 11:55:38. The log still records five persisted
+`AtasSignalBridge, Version=1.4.0.0` instances skipped at 11:55:12, then five `Signal Bridge REV 1.6.6`
+initializations at 11:56:11–11:56:23. No `MBO_PROBE_V3` packet exists after this process start, so the
+re-add attempt proves assembly initialization only—not MBO subscription or live capture. One new instance
+also logged `no two bars on this chart are 5m apart (closest is 15m)`; it must not be used as the GC 5m
+capture chart. The exact target chart/instance and its `Enable MBO probe` setting remain unverified.
+
+Both available UI automation paths failed to capture the ATAS window (`SetIsBorderRequired` interface error
+from the Windows helper; the CUA inventory exposed no native ATAS app). No UI click, setting change, login,
+workspace-file edit, or runtime mutation was performed by Codex in this attempt. Resume requires the owner
+to expose/control the ATAS GUI, or to provide an explicit, independently verified chart/instance mapping;
+do not edit `APEX.ws` by hand because it contains persisted indicator configuration and sensitive endpoint
+configuration. Once the correct GC 5m instance is enabled and emits a fresh V3 packet, freeze the raw log
+and send it to a fresh Independent Reviewer.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 

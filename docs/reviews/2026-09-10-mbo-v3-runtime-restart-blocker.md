@@ -61,3 +61,21 @@ Choose one path before any runtime/workspace mutation:
 The original diagnostic DLL import does not choose either path. Path 1 changes a binary compatibility
 contract; path 2 changes saved workspace configuration. Once the authorized recovery produces a fresh V3
 packet in the current process, freeze the raw log and give it to a fresh Independent Reviewer for reparse.
+
+## Re-add attempt reconciliation (11:54–13:05 +07:00)
+
+The current `OFT.Platform` process started at 11:54:54. Rithmic paper reconnected at 11:55:38. The same
+process still logged five persisted `AtasSignalBridge, Version=1.4.0.0` load failures at 11:55:12, then
+logged five `Signal Bridge REV 1.6.6` initializations at 11:56:11–11:56:23. No `MBO_PROBE_V3` packet appears
+after the current process start. This proves that REV 1.6.6 assemblies were initialized, but does not prove
+that MBO was enabled, that any instance is the GC 5m chart, or that a live subscription exists.
+
+One of the new instances logged `no two bars on this chart are 5m apart (closest is 15m)`, so that instance
+is not valid evidence for a GC 5m capture. The exact GC 5m instance and its `Enable MBO probe` setting remain
+unverified. Do not edit `APEX.ws` directly: it contains persisted indicator configuration and sensitive
+endpoint configuration.
+
+The Windows UI helper failed with `SetIsBorderRequired` and the alternate CUA inventory exposed no native
+ATAS app. Codex therefore performed no click, setting change, login, workspace-file edit, or runtime mutation
+in this attempt. The next operator must identify the correct GC 5m chart in the ATAS GUI, enable MBO probe,
+observe a fresh V3 packet, freeze the raw log, and send it to a fresh Independent Reviewer.
