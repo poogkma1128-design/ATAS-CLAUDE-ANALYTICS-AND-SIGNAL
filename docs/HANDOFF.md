@@ -45,7 +45,7 @@
 | 3 | **apply `20260908150000_keep_richer_cluster_level`** หลัง owner เลือก F4 และ Claude review ผ่าน | **เจ้าของ / Codex** | ยังไม่ apply · ห้าม apply migration ที่อยู่บน `main` จนกว่า F4 decision จะปิด | §0AJ.8 |
 | 4 | **deploy `ingest` รอบใหม่** หลัง Claude review ผ่าน | **เจ้าของ / Codex** | v24 ที่รันอยู่ยังไม่มี F3 · ไม่เร่ง เพราะ F3 เป็นเรื่องประสิทธิภาพ ไม่ใช่ความถูกต้อง | §0AJ.8 |
 | 5 | ~~ยืนยัน upsert path ครั้งแรกที่ setup เปิดจริง~~ **ยืนยันแล้ว 13:35:02 UTC — setup id 42 เขียนสำเร็จโดย `ingest v24`** | — | ปิดแล้ว | §0AJ.6 |
-| 6 | **GC risk-unit + MBO Phase A probe ทำใน branch แล้ว ยังไม่ deploy/install**; ตรวจ patch และรัน Gate 0 ก่อน Phase B–E; ห้ามเปลี่ยน live/Telegram | **Independent Reviewer เซสชันใหม่ แล้วเจ้าของรัน ATAS probe** | ผู้เขียนเป็น proposer + executor จึงอนุมัติ patch/ผลตัวเองไม่ได้; runtime/GUI evidence ต้องมาจากเครื่องเจ้าของ | §0AK · `SIGNAL PARAMETER.MD` |
+| 6 | **MBO timestamp-basis REV 1.6.6 / `MBO_PROBE_V3`: current post-restart GC capture is independently accepted for subscription/live aggregated events and fail-closed unresolved timestamps.** | **Owner decides separately whether to clean up the five stale 1.4.0 workspace references; do not edit `.ws` directly or add binary compatibility from this evidence alone.** | Clears only the “no current-process V3 packet” blocker. It does **not** independently prove GC 5m spacing, contract expiry, book completeness, a usable event-time basis/latency, delivery, persistence after another restart, or production readiness | §0AK.6.8–9 · `docs/reviews/2026-09-10-mbo-v3-runtime-restart-blocker.md` |
 
 ### 00.2 งานที่เจ้าของต้องทำเอง (AI ไม่มีสิทธิ์เข้าถึง)
 
@@ -53,7 +53,7 @@
 |---|---|---|
 | 1 | ตัดสินชะตา migration **0033/0034/0036/0037/0038** | ถูกกั้นด้วยเงื่อนไขเจ้าของ + independent review ตาม §0I/§0J/§0M |
 | 2 | Supabase Auth: **Site URL** + **Redirect URL** · email template · **revoke Telegram bot token เก่า** · ปิด "Allow new users to sign up" | §7.1 — ยังไม่ได้ยืนยันซ้ำตั้งแต่ 2026-09-02 ให้ถือเป็น checklist |
-| 3 | build **`SignalBridgeIndicator.cs` REV 1.5.0** | ต้องใช้ ATAS SDK บน Windows |
+
 
 ### 00.3 รอเวลา ไม่ใช่รอคน
 
@@ -142,9 +142,10 @@ step. สัญญาณเก่าห้ามรวมกับ `market-tick-
 Reviewer re-run tests, ตรวจ unit separation, Telegram cash formula, backward compatibility และยืนยันว่า
 ไม่มี production mutation. หลัง review ผ่าน เจ้าของต้องให้ written GO ต่อ exact commit ก่อน deploy.
 
-Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): deploy `ingest` artifact รุ่นก่อน patch; ถ้าพบข้อความผิดหน่วยให้
-ปิด Telegram ของ rule ที่ได้รับผลด้วย exact-key kill switch และคง raw signal ไว้เป็นหลักฐาน. รอบนี้
-**ยังไม่มีสิ่งใดให้ rollback ใน Production** เพราะไม่ได้ deploy.
+Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): ปิด Telegram ของ rule ที่ได้รับผลด้วย exact-key kill switch
+และคง raw signal ไว้เป็นหลักฐาน; ใช้เฉพาะ artifact ที่ผ่านการตรวจ unit contract แล้ว. ห้ามคืน tick เป็น
+chart step หรือถอด tick guard เป็น routine rollback. `ingest` รุ่นก่อนแก้หน่วยไม่ใช่ safe trading rollback;
+ถ้าใช้เพื่อ recovery ต้อง quarantine สัญญาณและไม่ส่งเทรด. รอบนี้ **ไม่ได้ deploy**.
 
 ### 0AK.5 งานถัดไป
 
@@ -154,7 +155,468 @@ Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): deploy `
 3. ส่ง raw log artifact ให้ Independent Reviewer ตัดสิน Gate 0; ถ้าผ่านจึงให้ GPT/Codex เริ่ม Phase B
    raw archive/replay. ยังห้ามเปิด MBO Telegram.
 
+### 0AK.6 Independent review: REQUEST CHANGES → corrections awaiting re-review (2026-09-09)
+
+§0AK.2–3 เป็นผลของ patch แรกที่ถูกทักท้วง; สถานะล่าสุดให้ใช้ข้อนี้และ §00.1 ข้อ 6.
+
+**Review provenance:** เจ้าของส่งผล Independent Review ในแชท: REQUEST CHANGES 5 ข้อด้านล่าง.
+ผู้ตรวจเดิมระบุชัดว่าไม่ได้รัน Deno/C#; นี่เป็น code-review findings ไม่ใช่ runtime verification.
+Codex ตรวจ implementation ซ้ำและแก้ในฐานะ **Executor/Recorder**; ไม่ได้เปลี่ยน verdict เป็น APPROVE.
+**Proposer:** Codex ของงาน GC เดิม. **Independent Reviewer:** เซสชันใหม่ที่ไม่ได้เขียน patch นี้.
+**Owner:** Thanongsak เป็นผู้ให้ written production GO เท่านั้น.
+
+Branch ที่เจ้าของระบุไม่อยู่ใน `git ls-remote --heads` ณ เริ่มแก้ จึงสร้าง
+`claude/signal-handoff-docs-x26vdd` จาก `e947e10` (งาน GC ล่าสุด, working tree สะอาด).
+รายละเอียด/คำสั่งทดสอบอยู่ใน `SIGNAL PARAMETER.MD` Phase A และ source tests บน branch นี้.
+
+**Shared artifacts:** correction commit `b8e607e`; **draft PR [#114](https://github.com/poogkma1128-design/ATAS-CLAUDE-ANALYTICS-AND-SIGNAL/pull/114)**.
+ตรวจ remote อีกครั้งพบ `main@5ca9665` รวม PR #112 และ #113 แล้ว จึง sync เข้า branch ด้วย merge
+`b67d7d4` โดยไม่แก้ correction ของงาน F3–F6 และ rerun 251 tests/typecheck/REV check ผ่านอีกครั้ง.
+การ merge ก่อนหน้านี้ไม่ได้ยกเลิก owner/review gates ของ §0AJ.8; ข้อ F4 ยังต้องใช้กระบวนการเดิม.
+DLL ที่ rebuild จาก committed source แสดง **1.6.1+b8e607e**; ยังไม่ได้ copy เข้า ATAS.
+
+| Finding | Correction | Evidence / limitation |
+|---|---|---|
+| Enable probe ถูกอ่านเฉพาะ initialize | `MboProbeLifecycle` sync ทั้ง initialize/recalculate; idempotent enable/disable/interval; immediate enabled JSON; late callback/task หลัง dispose ไม่เปิดใหม่ | actual SDK-type lifecycle tests; ATAS GUI ยังไม่รัน |
+| Telegram cash ใช้ rule ticks × instrument tick value | ใช้ `abs(stop-entry)/instrumentTickSize*tickValue`; invalid/null/non-finite ไม่แสดงเงิน/หน่วยที่เดา | long+short fixture 136 stored ticks แต่ระยะจริง 34 ticks แสดง $340 ไม่ใช่ $1360 |
+| DB R ใช้ denominator คนละตัว + rollback .40 | skip signal เมื่อ rule plan tick ไม่เท่า instrument; v2 payload; migration backfill durable lock ให้ historical referenced instruments; instrument ใหม่เก็บ raw data แต่ห้าม signal จน curate+lock; ทุก signal write ต้องเป็น numeric v2 และห้าม downgrade; เอา rollback .40 ออก | isolated PostgreSQL/WASM replay ใช้ scorerเดิม + setup_stats ได้ 2R; legacy/missing/downgraded units และ SQL UPDATE .40 ถูกปฏิเสธ |
+| counters/p95 สะสมตลอดอายุ | drain window counters/histograms พร้อมเวลาขอบเขต/sequence; keep last receive age ข้ามช่วงเงียบ | active→quiet counters=0, p95=unavailable, age เพิ่มตามจริง |
+| callback Snapshot ถูกนับเป็น epoch | `snapshotCallbacks` แยกจาก `sessionId`; `bookEpoch=null` ระบุ unavailable; อ่าน initial cache หลัง subscription active | 20 callback ไม่ถูกอ้างเป็น 20 epoch; **real feed epoch/rebuild ยัง UNVERIFIED** |
+
+ATAS docs ระบุ Snapshot เป็น cached data จึงไม่เอา timestamp ของ resting order เก่ามาปน live latency.
+Probe อ่าน `MarketByOrders` หลัง Task subscribe สำเร็จด้วย ไม่รอว่าต้องมี initial Snapshot callback.
+`initialSnapshotReads/Orders` เป็นหลักฐาน cache-read เท่านั้น ไม่ใช่ completeness. Re-enable ใช้ subscription
+เดิมและเริ่ม collector UUID ใหม่; SDK ที่ติดตั้งไม่มี unsubscribe API ที่ยืนยันได้.
+
+**Verification executed on Windows (not independent sign-off):**
+
+- Deno 2.9.6: **251 passed, 0 failed**; typecheck ผ่านทั้ง 4 entrypoints.
+- Indicator **REV 1.6.1**: build ผ่าน ATAS SDK 8.0.14.398, **0 warning / 0 error**.
+- `AtasSignalBridge.ProbeTests`: **33 assertions passed** ใช้ actual SDK types + production
+  probe/lifecycle classes (ไม่ใช่ live feed test).
+- SQL: `scripts/test-signal-tick-guard.ts` ผ่านบน **PostgreSQL 18.3 / PGlite 0.5.8** แบบ in-memory.
+  ใช้ core schema ที่ตัดเฉพาะ pgcrypto/publication สำหรับ test host, plan columns, outcome-create trigger,
+  scorer 0031 และ setup_stats 0008 จริง; ไม่ใช่การ replay ทุก migration ของ Supabase.
+- touched formatting + REV check ผ่าน. Lint ปกติยังมี **4 no-import-prefix เดิม**;
+  touched lint ผ่านเมื่อยกเว้น baseline rule นี้ (test runner ใหม่ใช้ pinned test-only import exemption).
+- Production **read-only** ตรวจซ้ำ: GC `tick_size=0.1`, `tick_value=10`; enabled explicit
+  `gc_sweep_v1.marketTickSize=0.1`. `instruments` ยังไม่มี user trigger; `signals` มีเพียง
+  `signals_create_outcome`. ดังนั้น tick guard ใหม่ **ยังไม่อยู่ Production**.
+
+**Deployment gate / exact next assignee:** ส่ง **Independent Reviewer เซสชันใหม่** ตรวจ branch นี้:
+
+Correction รอบหลัง re-review ที่ `1625628` ปิด 3 finding เพิ่มเติม: migration ไม่ยอมรับ legacy/missing
+units หลัง cutover อีกต่อไป, v2 payload ห้าม downgrade/removal, และ instrument ที่เพิ่ง seed จาก chart
+จะเก็บเฉพาะ raw bars/footprints โดยไม่ evaluate/persist signal จนเจ้าของ curate market tick และตั้ง
+`signal_tick_locked=true` ใน reviewed update เดียว. Existing historical rows ถูก backfill lock โดยไม่ rewrite
+signals/outcomes. Codex รอบนี้เป็น Executor/Recorder จึงยังคง verdict **REQUEST CHANGES** จน reviewer ใหม่
+rerun raw evidence ที่ exact commit ใหม่.
+
+Executor re-verification หลัง correction รอบนี้: Deno **251 passed / 0 failed**, typecheck 4 entrypoints,
+REV check, focused PGlite scorer/setup_stats replay และ C# ProbeTests **33 assertions** ผ่าน; indicator build
+ผ่าน ATAS SDK ด้วย 0 warning / 0 error. Disposable PostgreSQL 18.4 focused regression ผ่าน รวม negative
+legacy/missing/downgrade/unverified-instrument cases. Multi-session concurrency ผ่านทั้ง signal-first และ
+metadata-first ที่ READ COMMITTED / REPEATABLE READ / SERIALIZABLE: signal-first ได้ `23514` ทุก isolation;
+metadata-first ได้ `23514` ที่ READ COMMITTED และ `40001` ที่อีกสอง isolation; ไม่พบ deadlock. นี่เป็น
+executor evidence ไม่ใช่ independent sign-off และยังไม่ใช่ full Supabase migration-chain/RLS หรือ ATAS live.
+
+1. Rerun Deno, C# build/probe assertions และ focused SQL replay จาก source ไม่ใช่เชื่อแต่ตารางนี้.
+2. รัน SQL test บน disposable PostgreSQL staging clone และทดสอบ concurrent signal insert vs metadata
+   UPDATE ทั้งสอง lock order. งานนี้ยัง **UNVERIFIED** ใน PGlite ซึ่งมี session เดียว; ห้ามใช้ Production URL.
+3. ตรวจสัญญา skip-on-mismatch, historical-unit quarantine และการล็อก tick ที่อาจบล็อก legitimate metadata
+   correction; การแก้ historical tick ต้องเป็น rescore migration ที่ review ใหม่ ห้ามใช้ flag bypass.
+4. คืน APPROVE หรือ REQUEST CHANGES ต่อ exact commit; ผู้เขียน patch ห้ามให้ verdict เอง.
+5. หลัง APPROVE เท่านั้น: เจ้าของ written GO → ทำ `docs/runbooks/tick-unit-cutover.md`: pause callers/
+   เตรียมกู้ raw data, ปิด admission ของ ingest/notifier ด้วย maintenance 503 และยืนยัน drain/termination
+   ของ old workers/pending sends → จึง apply `20260909120000` → deploy reviewed ingest → ตรวจ fresh v2/
+   Telegram/DB parity และ raw-data gap → owner จึงตัดสิน resume. Mute อย่างเดียวไม่ใช่ drain และไม่เกี่ยวกับ
+   migrationเก่าที่ §00.2 ยังมี gate ค้าง.
+6. Owner ติดตั้ง reviewed DLL แยกต่างหาก; ตรวจ enabled JSON ทันทีตาม runbook ก่อนรอ active/quiet sample.
+   Actual feed epochs/rebuild ต้องมี evidence collector/replay ต่อไป ห้ามเรียก Phase A logs ว่า Gate 0 ผ่านครบ.
+
+**ไม่ได้ทำ:** ไม่ apply migration, ไม่ deploy ingest, ไม่ติดตั้ง DLL ใน ATAS, ไม่เปลี่ยน rules/Telegram,
+ไม่ลบหรือ rescore historical signals และไม่สร้างคำสั่งซื้อขาย. Test ผ่านไม่ใช่หลักฐานว่ามีกำไรหรือสัญญาณ
+เพียงพอต่อวัน. รายละเอียด runbook/AI contract แก้ใน `SIGNAL PARAMETER.MD` แล้ว; ไม่มีเอกสารชนิดอื่นที่จำเป็น.
+
+#### 0AK.6.1 Correction after independent re-review of `26fffd2` (2026-09-09)
+
+Independent re-review ของ `26fffd2cdceb3adee84eaa1dbaf67d96cd60036a` พบ 2 blocker:
+(P1) request เก่า cache Telegram enabled แล้วส่งหลัง mute/migration ได้ และ (P2) UPDATE instrument พร้อม
+units ทำให้ scorerจริงเปลี่ยน 2R เป็น 1R. เจ้าของสั่ง “ให้ Codex แก้เลย” จึงเปลี่ยนเซสชัน reviewer นี้เป็น
+**Executor/Recorder** อย่างเปิดเผย; ผลเดิมยังเป็น REQUEST CHANGES ไม่ใช่ self-APPROVE.
+
+Correction source:
+
+- SQL ปฏิเสธการเปลี่ยน instrument ของ historical signal แม้ tick เท่ากันหรือเปลี่ยน units พร้อมกัน;
+  v2 executionUnits immutable. Non-unit payload note, no-op identity และ Telegram message bookkeeping
+  ยังเขียนได้. ไม่ rewrite/delete/rescore historical evidence.
+- `ops/tick-unit-cutover` เป็น maintenance artifact สำหรับ **แทน existing ingest/outcome-notify routes**
+  ด้วย 503 ไม่มี DB/Telegram I/O; ยังไม่ได้ deploy. Runbook ใหม่ต้อง verify admission closure และ drain
+  workers/pending sends ก่อน migration. Runtime bound ต้องตรวจจริง; local checker ไม่รับรอง remote state.
+- `scripts/test-tick-cutover.ts` รัน pre-fix ingest source จริงกับ mock delayed DB response: mute ไม่หยุด
+  send แต่ admission/drain decision ไม่อนุญาตให้ข้าม cutover จนงานเก่าจบ. ไม่ส่ง Telegram จริง.
+- Runbook ระบุ outage/raw recovery ชัดเจน เพราะ bridge retry จำกัด 4 ครั้ง; rollback ต้อง gate+drain เช่นกัน.
+
+Executor verification (working-tree correction, before push): Deno **255 passed / 0 failed**, 4 entrypoints
+typecheck + new maintenance/checker/regression source check ผ่าน; REV 1.6.1 / web 1.3.2 ผ่าน. PGlite focused
+SQL + existing scorer/setup_stats ยัง **2R**. Fresh disposable native PostgreSQL **18.4**:
+**22/22 negative cases rejected**, ทั้ง same-tick instrument switch และ combined instrument+units ได้
+`23514`; permitted annotation/bookkeeping และ explicit pre-signal curation ผ่าน. Concurrency 6/6 observed
+blocking: signal-first ทุก isolation = `23514`; metadata-first READ COMMITTED = `23514`, REPEATABLE READ/
+SERIALIZABLE = `40001`; deadlocks=0. No production DB URL used; disposable server stopped after tests.
+New Deno files ผ่าน format และ lint ปกติ; existing no-import-prefix findings ไม่ได้แก้นอก scope.
+Rerun C# probe ได้ **33 assertions** และ indicator build `--no-incremental` ผ่าน **0 warning / 0 error**;
+source indicator ไม่ได้เปลี่ยนและไม่มีการ copy DLL เข้า ATAS.
+
+ส่งต่อ **Independent Reviewer เซสชันใหม่ที่ไม่ได้เขียน correction นี้**: fetch branch
+`claude/signal-handoff-docs-x26vdd`, ใช้ full remote SHA เป็น exact commit, ตรวจ full base-to-head diff และ
+rerun tests/SQL รวมสอง reproduction ข้างต้น. Full staging migration-chain/RLS, maintenance deployment/
+actual drain, ATAS GUI/live feed และ owner production GO ยัง **UNVERIFIED/pending**. ห้ามใช้ผล executor
+หรือ offline evidence JSON เป็น independent sign-off/production proof. `SIGNAL PARAMETER.MD` และ runbook
+ถูกปรับแล้ว; ไม่มีการ merge/deploy/apply migration/install DLL หรือเปลี่ยน production settings รอบนี้.
+
+#### 0AK.6.2 Re-review of `436c5c0` and legacy-provenance correction (2026-09-09)
+
+Independent Reviewer เซสชันใหม่ fetch และยืนยัน PR #114 head
+`436c5c0ff925e32c7721cd9fcc8f1efe3a8d9e41`, base/merge-base `main@5ca9665`, working tree สะอาด แล้ว
+rerun source tests กับ disposable native PostgreSQL เอง. P1 maintenance admission/drain ผ่านระดับ
+source/runbook แต่พบ P2 เพิ่มเติม: trigger เดิมบังคับ v2 ก่อนทุก payload UPDATE ทำให้ legacy annotation
+ได้ `23514`; ขณะเดียวกัน immutability ตรวจเฉพาะ old v2 จึงยอมให้ missing-unit historical row ถูกเพิ่ม
+`executionUnits.market-tick-v2` ภายหลัง ซึ่งเป็นการ rewrite/reclassify provenance.
+
+เจ้าของตอบ “ใช่ ทำเลย” ให้ reviewer รอบนี้เปลี่ยนบทบาทเป็น **Executor/Recorder** เพื่อแก้ให้จบใน branch;
+จึงไม่มี self-APPROVE และต้องส่ง pushed head ใหม่ให้ Independent Reviewer อีกเซสชันตาม protocol.
+
+Correction:
+
+- UPDATE ของ historical signal ทุกแบบ freeze `instrument_id` และ exact JSON `executionUnits` subtree
+  ตามค่าที่บันทึกเดิม รวม missing, v1 และ v2; INSERT ใหม่เท่านั้นที่ต้องผ่าน strict numeric v2 + locked tick
+  และต้องมี positive numeric `chartTickSize` พร้อม `marketTickSize`/`planTickSize` ครบทั้งสามค่า.
+- Payload key อื่นยังเพิ่ม annotation ได้ และ Telegram delivery columns ยังเขียนได้ โดยไม่เปลี่ยน unit
+  provenance. ไม่มีการ rewrite/delete/rescore historical signal/outcome ใน production.
+- Focused migration replay เพิ่ม pre-migration missing-unit และ v1 fixtures แล้วพิสูจน์ว่า annotations ผ่าน,
+  missing→v2 และ v1 removal ถูกปฏิเสธด้วย `23514 signal_execution_units_immutable`.
+- `SIGNAL PARAMETER.MD` และ cutover runbook ปรับ contract/operator verification ให้ตรงกับ trigger แล้ว;
+  ไม่มีเอกสารชนิดอื่นที่จำเป็น เพราะ scope เป็น unit guard และขั้น cutoverเดิมเท่านั้น.
+
+Executor re-verification after correction:
+
+- Deno 2.9.6: `deno task test` **255 passed / 0 failed**; `task check`, `task rev:check` และ explicit
+  maintenance/checker/script `deno check` ผ่าน. Focused PGlite scorer/setup_stats ยัง **2R** และ cutover
+  reproduction ยังพิสูจน์ว่า mute ไม่หยุด cached old sender.
+- Disposable native PostgreSQL **18.4**: focused SQL ผ่าน; missing/v1 annotations และ v2 annotation/
+  delivery bookkeeping ผ่าน; missing→v2, v1 unit removal, same-tick instrument switch และ combined
+  instrument+units switch ถูกปฏิเสธ `23514` ทั้งหมด. v2 ที่ขาด chart unit, ใช้ string หรือ chart unit
+  ไม่เป็นบวกถูกปฏิเสธ `23514` เช่นกัน.
+- Concurrency 6/6 observed blocking: signal-first ทุก isolation = `23514`; metadata-first READ COMMITTED
+  = `23514`, REPEATABLE READ/SERIALIZABLE = `40001`; deadlocks (`40P01`) = **0**. ไม่ใช้ Production URL.
+- C# probe/lifecycle **33 assertions passed**; indicator build `--no-incremental` ผ่าน 0 warning/error.
+  ไม่ได้ copy/install DLL เข้า ATAS.
+
+ยังห้าม merge/deploy/apply/install จน Independent Reviewer ใหม่ตรวจ pushed head และเจ้าของให้ written
+Production GO. Full migration-chain/RLS, remote maintenance routes/admission/drain/pending-send evidence,
+raw-gap recovery และ ATAS GUI/live feed/epoch ยังคง **UNVERIFIED**; offline tests/JSON ไม่แทน remote proof.
+
 ---
+
+#### 0AK.6.3 Fresh independent MBO readiness review (2026-09-09)
+
+Reviewed PR #114 exact source `138b30a14842370c36a5d3853ddc1f976c1bab31` after owner requested “ทำเลย อนมุติ”.
+Fresh reviewer did not author the patch. Deno 255 tests, typecheck, REV, C# 33 assertions, focused PGlite/native
+PostgreSQL 16.13 SQL, legacy provenance and six native concurrency cases passed. Full detail and limitations:
+`docs/reviews/2026-09-09-mbo-independent-readiness.md`.
+
+**HOLD installation/production, Phase A incomplete.** Default Windows build succeeds but stamp is `no-git`:
+Git called by MSBuild reports `invalid --pretty format: h`. This pre-existing build target issue needs an
+implementation session and separate verification. C has only ~2.56 GiB free; runbook requires >=10 GB.
+No ATAS process found; GUI/live probe not run. Owner approval to progress is recorded, not an evidence override.
+
+Next: implementation session repairs build stamping without trading changes; independent reviewer checks the
+artifact identity; owner performs disk/ATAS GUI/active+quiet probe; independent reviewer checks raw logs before
+Phase B–E. Production migration/deploy/drain and full staging/RLS remain UNVERIFIED. No install, production
+mutation or historical rewrite occurred. Review artifacts remain outside Git at
+`E:/atas/mbo-review-evidence-138b30a/`; DLL is held for review, not ready to install. No runtime rollback needed.
+The review report is the only extra document needed for this readiness check.
+
+#### 0AK.6.4 Owner-directed build-stamp correction (2026-09-09)
+
+Owner requested “ทำที่ยังค้าเลย Drive C เพิ่มแล้ว”. This explicitly reassigns the previous reviewer to
+Executor/Recorder for the build correction; the executor does not self-approve the correction.
+Proposer: original GC/MBO author. Independent Reviewer: a fresh session not involved in this correction.
+Owner: Thanongsak; existing production and live-evidence gates remain applicable.
+
+Minimum change: replace percent-format `git log` inside MSBuild with path-scoped
+`git rev-list -1 --abbrev=7 --abbrev-commit HEAD -- .`; bump indicator REV to 1.6.2. No C# runtime,
+MBO logic, ingest, rules, database or Telegram behavior changes. Default build now emits the actual
+indicator commit instead of `no-git`, without property overrides. Build 0 warnings/errors and existing
+33 probe/lifecycle assertions pass. Final committed DLL identity is recorded in the correction report.
+
+Fresh C free-space measurement: 19,279,126,528 bytes (~17.96 GiB), above the 10 GB runbook threshold.
+OFT.Platform is running. The inspected `Roaming/ATAS/Logs/app_20260909.log` is empty; this is not proof
+of no activity elsewhere, and no live Phase A evidence has been obtained. Native GUI control is unavailable.
+
+Next assignee: fresh Independent Reviewer verifies the correction and exact artifact; owner performs ATAS
+GUI install/About and active+quiet probe. A standalone review prompt is in the correction report.
+No DLL installed, no restart, no production mutation, no Phase B–E start. Rollback for this build-only change
+is to retain the currently installed DLL; do not substitute the earlier no-git build. SIGNAL PARAMETER.MD
+operator version and the correction report are the only additional docs affected.
+
+#### 0AK.6.5 Owner-authorized local installation, pending login (2026-09-09)
+
+Owner “ทำเลยอนุญาต” authorizes the proposed fresh review, local DLL import and diagnostic Phase A collection
+for REV 1.6.2 / indicator 5e23e16. Parent is Executor/Recorder; fresh mbo_stamp_review subagent is independent
+of the correction and reruns build/artifact/probe evidence. No self-approval. Exact source/hash/scope and
+rollback are in `docs/reviews/2026-09-09-mbo-installation-record.md`.
+
+Local backup of installed SignalBridge 1.3.0 and 1.5.0 completed with SHA256; original installation untouched.
+C has ~17.94 GiB free. Computer Use was found through node_repl + @oai/sky (earlier GUI-unavailable claim
+superseded). ATAS currently exposes Authorization; owner asked to log in manually. No import or live probe
+started yet; server deployment, migration, Telegram and trading are outside this local approval.
+
+#### 0AK.6.6 Reviewed 1.6.3 installed; Phase A clock/evidence gap (2026-09-09)
+
+Supersedes installation-pending statements in 0AK.6.5. Reviewed 1.6.2 installed via ATAS Import;
+UI Revision, destination hash and four runtime instances match 5e23e16. Owner manually logged in after
+saved-workspace restart. GC probe started and read 2,870 initial orders, but JSON braces trigger the SDK
+logger format exception. Executor corrected only the logging call and bumped REV to 1.6.3.
+Build and 33 assertions pass; actual SDK regression reproduces failure and exact corrected output.
+Fresh Independent Reviewer APPROVE of exact source/artifact is recorded in
+`docs/reviews/2026-09-09-mbo-logger-independent-signoff.md`. Reviewed DLL was imported at 20:59:49 Bangkok;
+destination hash, UI 1.6.3/fdce650 and clean live JSON match. Details and rollback:
+`docs/reviews/2026-09-09-mbo-logging-correction.md`; installed evidence in installation record.
+Future-event counts invalidate latency interpretation; active/quiet evidence and timestamp provenance
+remain pending. Independent post-install verification also passed the installed hash and strict parsing
+of the frozen packet (seven JSON rows, two nonzero intervals, zero format-error envelopes). It explicitly
+does not approve latency or Phase A. W32Time is stopped; NTP reference comparison puts local clock ~0.76s
+behind. No clock/service setting was changed. Next: clock synchronization and event-time provenance,
+exact contract/settings, both 15-minute windows, deliberate toggle/restart checks, then independent raw
+review. Probe remains enabled. No server deployment, migration, Telegram or trading action occurred.
+
+#### 0AK.6.7 Fresh Phase A review and invalid-latency correction (2026-09-09)
+
+Owner requested immediate independent review and completion. Fresh `mbo_phase_a_review` re-ran the raw
+packet and issued REQUEST CHANGES: future events clamped to zero yield false low p95. Root Executor
+corrected diagnostic validity and added bounded raw timestamp/kind samples in REV 1.6.4; no time conversion,
+market data, signal or server change. Independent rerun APPROVE of d92607d and exact DLL is recorded in
+`docs/reviews/2026-09-09-mbo-latency-independent-signoff.md`: 46 assertions/build/logger/artifact checks pass.
+Installed at 21:17:08 Bangkok; UI/hash match and real JSON shows invalid future timing with unavailable p95.
+Independent post-install raw rerun also PASS for this correction: four JSON rows, two future-affected
+intervals correctly unavailable; installed hash and signed deltas verified. The same report explicitly
+holds Phase A (391.16 seconds total intervals, one session/no disabled, current contract linkage and
+clock/semantics/regime/restart gaps). No empirical approval is implied by closing the P1 reporting bug.
+Reports: `docs/reviews/2026-09-09-mbo-phase-a-final-review.md` and
+`docs/reviews/2026-09-09-mbo-latency-correction.md`. Windows denied Start-Service W32Time; owner asked
+for administrator clock sync; reply pending. No service/clock state changed. UI off/on attempt did not
+produce the required disabled/new-session evidence; collection continues on the same session. Persistence
+of that checkbox change is unverified. Full Phase A remains HOLD; source
+correction, fresh installation, clock/event-time validation and empirical review remain distinct gates.
+
+#### 0AK.6.8 Owner clock sync completed; actual property lifecycle correction (2026-09-09)
+
+Owner ran administrator Start-Service/resync successfully; W32Time Running and last successful sync
+21:31:52 Bangkok were verified. Access blocker closed, but NTP comparison remains ~0.77s and timing
+precision is not accepted. Independent review found diagnostic auto-properties do not trigger lifecycle
+updates; existing GC checkbox was false while collection continued. Executor adds direct guarded setters
+in REV 1.6.5 without replaying unrelated history. Actual compiled-indicator property test reproduces
+failure on 1.6.4 and passes 12 assertions on correction. Exact reviewed artifact must precede import.
+Details, roles, source evidence and rollback: `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md`.
+Full Phase A still requires clock/event-time validation, actual lifecycle/restart and active/quiet evidence.
+
+**Update 22:02–22:06 Bangkok:** independent reviewer approved exact `d4d5449` and candidate
+`AtasSignalBridge.dll` SHA256 `5F9CEFE21E56431E2E79E939A443053207C6D21D5FAB8F5B22BCF07A0AC4087A` after a clean build,
+46 lifecycle assertions, 12 compiled-property assertions, and the expected 1.6.4 negative control.
+Executor backed up the installed 1.6.4 DLL at `E:/atas/mbo-install-1.6.5/backup/` and imported the
+approved 1.6.5 file. Destination hash matches. ATAS logged revision 1.6.5, disposed the old session,
+then logged a new enabled session with `initialSnapshotReads=1` and 2,329 orders.
+
+The existing indicator's actual setting was then set off and Apply produced `reason:"disabled"` for
+session `c3649470f6c04167a0df3096dcade51f`; no helper-only inference is used. Re-enabling it and Apply
+produced a distinct session `84f653feb41f4ace947d30581c1854d7` with `initialSnapshotReads=1` and
+3,022 orders. This closes the directly observed property-to-lifecycle off/on/cache path. It does not
+establish book completeness, event-time semantics, a valid latency percentile, or Phase A acceptance.
+
+At 22:06 ATAS exited after a WPF dispatcher exception (`Dispatcher processing has been suspended, but
+messages are still being processed`) while the property editor sequence was being exercised. No
+Signal Bridge exception is present in the inspected log; causality is **UNVERIFIED**. ATAS relaunches
+to Authorization. Owner authentication is the remaining required action before executor verifies the
+fresh process lifecycle and freezes a new packet. Do not automate that login. Interval-change verification
+was not completed because the process ended. Clock stripchart still measures approximately +0.77 to
++0.80 seconds against time.windows.com, so p95 remains unaccepted.
+
+**Owner scope decision (after restart evidence):** the owner accepts MBO timing as *non-authoritative*
+for diagnostic/signal observation only because this workflow does not place orders. This relaxes no
+measurement claim: records with `future_events`, `Unspecified` event time, or unavailable p95 must stay
+labelled invalid or unavailable. It does not authorize MBO as a rule gate, a latency-quality filter, a
+Telegram behavior change, a signal-engine change, or any order action. Full Phase A remains HOLD. The
+post-restart session `2da8e87aa32343229288ebf9c998dddf` did persist revision 1.6.5 and produced
+`enabled`, `subscription_active` (one initial snapshot, 177 orders), then live 60-second intervals with
+callbacks. Its intervals likewise retain `invalid:future_events`; they are usable only as diagnostic
+collection evidence. A final GUI interval-change check is pending a manual login because ATAS is again
+at Authorization.
+
+**Interval-setting completion (22:50–22:53 Bangkok):** after a manual login, executor changed the
+actual existing indicator setting from 60 to 15 seconds and Apply logged `reason:"interval_changed"` at
+22:50:09. The subsequent full interval was 15,001 ms with live callbacks. Executor then restored 60
+seconds and Apply logged the second `interval_changed` at 22:51:44. One residual 15-second timer tick
+occurred at 22:51:59; the next full interval was 60,003 ms at 22:52:59 with live callbacks. The ATAS
+process remained responsive. The persisted operator setting is **MBO enabled, 60 seconds**. This closes
+the local property/lifecycle acceptance path: compiled properties, actual off/on, new cache sessions,
+restart persistence, and timer replacement all have direct evidence.
+
+The owner accepts timing only as non-authoritative diagnostic/signal observation. Every interval in this
+test still records `invalid:future_events` and an unavailable p95; no latency-quality claim is accepted.
+No signal rule, Telegram behavior, server, database, order, or trade execution was changed. An independent
+raw reparse is still required before calling the evidence packet independently accepted or closing any
+Phase A assertion. Attempts to start the fresh independent reviewer were unavailable because the reviewer
+service/model hit an account usage limit; that is a review-availability limitation, not a passing verdict.
+
+#### 0AK.6.9 Timestamp-basis correction — **INDEPENDENTLY REVIEWED / V3 LIVE POST-RESTART (NARROW RUNTIME SCOPE)** (2026-09-10)
+
+The post-restart GC MBO log exposes the concrete defect: both `MarketByOrder.Time` and trade `Time` are
+`DateTimeKind.Unspecified`, while REV 1.6.5 code silently labelled such numeric values UTC. On the latest
+session the raw values happen to be near the local UTC wall-clock, but that observation cannot prove a
+connector timezone contract. The installed ATAS SDK declares `MarketByOrder.Time` only as `DateTime`; its
+documentation does not state an offset/timezone basis.
+
+Candidate source REV `1.6.6` changes the log-only probe to `MBO_PROBE_V3`: declared `Utc` and `Local`
+timestamps continue through the existing latency path; `Unspecified` timestamps retain raw time and kind,
+increment `unresolvedMboTimeEvents` / `unresolvedTradeTimeEvents`, publish null interpreted UTC and signed
+latency, and suppress that window's p95 with `invalid:unresolved_event_time_basis`. A mixed window preserves
+both causes as `invalid:unresolved_event_time_basis_and_future_events`. This is a diagnostic truthfulness
+fix only: no subscription/lifecycle behavior, sender, Supabase payload, rule, Telegram, database, or order
+path changed.
+
+Independent Reviewer `/root/timestamp_commit_review` rebuilt exact `f7128ab` in detached worktree
+`E:/atas/mbo-time-independent-f7128ab`: build **0 warning / 0 error**; actual-SDK `ProbeTests` **52
+assertions passed**; compiled-indicator `PropertyTests` **12 assertions passed**; diff checks passed and
+the worktree was clean. Approved candidate:
+`E:/atas/mbo-time-independent-f7128ab/atas-indicator/AtasSignalBridge/bin/Release/AtasSignalBridge.dll`,
+SHA256 `77E1B909CAAD102EB1C3D2FFC8AC0040BE25F89897431482D5FF993B1D38C36C`, stamped `REV 1.6.6 | commit
+f7128ab`. See `docs/reviews/2026-09-09-mbo-timestamp-basis-independent-signoff.md`.
+
+The exact reviewed DLL was copied at `2026-09-10 00:02:30 +07:00` to
+`C:/Users/Phattharakan/AppData/Roaming/ATAS/Indicators/AtasSignalBridge.dll`; destination SHA256 is
+`77E1B909CAAD102EB1C3D2FFC8AC0040BE25F89897431482D5FF993B1D38C36C`. The previous REV `1.6.5` DLL,
+SHA256 `5F9CEFE21E56431E2E79E939A443053207C6D21D5FAB8F5B22BCF07A0AC4087A`, is retained under
+`E:/atas/mbo-install-1.6.6-20260910-000230`. ATAS logged the library change and explicitly requested
+an indicator reload; packets after that notification still show running REV `1.6.5` / `MBO_PROBE_V2`.
+No V3 runtime packet has been claimed.
+
+After reload, manual ATAS login is required if the app restarts, and the expected live result is
+`MBO_PROBE_V3` with `timeBasis:"unresolved"`, null interpreted UTC and signed latency, nonzero unresolved
+time counters, and p95 `unavailable`—not a claimed valid p95. A fresh Independent Reviewer must reparse
+the raw packet before any source-time claim. A separate controlled/primary-source connector provenance test
+still owns the decision to interpret the source event timestamp. See
+`docs/reviews/2026-09-10-mbo-timestamp-basis-installation-record.md`.
+
+**Current-host reconciliation (2026-09-10 08:02 +07:00):** after fast-forwarding this branch to
+`9bf0995`, the active execution host exposes only the Windows profile `C:/Users/Thanongsak`; the recorded
+`C:/Users/Phattharakan` destination and approved artifact path are absent. ATAS is not running, and the DLL
+actually present at `C:/Users/Thanongsak/AppData/Roaming/ATAS/Indicators/AtasSignalBridge.dll` is REV
+`1.4.0+d52da914` with SHA256 `A27E49E3578F5A61F4578E4EF9B8B3D9BA94890F272AAB34738F9E865AAA6DD2`.
+The current `app_20260910.log` contains no `MBO_PROBE_V3` packet.
+
+Executor rebuilt exact source commit `f7128ab` in detached worktree
+`E:/ATAS/.codex-tmp/mbo-f7128ab-current`: build passed with 0 warnings/errors, actual-SDK ProbeTests passed
+52 assertions, and compiled PropertyTests passed 12 assertions. The new candidate is REV 1.6.6 / commit
+`f7128ab`, SHA256 `D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064`, with build stamp
+`2026-09-10 08:01`. Its hash differs from the previously approved artifact because the timestamp is embedded.
+Per the independent signoff contract, this rebuild must receive fresh independent artifact review before
+Codex backs up/replaces the current DLL or starts the runtime capture. No import, reload, login automation,
+server/database/Telegram/rule/order change, or production mutation occurred in this reconciliation.
+
+**Artifact review/import update (2026-09-10 08:23–08:34 +07:00):** a fresh Independent Reviewer that did
+not build the candidate returned APPROVE for exact SHA256
+`D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064`. The reviewer independently
+froze and loaded the exact binary, reran 52 ProbeTests and 12 PropertyTests, obtained a clean isolated build,
+and matched 303/303 method-body IL hashes to an exact-commit rebuild. The approval remains artifact/source
+only and makes no live-feed, connector-time-basis, latency, or Phase A claim.
+
+Executor backed up the current REV 1.4.0 DLL under `E:/ATAS/mbo-install-1.6.6-20260910-0825`, copied only
+the approved candidate to `C:/Users/Thanongsak/AppData/Roaming/ATAS/Indicators/AtasSignalBridge.dll`, and
+verified the destination hash and ProductVersion. The already-running ATAS instance detected the changed
+library but remained on the old loaded assembly. A graceful close was requested; ATAS recorded
+`Save current workspace?` response `True` but did not exit after repeated waits, so Executor force-stopped
+only that hung process after the save response and relaunched ATAS Platform. The new process is responsive
+at the Authorization window. Per the standing rule, Codex did not inspect or automate credentials. Owner
+manual login is now the exact blocker before any V3 packet can exist. No server/database/Telegram/rule/order
+or production state was changed.
+
+**Live-capture and restart reconciliation (2026-09-10 09:56–10:30 +07:00):** the owner completed the
+manual login and the initially restarted process loaded REV `1.6.6` successfully. Its raw
+`C:/Users/Thanongsak/AppData/Roaming/ATAS/Logs/app_20260910.log` contains 34 `MBO_PROBE_V3` packets
+(lines 3117–3159), including `enabled` and `subscription_active` for GC. The 30 live interval packets
+record 25,502 MBO creates, 25,526 changes, 25,501 deletes, and 1,275 trades. This establishes live callback
+and event receipt for that *pre-restart* process only; it does not establish a complete book, a feed-time
+timezone basis, valid latency, or Phase A acceptance.
+
+All 30 live intervals sample `DateTimeKind.Unspecified` MBO and trade times with
+`timeBasis:"unresolved"`, null `interpretedUtc` and `signedLatencyMs`, and nonzero unresolved counters.
+Their MBO and trade statuses are all `invalid:unresolved_event_time_basis`, with both p95 fields
+`unavailable`. This is the expected fail-closed result: no numerical latency claim is permitted. A fresh
+Independent Reviewer must reparse this raw log rather than accept this executor summary.
+
+ATAS was restarted at 10:29. At 10:29:46 its serialization binder logged five failures to resolve persisted
+`SignalBridgeIndicator` instances because the workspace requests `AtasSignalBridge, Version=1.4.0.0` while
+the installed approved DLL is 1.6.6.0; ATAS skipped those instances. The current process (`OFT.Platform`,
+started 10:29:21) did reconnect Rithmic paper repository, market-data, trading, and PnL, but this is not
+evidence that V3 is loaded or capturing after the restart. Rechecking the installed destination gives
+SHA256 `D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064` and ProductVersion
+`1.6.6+f7128ab5b7a1ad2e79fd6e2b619e879918c711fa`, matching the independently approved current-host
+artifact. The former 1.4.0 DLL backup remains at `E:/ATAS/mbo-install-1.6.6-20260910-0825/`.
+
+**L2 runtime/workspace decision required from Owner:** choose exactly one recovery path before Codex changes
+anything: (A) commission a reviewed assembly-identity compatibility change for the persisted 1.4.0.0
+workspace reference, or (B) authorize Codex to re-add and configure the reviewed 1.6.6 indicator in the
+ATAS GUI with screenshots/log evidence and a preserved rollback path. Path A changes a binary compatibility
+contract; Path B changes saved workspace configuration. Neither is implied by the diagnostic DLL import, so
+no runtime change was made in this round. After the authorized recovery proves a fresh V3 packet in the
+current process, freeze the raw log and send it to a fresh Independent Reviewer for reparse.
+
+**Re-add attempt reconciliation (2026-09-10 11:54–13:05 +07:00):** the current `OFT.Platform` process started
+at 11:54:54 and Rithmic paper reconnected at 11:55:38. The log still records five persisted
+`AtasSignalBridge, Version=1.4.0.0` instances skipped at 11:55:12, then five `Signal Bridge REV 1.6.6`
+initializations at 11:56:11–11:56:23. No `MBO_PROBE_V3` packet exists after this process start, so the
+re-add attempt proves assembly initialization only—not MBO subscription or live capture. One new instance
+also logged `no two bars on this chart are 5m apart (closest is 15m)`; it must not be used as the GC 5m
+capture chart. The exact target chart/instance and its `Enable MBO probe` setting remain unverified.
+
+Both available UI automation paths failed to capture the ATAS window (`SetIsBorderRequired` interface error
+from the Windows helper; the CUA inventory exposed no native ATAS app). No UI click, setting change, login,
+workspace-file edit, or runtime mutation was performed by Codex in this attempt. Resume requires the owner
+to expose/control the ATAS GUI, or to provide an explicit, independently verified chart/instance mapping;
+do not edit `APEX.ws` by hand because it contains persisted indicator configuration and sensitive endpoint
+configuration. Once the correct GC 5m instance is enabled and emits a fresh V3 packet, freeze the raw log
+and send it to a fresh Independent Reviewer.
+
+**Current-process recovery capture + Independent reparse (2026-09-10 15:21–15:28 +07:00):** the owner
+manually configured the visible Signal Bridge instance with MBO probe enabled and a 60-second interval. The
+new session `0db2fa130831498b934f7aa587c10992` then wrote `MBO_PROBE_V3` for `GC` after the current ATAS
+process had started: `enabled` at 15:21:53.200, `subscription_active` at 15:21:53.203, and seven live
+interval packets from 15:22:00.027 through 15:28:00.093. The first window is a 6.821-second partial window;
+the following six are approximately 60 seconds. Across the seven intervals, the raw counters record 14,086
+callbacks; 4,850 creates, 4,576 changes, and 4,852 deletes (14,278 MBO updates); and 393 trades. This
+supersedes only the earlier assertion that no post-restart V3 packet existed.
+
+**Frozen review slice:** at 15:28:03 +07:00, the source log was
+`C:/Users/Thanongsak/AppData/Roaming/ATAS/Logs/app_20260910.log` (1,192,672 bytes; last-write
+15:28:00.093 +07:00). The slice is the exact text of raw MBO packet lines 7715, 7717, and 7719–7725 only,
+joined with LF and UTF-8 encoded without a trailing LF. It is 14,529 bytes and has SHA-256
+`6F76CB01DC1BC7B9189FB2FEB22BAF4C06A70230718B19F2D083CE4C320B253D`. The full live log was deliberately
+not copied into Git because it keeps appending and may contain unrelated sensitive configuration. Therefore
+this is a reproducible selected-line freeze, **not** a claim that a separate immutable full-log export exists.
+
+A fresh Independent Reviewer directly re-read that raw source, reproduced the slice SHA-256 exactly, and
+returned **APPROVE — scope limited**. Every interval reports MBO/trade raw time kind `Unspecified`,
+`timeBasis:"unresolved"`, null interpreted UTC and signed latency, status
+`invalid:unresolved_event_time_basis`, and unavailable MBO/trade p95. It additionally found zero
+`zeroOrderId`, clock-regression, and future-event counters in this slice. The approval proves only active
+post-restart V3 subscription plus aggregated GC MBO/trade event receipt and correct fail-closed latency
+handling. It does **not** prove actual 5-minute chart spacing (the packet has no timeframe/contract-expiry
+field), book completeness or snapshot-boundary correctness, valid source-time latency, artifact provenance,
+endpoint delivery/receiver acceptance, persistence across another restart, strategy correctness, or
+production readiness. The five stale persisted 1.4.0 workspace skips remain a separate owner decision;
+this evidence alone does not authorize compatibility work or workspace-file edits.
 
 ## 0AJ. Independent review ของ `codex/open-work-1-6` (§00.1 ข้อ 1–6) — **APPROVE · 6 finding ไม่บล็อก · deploy แล้ว (§0AJ.6)** (2026-09-08)
 
@@ -233,7 +695,7 @@ Rollback หลัง deploy (ถ้าผ่าน gate แล้ว): deploy `
 | 3 | `gc_sweep_v1` | GC | `prev_day_high@2026-09-08T05:00:00.000Z` | rejected · `expired_unfired` | **10** | **15** |
 | 4 | `mnq_pullback_v1` | MNQU6 | `prev_day_high@2026-09-08T02:45:00.000Z` | rejected · `invalidated:closed_through_anchor` | **5** | **16, 17** |
 | 5 | `mnq_pullback_v1` | MNQU6 | `prev_day_high@2026-09-08T05:30:00.000Z` | **triggered** · `stacked_imbalance` | **12** | **19** |
-| 6 | `mnq_reversal_v1` | MNQU6 | `prev_day_high@2026-09-08T02:50:00.000Z` | rejected · `invalidated:attempt_resumed` | **6** | **20** |
+| 6 | **Owner clock sync succeeded; precision still ~0.77s off. MBO property wiring fix 1.6.5 awaits independent rerun** | **Independent Reviewer → Codex install/lifecycle/capture → independent raw review** | Real property change did not update collector; helper-only tests missed wiring; Phase A evidence incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md` |
 | 7 | `mnq_reversal_v1` | MNQU6 | `prev_day_high@2026-09-08T05:25:00.000Z` | rejected · `invalidated:attempt_resumed` | **11** | **21** |
 
 **เก็บ (7):** `5, 6, 8, 9, 10, 11, 12` — **ลบ (8):** `13, 14, 15, 16, 17, 19, 20, 21`
@@ -280,7 +742,7 @@ delete from public.strategy_setups where id in (13,14,15,16,17,19,20,21);    -- 
 | 3 | apply `20260908085800_record_telegram_delivery` | ✅ 2 คอลัมน์ · backfill **945 `sent` / 3,774 `legacy_unknown`** |
 | 4 | apply `20260908090000_strategy_setups_idempotent` | ✅ ผ่านด่าน fail-closed · index `strategy_setups_one_row_per_touch` |
 | 5 | deploy `ingest` | ✅ **v23 → v24** · `verify_jwt=false` เหมือนเดิม |
-| 6 | เจ้าของเปิด ATAS กลับ | 299 แท่งถูกเขียนใน 15 นาที = backfill ตอนเปิดโปรแกรม |
+| 6 | **Owner clock sync succeeded; precision still ~0.77s off. MBO property wiring fix 1.6.5 awaits independent rerun** | **Independent Reviewer → Codex install/lifecycle/capture → independent raw review** | Real property change did not update collector; helper-only tests missed wiring; Phase A evidence incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md` |
 
 > **หมายเหตุเรื่องวิธี deploy:** `mcp__Supabase__deploy_edge_function` **ใช้ไม่ได้จริง**สำหรับ `ingest`
 > แล้ว — ต้องส่งเนื้อไฟล์ทั้ง **33 ไฟล์ / 226 KB** ในข้อความเดียว ซึ่งเกินความยาวข้อความที่โมเดลออกได้
@@ -3673,7 +4135,7 @@ instrument upsert failed: JWT issued at future
 | 3 | ATAS indicator + Telegram + Next.js dashboard | ครบวงจร |
 | 4 | ไม่แจ้งเตือนแท่งย้อนหลัง | backfill เคยยิง Telegram 71 ข้อความรวด |
 | 5 | Batch ingest | backfill 100 แท่งเคยใช้ 25–51 วิ (≈400 round trip) เหลือ ~9 |
-| 6 | จูน `poc_shift` | เคยยิง 45 จาก 71 สัญญาณ |
+| 6 | **Owner clock sync succeeded; precision still ~0.77s off. MBO property wiring fix 1.6.5 awaits independent rerun** | **Independent Reviewer → Codex install/lifecycle/capture → independent raw review** | Real property change did not update collector; helper-only tests missed wiring; Phase A evidence incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md` |
 | 7 | Revision stamp ใน About ของ ATAS | รู้ว่า DLL ที่โหลดอยู่เป็นตัวไหน |
 | 8 | **Trade plan** ทุกสัญญาณ + ให้คะแนนตามแผนจริง | สัญญาณที่บอกแค่ทิศทาง วัดผลไม่ได้ |
 | 9 | **Liquidity gate** | ตัดแท่ง volume บาง |
@@ -6116,7 +6578,7 @@ cell ที่หลักฐานไม่ผ่านยังถูก mute.
 | 3 | Email template (Magic Link + Confirm signup) เติม `<p>รหัส: <strong>{{ .Token }}</strong></p>` | เหตุผลเดียวกับข้อ 2 |
 | 4 | Revoke Telegram bot token เก่า (`8549812393:...` หลุดในแชต) ที่ @BotFather แล้วใส่ตัวใหม่ใน Supabase | ต้องใช้บัญชี Telegram ของเจ้าของ |
 | 5 | ปิด "Allow new users to sign up" หลังสร้างบัญชี dashboard | Supabase dashboard |
-| 6 | ~~เช็กความลึกของข้อมูล 5m OHLCV บน ATAS~~ | ✅ **เสร็จแล้ว 2026-09-03** — เช็ก GC/MNQU6 แล้ว: M5 ลึกแค่ ~3-4 วัน (สั้นกว่าข้อมูลที่มีอยู่แล้ว) ⇒ ปิด V3.1 ดู §ญ.11 ของ `2026-09-03-candle-signature-v3.md` และแถว AA ใน §7.2 |
+| 6 | **Owner clock sync succeeded; precision still ~0.77s off. MBO property wiring fix 1.6.5 awaits independent rerun** | **Independent Reviewer → Codex install/lifecycle/capture → independent raw review** | Real property change did not update collector; helper-only tests missed wiring; Phase A evidence incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md` |
 
 หลักฐานเดิมของข้อ 2–3 คือ redirect เคยกลับ `http://localhost:3000/` แทน
 `.../auth/callback`; ต้องทดสอบ login ใหม่ก่อนใช้คำว่า “ยังเสียอยู่”.
@@ -6386,7 +6848,7 @@ select * from public.setup_stats order by total_r desc nulls last;
 |---|---|---|---|
 | 4 | Large / Block Trades | Time & Sales | **มี proxy แล้ว ยังไม่มีของจริง** — `volume / ticks` = ขนาดไม้เฉลี่ยต่อบาร์ คำนวณได้วันนี้ และ `speed_of_tape` บันทึกลง payload ทุกสัญญาณแล้ว (ข้อ 5.16) แต่ค่าเฉลี่ยแยกไม้ยักษ์ 1 ไม้ออกจากไม้กลาง ๆ ทั้งบาร์ไม่ได้ ของจริงยังต้องแก้ indicator ให้ส่ง trade รายตัวหรือ histogram ของ size · **หมายเหตุ: `bars.trades` เป็น 0 ทุกแถว ใช้ไม่ได้** |
 | 5 | CVD Divergence ข้าม session | delta เดิม | **column `bars.cum_delta` มี แต่ไม่มีใครเติม** — `Dto.cs` ไม่มีฟิลด์นี้เลย indicator จึงไม่เคยส่ง ค่าเป็น null ทุกแถว ต้องแก้ indicator = build DLL ใหม่ + ขยับ REV (ข้อ 3.8) |
-| 6 | Speed of Tape | `bars.ticks` | ✅ **ทำแล้ว** (migration 0028 · ข้อ 5.16) — ข้อความเดิมตรงนี้ผิด: ใช้ `bars.trades` ไม่ได้เพราะเป็น 0 ทุกแถว ตัวที่มีข้อมูลจริงคือ `bars.ticks` **ตัวเลขชุดแรกไม่ดี** ฝั่ง long ติดลบและแย่ลงเมื่อขันเกลียว — อ่านข้อ 5.16 ก่อนคิดจะเปิดเสียง |
+| 6 | **Owner clock sync succeeded; precision still ~0.77s off. MBO property wiring fix 1.6.5 awaits independent rerun** | **Independent Reviewer → Codex install/lifecycle/capture → independent raw review** | Real property change did not update collector; helper-only tests missed wiring; Phase A evidence incomplete | §0AK.6.8 · `docs/reviews/2026-09-09-mbo-property-lifecycle-correction.md` |
 | 7 | Liquidity Sweep / Stop Run | bars เดิม | **มีอยู่แล้วครึ่งหนึ่ง** — `price_action.ts` คำนวณ `sweep` (wick ทะลุ swing แล้วปิดกลับ) และเก็บลงทุกสัญญาณมานานแล้ว ไม่ต้องเขียน swing detection ใหม่ ทำเป็นกฎคือหยิบ flag เดิมมาเป็นเงื่อนไข — ดูข้อ 5.14 |
 | 8 | P-Shape / b-Shape | footprint เดิม | ต่อยอด `lvn` + `poc_shift` ได้ (รูปทรงคือ POC อยู่ปลายไหนของ profile) |
 | 9 | Bid/Ask Imbalance ที่ DOM | **ต้องมี L2** | ตอบแล้วในข้อ 8.4: **ยังไม่ได้ต่อ Level 2 เลย** DxFeed ผ่าน ATAS ให้แต่ trade ที่เกิดแล้ว ต้องรอ REV-RITHMIC-001 |

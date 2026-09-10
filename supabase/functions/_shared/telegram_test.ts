@@ -16,6 +16,7 @@ function signal(overrides: Partial<SignalMessage> = {}): SignalMessage {
     symbol: "BTCUSDT",
     timeframe: "5m",
     tickValue: null,
+    tickSize: null,
     price: 77570.1,
     confidence: 0.75,
     firedAt: "2026-08-29T12:15:01.000Z",
@@ -109,6 +110,7 @@ Deno.test("telegram: GC cash risk uses true ticks and the curated tick value", (
   const text = formatSignal(signal({
     symbol: "GC",
     tickValue: 10,
+    tickSize: 0.1,
     plan: {
       entry: 4424,
       stop: 4420.6,
@@ -139,6 +141,41 @@ Deno.test("telegram: the result is stated in price and R, as the alert was", () 
   assertStringIncludes(text, "ไปได้ไกลสุด +60.9");
   assertEquals(text.includes("ticks"), false);
 });
+
+for (const direction of ["long", "short"] as const) {
+  Deno.test(`telegram: ${direction} cash risk ignores a mismatched rule tick count`, () => {
+    const text = formatSignal(signal({
+      direction,
+      symbol: "GC",
+      tickSize: 0.1,
+      tickValue: 10,
+      plan: {
+        entry: 4424,
+        stop: direction === "long" ? 4420.6 : 4427.4,
+        target: direction === "long" ? 4430.8 : 4417.2,
+        riskTicks: 136, // deliberately four times the physical exchange ticks
+        rewardTicks: 272,
+        trailTriggerTicks: 136,
+        trailOffsetTicks: 68,
+        holdBars: 10,
+      },
+    }));
+    assertStringIncludes(text, "34 ticks · ≈ $340/1 สัญญา");
+    assertEquals(text.includes("$1360"), false);
+  });
+}
+
+for (const invalid of [null, 0, -1, NaN, Infinity]) {
+  Deno.test(`telegram: invalid instrument tick ${invalid} never produces cash`, () => {
+    const text = formatSignal(signal({ tickSize: invalid, tickValue: 10 }));
+    assertEquals(text.includes("≈ $"), false);
+    assertEquals(text.includes(" ticks"), false);
+  });
+  Deno.test(`telegram: invalid tick value ${invalid} never produces cash`, () => {
+    const text = formatSignal(signal({ tickSize: 0.1, tickValue: invalid }));
+    assertEquals(text.includes("≈ $"), false);
+  });
+}
 
 Deno.test("telegram: a loss keeps its sign", () => {
   const text = formatOutcome(outcome({ pnlTicks: -100, exitReason: "stop" }));

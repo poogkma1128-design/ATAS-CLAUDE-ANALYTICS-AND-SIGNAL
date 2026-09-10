@@ -282,18 +282,29 @@ export async function ingest(
     decisionBarIds.push(barIds[index]);
   }
 
-  const evaluatedRows = await evaluateBars(
-    supabase,
-    { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
-    rules,
-    overrides,
-    announcementEligibility,
-    instrumentPolicy,
-    decisionEntries,
-    decisionBarIds,
-    chartTickSize,
-    instrumentTickSize,
-  );
+  // A newly discovered instrument is seeded from the chart only so its raw
+  // bars/footprints are not lost. That chart step is not an exchange-verified
+  // market tick, so it must not size or score a signal. An owner-reviewed
+  // metadata update explicitly locks the curated tick before evaluation starts.
+  const evaluatedRows = instrument.signalTickLocked
+    ? await evaluateBars(
+      supabase,
+      { instrumentId, timeframe: payload.timeframe, symbol: payload.symbol },
+      rules,
+      overrides,
+      announcementEligibility,
+      instrumentPolicy,
+      decisionEntries,
+      decisionBarIds,
+      chartTickSize,
+      instrumentTickSize,
+    )
+    : [];
+  if (!instrument.signalTickLocked && decisionEntries.length > 0) {
+    console.error(
+      `signals skipped: unverified_market_tick ${payload.symbol}; raw bars retained`,
+    );
+  }
   const signalRows = suppressOpposingSignals(evaluatedRows);
 
   const signalsCreated = await persistSignals(
@@ -303,6 +314,7 @@ export async function ingest(
       timeframe: payload.timeframe,
       symbol: payload.symbol,
       tickValue: instrument.tickValue,
+      tickSize: instrument.tickSize,
     },
     rules,
     signalRows,
@@ -441,6 +453,7 @@ interface InstrumentMetadata {
   id: string;
   tickSize: number;
   tickValue: number | null;
+  signalTickLocked: boolean;
 }
 
 async function upsertInstrument(
@@ -452,7 +465,7 @@ async function upsertInstrument(
 
   const existing = await supabase
     .from("instruments")
-    .select("id, tick_size, tick_value")
+    .select("id, tick_size, tick_value, signal_tick_locked")
     .eq("symbol", symbol)
     .eq("exchange", exchange)
     .limit(1);
@@ -464,16 +477,18 @@ async function upsertInstrument(
     id: string;
     tick_size: number | string;
     tick_value: number | string | null;
+    signal_tick_locked: boolean;
   }[] | null)?.[0];
   if (found) {
     const tickSize = Number(found.tick_size);
-    if (!(tickSize > 0)) {
+    if (!(tickSize > 0) || !Number.isFinite(tickSize)) {
       throw new Error(`instrument ${symbol} has invalid curated tick_size`);
     }
     return {
       id: found.id,
       tickSize,
       tickValue: positiveOrNull(found.tick_value),
+      signalTickLocked: found.signal_tick_locked === true,
     };
   }
 
@@ -490,7 +505,7 @@ async function upsertInstrument(
       },
       { onConflict: "symbol,exchange" },
     )
-    .select("id, tick_size, tick_value")
+    .select("id, tick_size, tick_value, signal_tick_locked")
     .single();
 
   if (error) throw new Error(`instrument upsert failed: ${error.message}`);
@@ -498,12 +513,15 @@ async function upsertInstrument(
     id: data.id as string,
     tickSize: Number(data.tick_size ?? payload.tickSize),
     tickValue: positiveOrNull(data.tick_value ?? payload.tickValue),
+    signalTickLocked: data.signal_tick_locked === true,
   };
 }
 
 function positiveOrNull(value: unknown): number | null {
   const parsed = Number(value);
-  return value !== null && value !== undefined && parsed > 0 ? parsed : null;
+  return value !== null && value !== undefined && Number.isFinite(parsed) && parsed > 0
+    ? parsed
+    : null;
 }
 
 async function loadRules(supabase: SupabaseClient): Promise<RuleRow[]> {
@@ -753,6 +771,14 @@ async function evaluateBars(
       // Rules need the chart row for footprint adjacency; plans must match the
       // backtest/outcome contract and therefore use the immutable market tick.
       const planTickSize = marketTickSize(rule?.params ?? {}, instrumentTickSize);
+      // Scorer/views divide by instruments.tick_size. Never persist a plan
+      // whose tick counts use a different denominator. Do not retune silently.
+      if (planTickSize !== instrumentTickSize) {
+        console.error(
+          `signal skipped: tick_unit_mismatch ${signal.ruleKey} ${scope.symbol}`,
+        );
+        continue;
+      }
       const plan = buildPlan(
         signal.direction,
         entry.bar,
@@ -793,7 +819,7 @@ async function evaluateBars(
         payload: {
           ...signal.payload,
           executionUnits: {
-            version: "market-tick-v1",
+            version: "market-tick-v2",
             chartTickSize,
             marketTickSize: instrumentTickSize,
             planTickSize,
@@ -987,6 +1013,7 @@ interface SignalTarget {
   timeframe: string;
   symbol: string;
   tickValue: number | null;
+  tickSize: number;
 }
 
 async function persistSignals(
@@ -1112,6 +1139,7 @@ async function announce(
       symbol: target.symbol,
       timeframe: target.timeframe,
       tickValue: target.tickValue,
+      tickSize: target.tickSize,
       price: Number(signal.price),
       confidence: Number(signal.confidence),
       firedAt: signal.fired_at as string,

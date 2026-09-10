@@ -113,4 +113,6 @@ comment on table public.strategy_setups is
 -- update public.rules
 --    set telegram_enabled = false, enabled = false
 --  where key in ('mnq_reversal_v1', 'gc_sweep_v1');
--- update public.instruments set tick_size = 0.40, tick_value = null where symbol = 'GC';
+-- DO NOT restore GC tick_size to 0.40: that was a chart row, not an exchange
+-- tick. Scorers/views use instruments.tick_size and would silently rescale R.
+-- Keep GC at 0.10 / $10 even when rolling back rule enablement or ingest.

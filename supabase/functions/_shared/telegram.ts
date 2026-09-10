@@ -89,6 +89,8 @@ export interface SignalMessage {
   timeframe: string;
   /** Exchange value of one true minimum tick; null when not curated. */
   tickValue: number | null;
+  /** Curated instrument tick, never the rule or footprint row step. */
+  tickSize: number | null;
   price: number;
   confidence: number;
   firedAt: string;
@@ -178,12 +180,18 @@ export function formatSignal(msg: SignalMessage): string {
     // would read as three times tighter than the trade actually is.
     const risk = Math.abs(p.stop - p.entry);
     const reward = Math.abs(p.target - p.entry);
-    const cashRisk = msg.tickValue !== null && msg.tickValue > 0
-      ? p.riskTicks * msg.tickValue
+    const trueRiskTicks = msg.tickSize !== null && Number.isFinite(msg.tickSize) &&
+        msg.tickSize > 0 && Number.isFinite(risk)
+      ? risk / msg.tickSize
       : null;
+    const cashRisk = trueRiskTicks !== null && msg.tickValue !== null &&
+        Number.isFinite(msg.tickValue) && msg.tickValue > 0
+      ? trueRiskTicks * msg.tickValue
+      : null;
+    const tickLabel = trueRiskTicks === null ? "" : ` · ${fmt(trueRiskTicks)} ticks`;
     const riskLabel = cashRisk === null
-      ? `เสี่ยง ${fmt(risk)} จุด · ${fmt(p.riskTicks)} ticks`
-      : `เสี่ยง ${fmt(risk)} จุด · ${fmt(p.riskTicks)} ticks · ≈ $${fmt(cashRisk)}/1 สัญญา`;
+      ? `เสี่ยง ${fmt(risk)} จุด${tickLabel}`
+      : `เสี่ยง ${fmt(risk)} จุด${tickLabel} · ≈ $${fmt(cashRisk)}/1 สัญญา`;
 
     // The plan stores its trail in the same unit as the risk, so the price step
     // it was built from is recoverable without carrying tick size around.
