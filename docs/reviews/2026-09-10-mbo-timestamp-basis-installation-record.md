@@ -50,3 +50,22 @@ The next runtime check must begin only after the changed library is reloaded. It
 
 That runtime check demonstrates fail-closed behavior only. A fresh Independent Reviewer must reparse the
 raw post-reload log before anyone makes a source-time or latency claim.
+
+## Current-host reconciliation at 08:02 +07:00
+
+The current execution host does not expose the recorded `C:/Users/Phattharakan` profile or the approved
+artifact path above. It exposes `C:/Users/Thanongsak`, where the installed indicator is still REV
+`1.4.0+d52da914` with SHA256
+`A27E49E3578F5A61F4578E4EF9B8B3D9BA94890F272AAB34738F9E865AAA6DD2`. ATAS was not running, and
+the current `app_20260910.log` contains no `MBO_PROBE_V3` packet. The earlier import record is retained as
+historical evidence for its original host; it must not be treated as the current-host runtime state.
+
+Executor rebuilt exact commit `f7128ab5b7a1ad2e79fd6e2b619e879918c711fa` in detached worktree
+`E:/ATAS/.codex-tmp/mbo-f7128ab-current`. Build passed with 0 warnings/errors, ProbeTests passed 52
+actual-SDK assertions, and PropertyTests passed 12 compiled-indicator assertions. The resulting REV 1.6.6
+candidate has SHA256 `D1F4F3996A9A5093F53A4E17821C12533A28BBE3D6034455EB83896DB6289064` and build stamp
+`REV 1.6.6 | commit f7128ab | built 2026-09-10 08:01`.
+
+Because the build timestamp is embedded, this hash differs from the previously approved candidate. The
+new artifact therefore requires fresh independent artifact review before import. No destination DLL was
+replaced and no runtime, server, database, Telegram, rule, credential, or order state was changed.
